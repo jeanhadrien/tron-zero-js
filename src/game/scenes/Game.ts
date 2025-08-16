@@ -1,7 +1,6 @@
 import { Scene } from 'phaser';
 import { EventBus } from '../EventBus';
-import { Player } from '../gameobjects/Player';
-
+import Player from '../gameobjects/Player';
 export class Game extends Scene {
 
 
@@ -14,12 +13,6 @@ export class Game extends Scene {
     gridGraphics: Phaser.GameObjects.Graphics;
     cursors: Phaser.Types.Input.Keyboard.CursorKeys;
     player: Player;
-    trail: Phaser.GameObjects.Graphics;
-    trailPoints: never[];
-    maxTrailLength: number;
-    trailWidth: number;
-    playerRadius: number;
-    trailRadius: number;
     safeDistance: number;
     isAlive: boolean;
     gameOverText: Phaser.GameObjects.Text;
@@ -64,20 +57,20 @@ export class Game extends Scene {
         this.player = new Player(this, 400, 300, - Math.PI / 2);
         this.add.existing(this.player);
 
+        let bounds = this.physics.world.setBounds(0, 0, this.CANVAS_WIDTH, this.CANVAS_HEIGHT);
+        this.physics.world.setBoundsCollision();
+        this.player.setCollideWorldBounds(true);
 
-        // Trail graphics
-        this.trail = this.add.graphics();
-        this.trailPoints = [];
-        this.maxTrailLength = 2000;
-        this.trailWidth = 3;
 
-        // Collision detection settings
-        this.playerRadius = 2; // Collision radius for triangle
-        this.trailRadius = this.trailWidth / 2; // Half of trail width
-        this.safeDistance = 30; // Don't check collision for recent trail points
+        let v = this.physics.add.staticBody(200, 200, 300, 30);
+        this.physics.add.collider(this.player, v, () => {
+            this.player.setVelocity(0, 0);
+        });
+
 
         // Game state
         this.isAlive = true;
+
 
         // Controls
         this.isKeyDown = {};
@@ -122,7 +115,6 @@ export class Game extends Scene {
 
     }
 
-
     update(_time: any, delta: number) {
         if (!this.isAlive) {
             // Check for restart
@@ -132,7 +124,7 @@ export class Game extends Scene {
             return;
         }
 
-        this.player.update(_time, delta);
+        this.player.update(delta);
 
         // Check boundary collision
         if (this.player.x < 0 || this.player.x > this.CANVAS_WIDTH ||
@@ -142,86 +134,10 @@ export class Game extends Scene {
         }
 
 
-        // Update trail
-        this.trailPoints.push({ x: this.player.x, y: this.player.y });
-
-        if (this.trailPoints.length > this.maxTrailLength) {
-            this.trailPoints.shift();
-        }
-
-        // Check trail collision
-        this.checkTrailCollision();
-
-        // Redraw trail
-        this.drawTrail();
     }
-
 
     releaseKey(key: string) {
         this.isKeyDown[key] = false;
-    }
-
-
-    checkTrailCollision() {
-        const playerX = this.player.x;
-        const playerY = this.player.y;
-
-        // Only check collision with trail points that are far enough away
-        // This prevents collision with the trail we just created
-        const checkablePoints = this.trailPoints.length - this.safeDistance;
-
-        for (let i = 0; i < checkablePoints - 1; i++) {
-            const point1 = this.trailPoints[i];
-            const point2 = this.trailPoints[i + 1];
-
-            // Check collision with line segment
-            if (this.pointToLineDistance(playerX, playerY, point1.x, point1.y, point2.x, point2.y)
-                < this.playerRadius + this.trailRadius) {
-                this.gameOver();
-                return;
-            }
-        }
-    }
-
-    // Calculate distance from a point to a line segment
-    pointToLineDistance(px, py, x1, y1, x2, y2) {
-        const dx = x2 - x1;
-        const dy = y2 - y1;
-        const length = Math.sqrt(dx * dx + dy * dy);
-
-        if (length === 0) {
-            // Line segment is actually a point
-            return Math.sqrt((px - x1) * (px - x1) + (py - y1) * (py - y1));
-        }
-
-        // Calculate the t parameter for the closest point on the line segment
-        let t = ((px - x1) * dx + (py - y1) * dy) / (length * length);
-        t = Math.max(0, Math.min(1, t)); // Clamp t to [0, 1]
-
-        // Find the closest point on the line segment
-        const closestX = x1 + t * dx;
-        const closestY = y1 + t * dy;
-
-        // Return distance from point to closest point on line segment
-        return Math.sqrt((px - closestX) * (px - closestX) + (py - closestY) * (py - closestY));
-    }
-
-    drawTrail() {
-        this.trail.clear();
-        if (this.trailPoints.length > 1) {
-            // Create gradient effect by drawing multiple lines with decreasing alpha
-            const alpha = 0.5;
-
-            this.trail.lineStyle(this.trailWidth, this.PLAYER_COLOR, alpha);
-            this.trail.beginPath();
-            this.trail.moveTo(this.trailPoints[0].x, this.trailPoints[0].y);
-
-            for (let i = 1; i < this.trailPoints.length; i++) {
-                this.trail.lineTo(this.trailPoints[i].x, this.trailPoints[i].y);
-            }
-            this.trail.strokePath();
-
-        }
     }
 
     gameOver() {
@@ -230,7 +146,7 @@ export class Game extends Scene {
         this.restartText.setVisible(true);
 
         // Optional: Add a death effect
-        this.player.fillStyle(0xff0000); // Turn triangle red
+        this.player.driverGraphics.fillStyle(0xff0000); // Turn triangle red
     }
 
     restartGame() {
@@ -238,10 +154,10 @@ export class Game extends Scene {
         this.isAlive = true;
         this.player.x = 400;
         this.player.y = 500;
-        this.direction = 0;
-        this.player.rotation = this.direction + Math.PI / 2;
-        this.trailPoints = [];
-        this.trail.clear();
+        this.player.direction = 0;
+        this.player.driverGraphics.rotation = this.player.direction + Math.PI / 2;
+        this.player.trailPoints = [];
+        this.player.trailGraphics.clear();
 
 
         // Hide game over text
