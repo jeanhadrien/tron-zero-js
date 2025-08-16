@@ -3,11 +3,17 @@ import { EventBus } from '../EventBus';
 import { Player } from '../gameobjects/Player';
 
 export class Game extends Scene {
-    cursors: any;
-    playerSpeed: any;
-    velocity: any;
-    player: Phaser.GameObjects.Graphics
+
+
+    PLAYER_COLOR: number = 0x00ff00;
+    CANVAS_WIDTH: number = 900
+    CANVAS_HEIGHT: number = 600
+    MOVE_ANGLE: number = Math.PI / 2;
+
+    isKeyDown: Record<string, boolean>;
     gridGraphics: Phaser.GameObjects.Graphics;
+    cursors: Phaser.Types.Input.Keyboard.CursorKeys;
+    player: Player;
     trail: Phaser.GameObjects.Graphics;
     trailPoints: never[];
     maxTrailLength: number;
@@ -16,17 +22,9 @@ export class Game extends Scene {
     trailRadius: number;
     safeDistance: number;
     isAlive: boolean;
-    direction: number;
-    directions: { x: number; y: number; angle: number; }[];
-    isKeyDown: {};
     gameOverText: Phaser.GameObjects.Text;
     restartText: Phaser.GameObjects.Text;
     spaceKey: Phaser.Input.Keyboard.Key;
-
-    PLAYER_COLOR: number = 0x00ff00;
-    CANVAS_WIDTH: number = 900
-    CANVAS_HEIGHT: number = 600
-    MOVE_ANGLE: number = Math.PI / 2;
 
     constructor() {
         super('Game');
@@ -41,7 +39,6 @@ export class Game extends Scene {
         this.gridGraphics.lineStyle(1, 0x333333, 0.5); // Grey lines with 50% opacity
 
         const gridSize = 40; // Space between grid lines
-
 
         // Draw vertical lines
         for (let x = 0; x <= this.CANVAS_WIDTH; x += gridSize) {
@@ -62,15 +59,10 @@ export class Game extends Scene {
 
         // Controls/ Player
         this.cursors = this.input.keyboard.createCursorKeys();
-        this.playerSpeed = 150;
+
 
         this.player = new Player(this, 400, 300, - Math.PI / 2);
         this.add.existing(this.player);
-
-        this.player.x = 500
-
-
-        this.player.rubber = 10;
 
 
         // Trail graphics
@@ -78,8 +70,6 @@ export class Game extends Scene {
         this.trailPoints = [];
         this.maxTrailLength = 2000;
         this.trailWidth = 3;
-
-
 
         // Collision detection settings
         this.playerRadius = 2; // Collision radius for triangle
@@ -90,8 +80,6 @@ export class Game extends Scene {
         this.isAlive = true;
 
         // Controls
-
-
         this.isKeyDown = {};
 
         // Game Over text (hidden initially)
@@ -114,10 +102,22 @@ export class Game extends Scene {
         const rightKeys = ["K", "L", "M", "RIGHT"];
 
         for (let i = 0; i < leftKeys.length; i++) {
-            this.input.keyboard?.on(`keydown-${leftKeys[i]}`, () => this.move(leftKeys[i], "left"));
-            this.input.keyboard?.on(`keydown-${rightKeys[i]}`, () => this.move(rightKeys[i], "right"));
-            this.input.keyboard?.on(`keyup-${leftKeys[i]}`, () => this.releaseKey(leftKeys[i]));
-            this.input.keyboard?.on(`keyup-${rightKeys[i]}`, () => this.releaseKey(rightKeys[i]));
+            this.input.keyboard?.on(`keydown-${leftKeys[i]}`, () => {
+                if (this.isKeyDown[leftKeys[i]]) {
+                    return;
+                }
+                this.isKeyDown[leftKeys[i]] = true;
+                this.player.rotate("left");
+            });
+            this.input.keyboard?.on(`keydown-${rightKeys[i]}`, () => {
+                if (this.isKeyDown[rightKeys[i]]) {
+                    return;
+                }
+                this.isKeyDown[rightKeys[i]] = true;
+                this.player.rotate("right");
+            });
+            this.input.keyboard?.on(`keyup-${leftKeys[i]}`, () => this.isKeyDown[leftKeys[i]] = false);
+            this.input.keyboard?.on(`keyup-${rightKeys[i]}`, () => this.isKeyDown[rightKeys[i]] = false);
         }
 
     }
@@ -131,10 +131,8 @@ export class Game extends Scene {
             }
             return;
         }
-        this.player.update(_time, delta);
 
-        this.player.x += Math.cos(this.direction) * this.playerSpeed * (delta / 1000);
-        this.player.y += Math.sin(this.direction) * this.playerSpeed * (delta / 1000);
+        this.player.update(_time, delta);
 
         // Check boundary collision
         if (this.player.x < 0 || this.player.x > this.CANVAS_WIDTH ||
@@ -143,10 +141,7 @@ export class Game extends Scene {
             return;
         }
 
-        if (this.player.rubber <= 0) {
-            this.gameOver();
-            return;
-        }
+
         // Update trail
         this.trailPoints.push({ x: this.player.x, y: this.player.y });
 
@@ -161,29 +156,10 @@ export class Game extends Scene {
         this.drawTrail();
     }
 
+
     releaseKey(key: string) {
         this.isKeyDown[key] = false;
     }
-
-    // Move player
-    move(keyPressed: string, direction: string) {
-        if (this.isKeyDown[keyPressed]) {
-            return;
-        }
-        this.isKeyDown[keyPressed] = true;
-        if (direction === "left") {
-            this.direction = this.direction - this.MOVE_ANGLE;
-        }
-        else if (direction === "right") {
-            this.direction = this.direction + this.MOVE_ANGLE;
-        }
-        this.direction = (this.direction % (Math.PI * 2));
-        this.player.rotation = this.direction + Math.PI / 2;
-
-
-    }
-
-
 
 
     checkTrailCollision() {

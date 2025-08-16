@@ -5,28 +5,27 @@ export class Player extends Phaser.GameObjects.Graphics {
 
     PLAYER_COLOR: number = 0x00ff00;
     direction: number;
+    MOVE_ANGLE: number = Math.PI / 2;
+
+    speed: number = 150;
 
     constructor(scene: Phaser.Scene, x: number, y: number, direction: number) {
         super(scene);
-        this.fillStyle(this.PLAYER_COLOR);
-        this.fillTriangle(0, -7, -7, 7, 7, 7);
         this.direction = direction;
         this.x = x;
         this.y = y;
+        this.fillStyle(this.PLAYER_COLOR);
+        this.fillTriangle(0, -7, -7, 7, 7, 7);
         this.rotation = this.direction + Math.PI / 2;
-        console.log("done");
     }
 
-    update(...args: any[]): void {
-        super.update(...args);
+    update(time: any, delta: number): void {
+        super.update(time, delta);
+        this.x += Math.cos(this.direction) * this.speed * (delta / 1000);
+        this.y += Math.sin(this.direction) * this.speed * (delta / 1000);
     }
 
-    // Move player
-    move(keyPressed: string, direction: string) {
-        if (this.isKeyDown[keyPressed]) {
-            return;
-        }
-        this.isKeyDown[keyPressed] = true;
+    rotate(direction: string) {
         if (direction === "left") {
             this.direction = this.direction - this.MOVE_ANGLE;
         }
@@ -34,21 +33,17 @@ export class Player extends Phaser.GameObjects.Graphics {
             this.direction = this.direction + this.MOVE_ANGLE;
         }
         this.direction = (this.direction % (Math.PI * 2));
-        this.player.rotation = this.direction + Math.PI / 2;
-
-
+        this.rotation = this.direction + Math.PI / 2;
     }
 
     addedToScene() {
         super.addedToScene();
         console.log("added")
-        //  This Game Object has been added to a Scene
     }
 
     removedFromScene() {
         super.removedFromScene();
         console.log("removed")
-        //  This Game Object has been removed from a Scene
     }
 
 }
