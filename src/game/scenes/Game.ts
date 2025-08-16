@@ -83,6 +83,7 @@ export class Game extends Scene {
 
         // Controls
         this.cursors = this.input.keyboard.createCursorKeys();
+        this.controls = this.input.keyboard?.add
         this.playerSpeed = 150;
         this.direction = 0;
         this.directions = [
@@ -109,6 +110,28 @@ export class Game extends Scene {
 
         // Add space key for restart
         this.spaceKey = this.input.keyboard.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+
+        // Add callbacks to pressed keys for movement 
+        // Use QSD for left and KLM for right
+        this.input.keyboard?.on('keydown_Q', this.moveLeft, this);
+        this.input.keyboard?.on('keydown_S', this.moveLeft, this);
+        this.input.keyboard?.on('keydown_D', this.moveLeft, this);
+        this.input.keyboard?.on('keydown_K', this.moveRight, this);
+        this.input.keyboard?.on('keydown_L', this.moveRight, this);
+        this.input.keyboard?.on('keydown_M', this.moveRight, this);
+
+        // Also add callbacks for arrow keys
+        this.input.keyboard?.on('keydown_LEFT', this.moveLeft, this);
+        this.input.keyboard?.on('keydown_RIGHT', this.moveRight, this);
+
+    }
+
+    moveLeft() {
+        this.direction = (this.direction + 3) % 4;
+        this.player.rotation = this.directions[this.direction].angle;
+    }
+
+    moveRight() {
     }
 
     update(time, delta) {
