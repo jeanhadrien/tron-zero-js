@@ -6,32 +6,72 @@ export class Game extends Scene {
     cursors: any;
     playerSpeed: any;
     velocity: any;
-    player: any;
+    player: Phaser.GameObjects.Graphics
+    gridGraphics: Phaser.GameObjects.Graphics;
+    trail: Phaser.GameObjects.Graphics;
+    trailPoints: never[];
+    maxTrailLength: number;
+    trailWidth: number;
+    playerRadius: number;
+    trailRadius: number;
+    safeDistance: number;
+    isAlive: boolean;
+    direction: number;
+    directions: { x: number; y: number; angle: number; }[];
+    lastKeyPressed: {};
+    gameOverText: Phaser.GameObjects.Text;
+    restartText: Phaser.GameObjects.Text;
+    spaceKey: Phaser.Input.Keyboard.Key;
+
+    PLAYER_COLOR: number = 0x00ff00;
+    CANVAS_WIDTH: number = 900
+    CANVAS_HEIGHT: number = 600
+
     constructor() {
         super('Game');
     }
 
     preload() {
         this.load.setPath('assets');
-
-        this.load.image('star', 'star.png');
-        this.load.image('background', 'bg.png');
-        this.load.image('logo', 'logo.png');
     }
 
     create() {
-        // Triangle setup
-        this.player = this.add.graphics();
-        this.player.fillStyle(0x00ff00);
-        this.player.fillTriangle(0, -15, -12, 15, 12, 15);
-        this.player.x = 400;
-        this.player.y = 300;
+        this.gridGraphics = this.add.graphics();
+        this.gridGraphics.lineStyle(1, 0x333333, 0.5); // Grey lines with 50% opacity
+
+        const gridSize = 40; // Space between grid lines
+
+
+        // Draw vertical lines
+        for (let x = 0; x <= this.CANVAS_WIDTH; x += gridSize) {
+            this.gridGraphics.moveTo(x, 0);
+            this.gridGraphics.lineTo(x, this.CANVAS_HEIGHT);
+        }
+
+        // Draw horizontal lines
+        for (let y = 0; y <= this.CANVAS_HEIGHT; y += gridSize) {
+            this.gridGraphics.moveTo(0, y);
+            this.gridGraphics.lineTo(this.CANVAS_WIDTH, y);
+        }
+
+        this.gridGraphics.strokePath();
+
+        // Send grid to back so it appears behind other elements
+        this.gridGraphics.setDepth(-1);
+
 
         // Trail graphics
         this.trail = this.add.graphics();
         this.trailPoints = [];
         this.maxTrailLength = 2000;
         this.trailWidth = 3;
+
+        // Triangle setup
+        this.player = this.add.graphics();
+        this.player.fillStyle(this.PLAYER_COLOR);
+        this.player.fillTriangle(0, -7, -7, 7, 7, 7);
+        this.player.x = 400;
+        this.player.y = 300;
 
         // Collision detection settings
         this.playerRadius = 2; // Collision radius for triangle
@@ -55,16 +95,16 @@ export class Game extends Scene {
         this.lastKeyPressed = {};
 
         // Game Over text (hidden initially)
-        this.gameOverText = this.add.text(400, 250, 'GAME OVER', {
+        this.gameOverText = this.add.text(this.CANVAS_WIDTH / 2, this.CANVAS_HEIGHT / 2 - 30, 'GAME OVER', {
             fontSize: '48px',
             fill: '#ff0000',
             fontFamily: 'Arial'
         }).setOrigin(0.5).setVisible(false);
 
-        this.restartText = this.add.text(400, 320, 'Press SPACE to restart', {
+        this.restartText = this.add.text(this.CANVAS_WIDTH / 2, this.CANVAS_HEIGHT / 2 + 30, 'Press SPACE to restart', {
             fontSize: '24px',
             fill: '#ffffff',
-            fontFamily: 'Arial'
+            fontFamily: 'Courier New'
         }).setOrigin(0.5).setVisible(false);
 
         // Add space key for restart
@@ -166,19 +206,17 @@ export class Game extends Scene {
         this.trail.clear();
         if (this.trailPoints.length > 1) {
             // Create gradient effect by drawing multiple lines with decreasing alpha
-            for (let pass = 0; pass < 3; pass++) {
-                const alpha = (3 - pass) * 0.3;
-                const width = this.trailWidth + pass * 2;
+            const alpha = 0.5;
 
-                this.trail.lineStyle(width, 0xffffff, alpha);
-                this.trail.beginPath();
-                this.trail.moveTo(this.trailPoints[0].x, this.trailPoints[0].y);
+            this.trail.lineStyle(this.trailWidth, this.PLAYER_COLOR, alpha);
+            this.trail.beginPath();
+            this.trail.moveTo(this.trailPoints[0].x, this.trailPoints[0].y);
 
-                for (let i = 1; i < this.trailPoints.length; i++) {
-                    this.trail.lineTo(this.trailPoints[i].x, this.trailPoints[i].y);
-                }
-                this.trail.strokePath();
+            for (let i = 1; i < this.trailPoints.length; i++) {
+                this.trail.lineTo(this.trailPoints[i].x, this.trailPoints[i].y);
             }
+            this.trail.strokePath();
+
         }
     }
 
@@ -189,24 +227,18 @@ export class Game extends Scene {
 
         // Optional: Add a death effect
         this.player.fillStyle(0xff0000); // Turn triangle red
-        this.player.clear();
-        this.player.fillTriangle(0, -15, -12, 15, 12, 15);
     }
 
     restartGame() {
         // Reset all game state
         this.isAlive = true;
         this.player.x = 400;
-        this.player.y = 300;
+        this.player.y = 500;
         this.direction = 0;
         this.player.rotation = this.directions[this.direction].angle;
         this.trailPoints = [];
         this.trail.clear();
 
-        // Reset player color
-        this.player.clear();
-        this.player.fillStyle(0x00ff00);
-        this.player.fillTriangle(0, -15, -12, 15, 12, 15);
 
         // Hide game over text
         this.gameOverText.setVisible(false);
