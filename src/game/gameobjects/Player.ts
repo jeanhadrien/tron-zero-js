@@ -5,13 +5,12 @@ export default class Player extends Phaser.Physics.Arcade.Image {
   PLAYER_COLOR: number = 0x00ff00;
   ROTATION_ANGLE: number = Math.PI / 2;
   BASE_SPEED: number = 150;
-  HITBOX_RADIUS: number = 2;
   DETECTION_LINE_LENGTH: number = 30;
-  TRAIL_MAX_LENGTH = 20;
+  TRAIL_MAX_LENGTH = 200;
+  RUBBER = 10;
 
   driverGraphics: GameObjects.Graphics;
 
-  trailPoints: { x: number; y: number }[] = [];
   trailLines: Phaser.Geom.Line[] = [];
 
   trailWidth = 3;
@@ -20,58 +19,44 @@ export default class Player extends Phaser.Physics.Arcade.Image {
   speed: number;
   detectionLine: Phaser.Geom.Line;
   previousLineEnd: Phaser.Math.Vector2;
-  rotationAllowed: boolean = true;
+  target: Phaser.Math.Vector2;
+  isRunning: boolean;
+  rubber: number;
 
-  constructor(scene: Phaser.Scene, x: number, y: number, direction: number) {
-    super(scene, x, y, 'player');
+  constructor(scene: Phaser.Scene, x: number, y: number) {
+    super(scene, x, y, '_player');
 
-    //Physics
+    this.scene = scene;
     scene.add.existing(this);
     scene.physics.add.existing(this);
 
-    this.setBodySize(10, 10);
-    this.direction = direction;
-
-    this.setVelocity(
-      Math.cos(this.direction) * this.BASE_SPEED,
-      Math.sin(this.direction) * this.BASE_SPEED
-    );
-
-    /*this.scene.physics.moveTo(
-      this,
-      this.x + Math.cos(this.direction) * 1000,
-      this.y + Math.sin(this.direction) * 1000,
-      this.BASE_SPEED
-    );*/
-
-    //this.rotationAllowed = false;
-
-    this.trailLines = [];
-
-    this.driverGraphics = scene.add.graphics();
-    this.driverGraphics.fillStyle(this.PLAYER_COLOR);
-    this.driverGraphics.fillTriangle(0, -7, -7, 7, 7, 7);
-    this.driverGraphics.rotation = this.direction + Math.PI / 2;
-
-    this.trailGraphics = scene.add.graphics();
-    //this.trailGraphics.lineStyle(this.trailWidth, this.PLAYER_COLOR, 0.03);
-    //this.trailGraphics.beginPath();
-    //this.trailGraphics.moveTo(this.x, this.y);
-    this.previousLineEnd = new Phaser.Math.Vector2(this.x, this.y);
-
+    this.direction = 0;
+    this.setBodySize(0, 0);
+    this.setVelocity(0, 0);
+    this.isRunning = false;
+    this.rubber = this.RUBBER;
     this.detectionLine = new Phaser.Geom.Line(
       this.x,
       this.y,
       this.x + Math.cos(this.direction) * this.DETECTION_LINE_LENGTH,
       this.y + Math.sin(this.direction) * this.DETECTION_LINE_LENGTH
     );
-  }
 
-  getNearestTrailLines() {}
+    this.trailLines = [];
+    this.previousLineEnd = new Phaser.Math.Vector2(this.x, this.y);
+
+    this.driverGraphics = scene.add.graphics();
+    this.driverGraphics.fillStyle(this.PLAYER_COLOR);
+    this.driverGraphics.fillTriangle(0, -7, -7, 7, 7, 7);
+
+    this.trailGraphics = scene.add.graphics();
+    //this.trailGraphics.lineStyle(this.trailWidth, this.PLAYER_COLOR, 0.03);
+    //this.trailGraphics.beginPath();
+    //this.trailGraphics.moveTo(this.x, this.y);
+  }
 
   update(delta: number) {
     super.update(delta);
-    //console.log(this.x, this.y);
 
     this.detectionLine = Phaser.Geom.Line.SetToAngle(
       this.detectionLine,
@@ -81,33 +66,66 @@ export default class Player extends Phaser.Physics.Arcade.Image {
       this.DETECTION_LINE_LENGTH
     );
 
+    if (this.isRunning) {
+      // Default velocity
+      this.setVelocity(
+        Math.cos(this.direction) * this.BASE_SPEED,
+        Math.sin(this.direction) * this.BASE_SPEED
+      );
+      // Check trail collision
+      let point = this.getClosestIntersectingPointOnDetectionLine(
+        this.trailLines
+      );
+      const distance = Phaser.Math.Distance.Between(
+        this.x,
+        this.y,
+        point.x,
+        point.y
+      );
+
+      // If we are close enough to the trail, slow down
+      if (distance > 0 && distance < 20) {
+        this.setVelocity(
+          Math.cos(this.direction) * this.BASE_SPEED * (distance / 200),
+          Math.sin(this.direction) * this.BASE_SPEED * (distance / 200)
+        );
+        this.rubber -= 0.5 / distance;
+      } else {
+        this.rubber += 0.1;
+      }
+    } else {
+      this.setVelocity(0, 0);
+    }
+    this.rubber = Phaser.Math.Clamp(this.rubber, 0, this.RUBBER);
+
+    console.log(this.rubber);
+    // Make sure to do graphics at the end once everything else is updated
     this.driverGraphics.x = this.x;
     this.driverGraphics.y = this.y;
 
-    // Check trail collision
-    let point = this.getClosestPoint(this.trailLines);
-    const distance = Phaser.Math.Distance.Between(
-      this.x,
-      this.y,
-      point.x,
-      point.y
-    );
-    if (distance > 0 && distance < 3) {
-      this.setVelocity(0);
-    }
-    // Redraw trail
     this.redrawTrail();
-    this.trailGraphics.strokeLineShape(this.detectionLine);
-    this.trailGraphics.strokeLineShape(
-      new Phaser.Geom.Line(
-        this.previousLineEnd.x,
-        this.previousLineEnd.y,
-        this.x,
-        this.y
-      )
-    );
 
-    //
+    this.trailGraphics.strokeLineShape(this.detectionLine);
+  }
+
+  setDirection(angle: number) {
+    if (this.direction == angle) {
+      return;
+    }
+    this.direction = angle;
+    this.driverGraphics.rotation = this.direction + Math.PI / 2;
+    this.persistTrail();
+  }
+
+  turn(type: string) {
+    let newDirection = this.direction;
+    if (type === 'left') {
+      newDirection = this.direction - this.ROTATION_ANGLE;
+    } else if (type === 'right') {
+      newDirection = this.direction + this.ROTATION_ANGLE;
+    }
+    newDirection = newDirection % (Math.PI * 2);
+    this.setDirection(newDirection);
   }
 
   persistTrail() {
@@ -125,51 +143,27 @@ export default class Player extends Phaser.Physics.Arcade.Image {
     this.previousLineEnd.set(this.x, this.y);
   }
 
-  rotate(type: string) {
-    if (!this.rotationAllowed) {
-      return;
-    }
-    if (type === 'left') {
-      this.direction = this.direction - this.ROTATION_ANGLE;
-    } else if (type === 'right') {
-      this.direction = this.direction + this.ROTATION_ANGLE;
-    }
-    this.setVelocity(
-      Math.cos(this.direction) * this.BASE_SPEED,
-      Math.sin(this.direction) * this.BASE_SPEED
-    );
-    this.direction = this.direction % (Math.PI * 2);
-    this.driverGraphics.rotation = this.direction + Math.PI / 2;
-    this.persistTrail();
-  }
-
   getLinesForCollision() {
     return this.trailLines;
   }
 
-  getClosestPoint(lines: Phaser.Geom.Line[]) {
+  getClosestIntersectingPointOnDetectionLine(lines: Phaser.Geom.Line[]) {
     let point;
-    let closestPoint = { x: this.x, y: this.y };
+    let closestPoint = { x: 999, y: 999 };
+
+    // Iterate over all lines
     for (const line of lines) {
-      point = { x: -1, y: -1 }; // reset everytime
-      if (
-        Phaser.Geom.Intersects.LineToLine(
-          this.detectionLine,
-          line,
-          point // this also loads intersection point to point let;
-        )
-      ) {
-        // case where we intersect with last line?
+      // Reset possible intersection point
+      point = { x: -1, y: -1 };
+      // Check if current line intersects with detection line
+      // This also loads intersection point
+      if (Phaser.Geom.Intersects.LineToLine(this.detectionLine, line, point)) {
+        // Case where we intersect with the line we are currently at the end of
         if (point.x == this.x && point.y == this.y) {
           continue;
         }
-        if (
-          !closestPoint ||
-          (closestPoint.x == this.x && closestPoint.y == this.y)
-        ) {
-          closestPoint = { ...point }; // Copy the point
-          continue;
-        }
+        // Check if the intersection point is closer than the current closest point
+        // If so, update the closest point
         if (
           Phaser.Math.Distance.Between(this.x, this.y, point.x, point.y) <
           Phaser.Math.Distance.Between(
@@ -190,12 +184,21 @@ export default class Player extends Phaser.Physics.Arcade.Image {
     this.trailGraphics.clear();
 
     if (this.trailLines.length > 0) {
-      const alpha = 0.5;
-      this.trailGraphics.lineStyle(this.trailWidth, this.PLAYER_COLOR, alpha);
-
+      this.trailGraphics.lineStyle(this.trailWidth, this.PLAYER_COLOR, 0.5);
+      // Iterate over all lines and draw them
       for (let i = 0; i < this.trailLines.length; i++) {
         this.trailGraphics.strokeLineShape(this.trailLines[i]);
       }
     }
+
+    // Draw the last line
+    this.trailGraphics.strokeLineShape(
+      new Phaser.Geom.Line(
+        this.previousLineEnd.x,
+        this.previousLineEnd.y,
+        this.x,
+        this.y
+      )
+    );
   }
 }

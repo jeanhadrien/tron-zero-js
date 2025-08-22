@@ -28,8 +28,9 @@ export class GameScene extends Scene {
   create() {
     this.drawGridOnce();
 
-    this.player = new Player(this, 400, 300, -Math.PI / 2);
-    this.add.existing(this.player);
+    this.player = new Player(this, 400, 300);
+    this.player.setDirection(-Math.PI / 2);
+    this.player.isRunning = true;
 
     let bounds = this.physics.world.setBounds(
       0,
@@ -95,7 +96,7 @@ export class GameScene extends Scene {
       this.input.keyboard?.on(`keydown-${key}`, () => {
         if (!this.isKeyDown[key]) {
           this.isKeyDown[key] = true;
-          this.player.rotate(direction);
+          this.player.turn(direction);
         }
       });
       this.input.keyboard?.on(`keyup-${key}`, () => {
@@ -128,6 +129,9 @@ export class GameScene extends Scene {
       this.gameOver();
       return;
     }
+    if (this.player.rubber <= 0) {
+      this.gameOver();
+    }
   }
 
   releaseKey(key: string) {
@@ -135,6 +139,8 @@ export class GameScene extends Scene {
   }
 
   gameOver() {
+    this.player.isRunning = false;
+
     this.isAlive = false;
     this.gameOverText.setVisible(true);
     this.restartText.setVisible(true);
@@ -168,14 +174,14 @@ export class GameScene extends Scene {
 
   restartGame() {
     // Reset all game state
+    this.player.isRunning = true;
     this.isAlive = true;
     this.player.x = 400;
     this.player.y = 500;
     this.player.direction = 0;
     this.player.driverGraphics.rotation = this.player.direction + Math.PI / 2;
-    this.player.trailPoints = [];
     this.player.trailGraphics.clear();
-
+    this.player.trailLines = [];
     // Hide game over text
     this.gameOverText.setVisible(false);
     this.restartText.setVisible(false);
