@@ -80,33 +80,28 @@ export class GameScene extends Scene {
       Phaser.Input.Keyboard.KeyCodes.SPACE
     );
 
-    const leftKeys = ['Q', 'S', 'D', 'LEFT'];
-    const rightKeys = ['K', 'L', 'M', 'RIGHT'];
+    const keyMappings = {
+      Q: 'left',
+      S: 'left',
+      D: 'left',
+      LEFT: 'left',
+      K: 'right',
+      L: 'right',
+      M: 'right',
+      RIGHT: 'right',
+    };
 
-    for (let i = 0; i < leftKeys.length; i++) {
-      this.input.keyboard?.on(`keydown-${leftKeys[i]}`, () => {
-        if (this.isKeyDown[leftKeys[i]]) {
-          return;
+    Object.entries(keyMappings).forEach(([key, direction]) => {
+      this.input.keyboard?.on(`keydown-${key}`, () => {
+        if (!this.isKeyDown[key]) {
+          this.isKeyDown[key] = true;
+          this.player.rotate(direction);
         }
-        this.isKeyDown[leftKeys[i]] = true;
-        this.player.rotate('left');
       });
-      this.input.keyboard?.on(`keydown-${rightKeys[i]}`, () => {
-        if (this.isKeyDown[rightKeys[i]]) {
-          return;
-        }
-        this.isKeyDown[rightKeys[i]] = true;
-        this.player.rotate('right');
+      this.input.keyboard?.on(`keyup-${key}`, () => {
+        this.isKeyDown[key] = false;
       });
-      this.input.keyboard?.on(
-        `keyup-${leftKeys[i]}`,
-        () => (this.isKeyDown[leftKeys[i]] = false)
-      );
-      this.input.keyboard?.on(
-        `keyup-${rightKeys[i]}`,
-        () => (this.isKeyDown[rightKeys[i]] = false)
-      );
-    }
+    });
   }
 
   update(_time: any, delta: number) {
@@ -117,6 +112,9 @@ export class GameScene extends Scene {
       }
       return;
     }
+
+    //const renderFps = Math.round(this.game.loop.actualFps);
+    //console.log(renderFps);
 
     this.player.update(delta);
 
