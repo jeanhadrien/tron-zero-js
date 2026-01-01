@@ -1,8 +1,7 @@
-import { GameObjects, Physics, Scene } from 'phaser';
-import { pointToLineDistance } from '../utils';
+import { GameObjects } from 'phaser';
 
 export default class Player extends Phaser.Physics.Arcade.Image {
-  PLAYER_COLOR: number = 0x00ff00;
+
   ROTATION_ANGLE: number = Math.PI / 2;
   BASE_SPEED: number = 150;
   DETECTION_LINE_LENGTH: number = 30;
@@ -16,19 +15,21 @@ export default class Player extends Phaser.Physics.Arcade.Image {
   trailWidth = 3;
   trailGraphics: GameObjects.Graphics;
   direction: number;
-  speed: number;
+  speed: number;  
   detectionLine: Phaser.Geom.Line;
   previousLineEnd: Phaser.Math.Vector2;
   target: Phaser.Math.Vector2;
   isRunning: boolean;
   rubber: number;
+  color: number;
 
-  constructor(scene: Phaser.Scene, x: number, y: number) {
+  constructor(scene: Phaser.Scene, x: number, y: number, color: number) {
     super(scene, x, y, '_player');
-
     this.scene = scene;
     scene.add.existing(this);
     scene.physics.add.existing(this);
+
+    this.color = color;
 
     this.direction = 0;
     this.setBodySize(0, 0);
@@ -46,7 +47,7 @@ export default class Player extends Phaser.Physics.Arcade.Image {
     this.previousLineEnd = new Phaser.Math.Vector2(this.x, this.y);
 
     this.driverGraphics = scene.add.graphics();
-    this.driverGraphics.fillStyle(this.PLAYER_COLOR);
+    this.driverGraphics.fillStyle(this.color);
     this.driverGraphics.fillTriangle(0, -7, -7, 7, 7, 7);
 
     this.trailGraphics = scene.add.graphics();
@@ -56,7 +57,7 @@ export default class Player extends Phaser.Physics.Arcade.Image {
   }
 
   update(delta: number) {
-    super.update(delta);
+    // super.update(delta);
 
     this.detectionLine = Phaser.Geom.Line.SetToAngle(
       this.detectionLine,
@@ -98,7 +99,7 @@ export default class Player extends Phaser.Physics.Arcade.Image {
     }
     this.rubber = Phaser.Math.Clamp(this.rubber, 0, this.RUBBER);
 
-    console.log(this.rubber);
+    //console.log(this.rubber);
     // Make sure to do graphics at the end once everything else is updated
     this.driverGraphics.x = this.x;
     this.driverGraphics.y = this.y;
@@ -184,7 +185,7 @@ export default class Player extends Phaser.Physics.Arcade.Image {
     this.trailGraphics.clear();
 
     if (this.trailLines.length > 0) {
-      this.trailGraphics.lineStyle(this.trailWidth, this.PLAYER_COLOR, 0.5);
+      this.trailGraphics.lineStyle(this.trailWidth, this.color, 0.5);
       // Iterate over all lines and draw them
       for (let i = 0; i < this.trailLines.length; i++) {
         this.trailGraphics.strokeLineShape(this.trailLines[i]);

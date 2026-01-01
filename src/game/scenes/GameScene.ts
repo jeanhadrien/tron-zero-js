@@ -1,24 +1,28 @@
 import { Scene } from 'phaser';
 import { EventBus } from '../EventBus';
 import Player from '../gameobjects/Player';
+import PlayerManager from '../gameobjects/PlayerManager';
 
 export class GameScene extends Scene {
-  PLAYER_COLOR: number = 0x00ff00;
   CANVAS_WIDTH: number = 900;
   CANVAS_HEIGHT: number = 600;
-  MOVE_ANGLE: number = Math.PI / 2;
 
   isKeyDown: Record<string, boolean>;
   gridGraphics: Phaser.GameObjects.Graphics;
-  player: Player;
+  humanPlayer: Player;
   safeDistance: number;
   isAlive: boolean;
   gameOverText: Phaser.GameObjects.Text;
   restartText: Phaser.GameObjects.Text;
   spaceKey: Phaser.Input.Keyboard.Key;
+  aiPlayer: Player;
+
+  playerManager: PlayerManager;
 
   constructor() {
     super('Game');
+    this.playerManager = new PlayerManager(this);
+
   }
 
   preload() {
@@ -26,11 +30,8 @@ export class GameScene extends Scene {
   }
 
   create() {
-    this.drawGridOnce();
 
-    this.player = new Player(this, 400, 300);
-    this.player.setDirection(-Math.PI / 2);
-    this.player.isRunning = true;
+    this.drawGridOnce();
 
     let bounds = this.physics.world.setBounds(
       0,
@@ -38,13 +39,17 @@ export class GameScene extends Scene {
       this.CANVAS_WIDTH,
       this.CANVAS_HEIGHT
     );
-    this.physics.world.setBoundsCollision();
-    this.player.setCollideWorldBounds(true);
 
-    let v = this.physics.add.staticBody(200, 200, 300, 30);
-    this.physics.add.collider(this.player, v, () => {
-      this.player.persistTrail();
-    });
+    this.physics.world.setBoundsCollision();
+
+    this.humanPlayer = this.playerManager.addPlayer(this.CANVAS_WIDTH*(1/3),this.CANVAS_HEIGHT/2, 0x00ff00);
+    this.aiPlayer = this.playerManager.addPlayer( this.CANVAS_WIDTH*(2/3), this.CANVAS_HEIGHT/2, 0xff0000);
+        
+    // add collision box
+    // let v = this.physics.add.staticBody(200, 200, 300, 30);
+    // this.physics.add.collider(this.humanPlayer, v, () => {
+    //   this.humanPlayer.persistTrail();
+    // });
 
     // Game state
     this.isAlive = true;
@@ -76,6 +81,33 @@ export class GameScene extends Scene {
       .setOrigin(0.5)
       .setVisible(false);
 
+    EventBus.on("game-over",()=>{
+      this.humanPlayer.isRunning = false;
+      this.isAlive = false;
+      this.gameOverText.setVisible(true);
+      this.restartText.setVisible(true);
+    });
+
+    EventBus.on("game-start",()=>{
+      // Reset all game state
+      this.humanPlayer.isRunning = true;
+      this.isAlive = true;
+      this.humanPlayer.x = 400;
+      this.humanPlayer.y = 500;
+      this.humanPlayer.direction = 0;
+      this.humanPlayer.driverGraphics.rotation = this.humanPlayer.direction + Math.PI / 2;
+      this.humanPlayer.trailGraphics.clear();
+      this.humanPlayer.trailLines = [];
+      
+      // Hide game over text
+      this.gameOverText.setVisible(false);
+      this.restartText.setVisible(false);
+
+      // Reset key states
+      this.isKeyDown = {};
+    });
+
+
     // Add space key for restart
     this.spaceKey = this.input.keyboard.addKey(
       Phaser.Input.Keyboard.KeyCodes.SPACE
@@ -92,11 +124,13 @@ export class GameScene extends Scene {
       RIGHT: 'right',
     };
 
+    // Bind key down events to controls
     Object.entries(keyMappings).forEach(([key, direction]) => {
       this.input.keyboard?.on(`keydown-${key}`, () => {
         if (!this.isKeyDown[key]) {
           this.isKeyDown[key] = true;
-          this.player.turn(direction);
+          this.humanPlayer.turn(direction);
+          //EventBus.emit("human.move", direction);
         }
       });
       this.input.keyboard?.on(`keyup-${key}`, () => {
@@ -109,44 +143,32 @@ export class GameScene extends Scene {
     if (!this.isAlive) {
       // Check for restart
       if (this.spaceKey.isDown) {
-        this.restartGame();
+        EventBus.emit("game-start");
       }
       return;
     }
 
     //const renderFps = Math.round(this.game.loop.actualFps);
     //console.log(renderFps);
-
-    this.player.update(delta);
-
+    this.playerManager.update(delta);
     // Check boundary collision
     if (
-      this.player.x < 0 ||
-      this.player.x > this.CANVAS_WIDTH ||
-      this.player.y < 0 ||
-      this.player.y > this.CANVAS_HEIGHT
+    this.humanPlayer.x < 0 ||
+    this.humanPlayer.x > this.CANVAS_WIDTH ||
+    this.humanPlayer.y < 0 ||
+    this.humanPlayer.y > this.CANVAS_HEIGHT
     ) {
-      this.gameOver();
-      return;
+      EventBus.emit("game-over");
+
     }
-    if (this.player.rubber <= 0) {
-      this.gameOver();
+    if (this.humanPlayer.rubber <= 0) {
+      EventBus.emit("game-over");
     }
+    
   }
 
   releaseKey(key: string) {
     this.isKeyDown[key] = false;
-  }
-
-  gameOver() {
-    this.player.isRunning = false;
-
-    this.isAlive = false;
-    this.gameOverText.setVisible(true);
-    this.restartText.setVisible(true);
-
-    // Optional: Add a death effect
-    this.player.driverGraphics.fillStyle(0xff0000); // Turn triangle red
   }
 
   drawGridOnce() {
@@ -172,21 +194,5 @@ export class GameScene extends Scene {
     this.gridGraphics.setDepth(-1);
   }
 
-  restartGame() {
-    // Reset all game state
-    this.player.isRunning = true;
-    this.isAlive = true;
-    this.player.x = 400;
-    this.player.y = 500;
-    this.player.direction = 0;
-    this.player.driverGraphics.rotation = this.player.direction + Math.PI / 2;
-    this.player.trailGraphics.clear();
-    this.player.trailLines = [];
-    // Hide game over text
-    this.gameOverText.setVisible(false);
-    this.restartText.setVisible(false);
 
-    // Reset key states
-    this.isKeyDown = {};
-  }
 }

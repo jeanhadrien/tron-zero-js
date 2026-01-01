@@ -1,4 +1,4 @@
-import { GameScene } from './scenes/Game';
+import { GameScene } from './scenes/GameScene';
 import 'phaser';
 
 // Find out more information about the Game Config at:

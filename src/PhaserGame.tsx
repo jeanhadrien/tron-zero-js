@@ -22,22 +22,19 @@ export const PhaserGame = (props: IProps) => {
         const gameInstance = StartGame("game-container");
         setInstance("game", gameInstance);
 
-        if (props.ref)
-        {
+        if (props.ref) {
             props.ref({ game: gameInstance, scene: null });
         }
 
         EventBus.on('current-scene-ready', (scene_instance: Phaser.Scene) => {
 
-            if (props.currentActiveScene)
-            {
+            if (props.currentActiveScene) {
                 props.currentActiveScene(scene_instance);
                 setInstance("scene", scene_instance);
 
             }
 
-            if (props.ref)
-            {
+            if (props.ref) {
                 props.ref({ game: gameInstance, scene: scene_instance });
             }
 
@@ -45,14 +42,13 @@ export const PhaserGame = (props: IProps) => {
 
         onCleanup(() => {
 
-            if (instance.game)
-            {
+            if (instance.game) {
                 instance.game.destroy(true);
                 setInstance({ game: null, scene: null });
             }
-            
+
             EventBus.removeListener('current-scene-ready');
-            
+
         });
     });
 
