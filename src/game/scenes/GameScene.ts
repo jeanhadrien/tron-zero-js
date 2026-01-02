@@ -50,6 +50,8 @@ export class GameScene extends Scene {
     this.aiPlayer = this.playerManager.addPlayer( this.CANVAS_WIDTH*(2/3), this.CANVAS_HEIGHT/2, 0xff0000);
     
     this.debugHud.add("Rubber", this.humanPlayer, "rubber");
+    this.debugHud.add("Speed", this.humanPlayer, "velocity");
+
     //this.debugHud.initialize();
 
     // add collision box

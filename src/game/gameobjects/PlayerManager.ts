@@ -12,7 +12,7 @@ export default class PlayerManager {
 
     addPlayer(x: number, y: number, color: number){
         let p = new Player(this.scene, x, y, color);
-        p.setDirection(-Math.PI / 2);
+        p._updateDirection(-Math.PI / 2);
         p.isRunning = true;
         p.setCollideWorldBounds(true);
         this.players.push(p);
