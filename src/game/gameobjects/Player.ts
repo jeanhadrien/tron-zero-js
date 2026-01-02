@@ -77,7 +77,7 @@ export default class Player extends Phaser.Physics.Arcade.Image {
       let point = this.getClosestIntersectingPointOnDetectionLine(
         this.trailLines
       );
-      const distance = Phaser.Math.Distance.Between(
+      const obstacleDistance = Phaser.Math.Distance.Between(
         this.x,
         this.y,
         point.x,
@@ -85,18 +85,19 @@ export default class Player extends Phaser.Physics.Arcade.Image {
       );
 
       // If we are close enough to the trail, slow down
-      if (distance > 0 && distance < 20) {
+      if (obstacleDistance > 0 && obstacleDistance < 20) {
         this.setVelocity(
-          Math.cos(this.direction) * this.BASE_SPEED * (distance / 200),
-          Math.sin(this.direction) * this.BASE_SPEED * (distance / 200)
+          Math.cos(this.direction) * this.BASE_SPEED * (obstacleDistance / 200),
+          Math.sin(this.direction) * this.BASE_SPEED * (obstacleDistance / 200)
         );
-        this.rubber -= 0.5 / distance;
+        this.rubber -= 0.5 / obstacleDistance;
       } else {
         this.rubber += 0.1;
       }
     } else {
       this.setVelocity(0, 0);
     }
+
     this.rubber = Phaser.Math.Clamp(this.rubber, 0, this.RUBBER);
 
     //console.log(this.rubber);

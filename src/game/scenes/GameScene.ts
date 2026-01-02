@@ -2,6 +2,7 @@ import { Scene } from 'phaser';
 import { EventBus } from '../EventBus';
 import Player from '../gameobjects/Player';
 import PlayerManager from '../gameobjects/PlayerManager';
+import DebugHud from '../gameobjects/DebugHud';
 
 export class GameScene extends Scene {
   CANVAS_WIDTH: number = 900;
@@ -18,11 +19,15 @@ export class GameScene extends Scene {
   aiPlayer: Player;
 
   playerManager: PlayerManager;
+  debugHud: DebugHud;
 
   constructor() {
     super('Game');
-    this.playerManager = new PlayerManager(this);
+  }
 
+  init(){
+    this.playerManager = new PlayerManager(this);
+    this.debugHud = new DebugHud(this);
   }
 
   preload() {
@@ -30,7 +35,6 @@ export class GameScene extends Scene {
   }
 
   create() {
-
     this.drawGridOnce();
 
     let bounds = this.physics.world.setBounds(
@@ -44,7 +48,10 @@ export class GameScene extends Scene {
 
     this.humanPlayer = this.playerManager.addPlayer(this.CANVAS_WIDTH*(1/3),this.CANVAS_HEIGHT/2, 0x00ff00);
     this.aiPlayer = this.playerManager.addPlayer( this.CANVAS_WIDTH*(2/3), this.CANVAS_HEIGHT/2, 0xff0000);
-        
+    
+    this.debugHud.add("Rubber", this.humanPlayer, "rubber");
+    //this.debugHud.initialize();
+
     // add collision box
     // let v = this.physics.add.staticBody(200, 200, 300, 30);
     // this.physics.add.collider(this.humanPlayer, v, () => {
@@ -151,6 +158,8 @@ export class GameScene extends Scene {
     //const renderFps = Math.round(this.game.loop.actualFps);
     //console.log(renderFps);
     this.playerManager.update(delta);
+    this.debugHud.update(delta);
+
     // Check boundary collision
     if (
     this.humanPlayer.x < 0 ||
