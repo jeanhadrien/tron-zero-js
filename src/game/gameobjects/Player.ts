@@ -56,6 +56,8 @@ export default class Player extends Phaser.Physics.Arcade.Image {
     //this.trailGraphics.moveTo(this.x, this.y);
   }
 
+
+
   update(delta: number) {
     // super.update(delta);
 
