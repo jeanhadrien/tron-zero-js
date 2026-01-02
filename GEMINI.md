@@ -20,10 +20,10 @@ This project is a Tron-like top-down 2D game client built with **Phaser 3** and 
 -   **UI Integration**: `src/App.tsx` wraps the Phaser game instance using a SolidJS component.
 
 ## Game Mechanics
--   **Movement**: Players move at a constant base speed and can turn 90 degrees (left/right).
+-   **Movement**: Players move in straight lines and can turn 90 degrees (left/right).
 -   **Trails**: Players leave a trail behind them (`trailLines`).
 -   **Collision/Interaction**:
-    -   **Rubber Mechanic**: A resource (likely health/stamina) called "rubber" depletes when the player is close to an obstacle (detected via a short "detection line"). Speed also decreases when close to obstacles.
+    -   **Rubber Mechanic**: Rubber depletes when the player is hitting an obstacle. 
     -   **Boundaries**: Hitting the canvas edge triggers "game-over".
     -   **Trails**: Logic exists to detect proximity to trails.
 -   **Controls**: Keyboard inputs (Q, S, D, Arrow Keys) mapped to left/right turns. Spacebar restarts the game.
