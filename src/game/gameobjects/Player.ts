@@ -31,6 +31,7 @@ export default class Player extends Phaser.Physics.Arcade.Image {
     color: number;
     velocity: number[];
     speed: number;
+    targetSpeed: number = 1;
     currentLine: Phaser.Geom.Line;
 
     constructor(scene: Phaser.Scene, x: number, y: number, color: number) {
@@ -73,7 +74,10 @@ export default class Player extends Phaser.Physics.Arcade.Image {
         }
         this.direction = angle;
         this.driverGraphics.rotation = this.direction + Math.PI / 2;
-        this._persistTrail();
+        
+        if (this.x !== this.previousLineEnd.x || this.y !== this.previousLineEnd.y) {
+            this._persistTrail();
+        }
     }
 
     _persistTrail() {
@@ -215,10 +219,6 @@ export default class Player extends Phaser.Physics.Arcade.Image {
     }
 
     turn(type: string) {
-        if (this.x === this.previousLineEnd.x && this.y === this.previousLineEnd.y) {
-            return;
-        }
-        
         let newDirection = this.direction;
         if (type === 'left') {
             newDirection = this.direction - this.ROTATION_ANGLE;
@@ -270,6 +270,9 @@ export default class Player extends Phaser.Physics.Arcade.Image {
                 //this.rubber -= 0.5 / obstacleDistance;
             } else {
                 this.rubber += 0.1;
+                if (this.speed < this.targetSpeed) {
+                    this._setSpeed(Math.min(this.targetSpeed, this.speed + 0.1));
+                }
             }
 
 
