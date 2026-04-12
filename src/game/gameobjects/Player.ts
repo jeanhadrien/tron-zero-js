@@ -281,11 +281,11 @@ export default class Player extends Phaser.Physics.Arcade.Image {
 
 
             let isSliding = false;
-            if (leftDistance < 3) {
+            if (leftDistance < 5) {
                 this.targetSpeed *= 1.001;
                 isSliding = true;
             }
-            if (rightDistance < 3) {
+            if (rightDistance < 5) {
                 this.targetSpeed *= 1.001;
                 isSliding = true;
             }
