@@ -264,14 +264,18 @@ export default class Player extends Phaser.Physics.Arcade.Image {
             if (frontDistance == 0) {
                 console.log("aa");
             }
+            let isStuck = false;
             // If we are close enough to the obstacle, slow down
             if (frontDistance < 3) {
                 this._setSpeed((frontDistance * frontDistance) / 4000);
+                isStuck = true;
                 //this.rubber -= 0.5 / obstacleDistance;
             } else {
                 this.rubber += 0.1;
                 if (this.speed < this.targetSpeed) {
                     this._setSpeed(Math.min(this.targetSpeed, this.speed + 0.1));
+                } else if (this.speed > this.targetSpeed) {
+                    this._setSpeed(this.targetSpeed);
                 }
             }
 
@@ -286,8 +290,8 @@ export default class Player extends Phaser.Physics.Arcade.Image {
                 isSliding = true;
             }
 
-            if (!isSliding && this.targetSpeed > 1) {
-                this.targetSpeed = Math.max(1, this.targetSpeed - 0.001);
+            if (!isSliding && !isStuck && this.targetSpeed > 1) {
+                this.targetSpeed = Math.max(1, this.targetSpeed - 0.0005);
             }
 
 
