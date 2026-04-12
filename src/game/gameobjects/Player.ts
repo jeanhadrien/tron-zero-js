@@ -277,10 +277,10 @@ export default class Player extends Phaser.Physics.Arcade.Image {
 
 
             if (leftDistance < 3) {
-                this._setSpeed(this.speed * 1.0002);
+                this.targetSpeed *= 1.0002;
             }
             if (rightDistance < 3) {
-                this._setSpeed(this.speed * 1.0002);
+                this.targetSpeed *= 1.0002;
             }
 
 
