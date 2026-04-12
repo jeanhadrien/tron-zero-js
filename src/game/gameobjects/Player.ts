@@ -273,7 +273,7 @@ export default class Player extends Phaser.Physics.Arcade.Image {
             } else {
                 this.rubber += 0.1;
                 if (this.speed < this.targetSpeed) {
-                    this._setSpeed(Math.min(this.targetSpeed, this.speed + 0.1));
+                    this._setSpeed(Math.min(this.targetSpeed, this.speed + 0.5));
                 } else if (this.speed > this.targetSpeed) {
                     this._setSpeed(this.targetSpeed);
                 }
@@ -282,16 +282,16 @@ export default class Player extends Phaser.Physics.Arcade.Image {
 
             let isSliding = false;
             if (leftDistance < 3) {
-                this.targetSpeed *= 1.0002;
+                this.targetSpeed *= 1.001;
                 isSliding = true;
             }
             if (rightDistance < 3) {
-                this.targetSpeed *= 1.0002;
+                this.targetSpeed *= 1.001;
                 isSliding = true;
             }
 
             if (!isSliding && !isStuck && this.targetSpeed > 1) {
-                this.targetSpeed = Math.max(1, this.targetSpeed - 0.0005);
+                this.targetSpeed = Math.max(1, this.targetSpeed - 0.0025);
             }
 
 
