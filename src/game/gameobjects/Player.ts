@@ -110,6 +110,22 @@ export default class Player extends Phaser.Physics.Arcade.Image {
                     continue;
                 }
 
+                // Fix: Ignore collisions exactly at the corners of recent trails
+                // to prevent getting stuck when doing tight zig-zags or U-turns.
+                let isRecentCorner = false;
+                for (let i = Math.max(0, this.trailLines.length - 3); i < this.trailLines.length; i++) {
+                    let recentLine = this.trailLines[i];
+                    if ((point.x === recentLine.x1 && point.y === recentLine.y1) ||
+                        (point.x === recentLine.x2 && point.y === recentLine.y2)) {
+                        isRecentCorner = true;
+                        break;
+                    }
+                }
+
+                if (isRecentCorner) {
+                    continue;
+                }
+
                 if (
                     Phaser.Math.Distance.Between(this.x, this.y, point.x, point.y) <
                     Phaser.Math.Distance.Between(
@@ -190,8 +206,8 @@ export default class Player extends Phaser.Physics.Arcade.Image {
         let vy = Math.sin(this.direction) * this.BASE_SPEED * speed;
 
         // Fix: If the velocity is extremely close to 0, force it to 0
-        //if (Math.abs(vx) < 0.000001) { vx = 0; console.log("vx"); }
-        //if (Math.abs(vy) < 0.000001) { vy = 0; console.log("vy"); }
+        if (Math.abs(vx) < 0.000001) { vx = 0; }
+        if (Math.abs(vy) < 0.000001) { vy = 0; }
 
         this.velocity = [vx, vy];
         this.speed = speed;
@@ -199,6 +215,10 @@ export default class Player extends Phaser.Physics.Arcade.Image {
     }
 
     turn(type: string) {
+        if (this.x === this.previousLineEnd.x && this.y === this.previousLineEnd.y) {
+            return;
+        }
+        
         let newDirection = this.direction;
         if (type === 'left') {
             newDirection = this.direction - this.ROTATION_ANGLE;
