@@ -287,7 +287,7 @@ export default class Player extends Phaser.Physics.Arcade.Image {
             }
 
             if (!isSliding && this.targetSpeed > 1) {
-                this.targetSpeed = Math.max(1, this.targetSpeed - 0.002);
+                this.targetSpeed = Math.max(1, this.targetSpeed - 0.001);
             }
 
 
