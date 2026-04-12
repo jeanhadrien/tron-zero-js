@@ -24,16 +24,22 @@
         "dev": "node log.js dev & vite --config vite/config.dev.mjs",
         "build": "node log.js build & vite build --config vite/config.prod.mjs",
         "dev-nolog": "vite --config vite/config.dev.mjs",
-        "build-nolog": "vite build --config vite/config.prod.mjs"
+        "build-nolog": "vite build --config vite/config.prod.mjs",
+        "test": "vitest run"
     },
     "dependencies": {
         "phaser": "^3.90.0",
         "solid-js": "1.9.5"
     },
     "devDependencies": {
+        "@vitest/browser": "^4.1.4",
+        "canvas": "^3.2.3",
+        "jsdom": "^29.0.2",
+        "jsdom-worker": "^0.3.0",
         "terser": "5.39.0",
         "typescript": "5.7.2",
         "vite": "6.3.1",
-        "vite-plugin-solid": "2.11.6"
+        "vite-plugin-solid": "2.11.6",
+        "vitest": "^4.1.4"
     }
 }
