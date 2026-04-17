@@ -3,6 +3,7 @@ import { EventBus } from '../EventBus';
 import Player from '../gameobjects/Player';
 import PlayerManager from '../gameobjects/PlayerManager';
 import DebugHud from '../gameobjects/DebugHud';
+import BotController from '../controllers/BotController';
 
 export class GameScene extends Scene {
     CANVAS_WIDTH: number;
@@ -21,6 +22,7 @@ export class GameScene extends Scene {
     restartText: Phaser.GameObjects.Text;
     spaceKey: Phaser.Input.Keyboard.Key;
     aiPlayer: Player;
+    aiController: BotController;
 
     playerManager: PlayerManager;
     debugHud: DebugHud;
@@ -65,6 +67,7 @@ export class GameScene extends Scene {
 
         this.humanPlayer = this.playerManager.addPlayer(this.WORLD_WIDTH * (1 / 3), this.WORLD_HEIGHT / 2, 0x00ff00);
         this.aiPlayer = this.playerManager.addPlayer(this.WORLD_WIDTH * (2 / 3), this.WORLD_HEIGHT / 2, 0xff0000);
+        this.aiController = new BotController(this, this.aiPlayer);
 
         this.debugHud.add("Rubber", this.humanPlayer, "rubber");
         this.debugHud.add("Speed", this.humanPlayer, "velocity");
@@ -134,9 +137,22 @@ export class GameScene extends Scene {
             .setOrigin(0.5)
             .setVisible(false);
 
-        EventBus.on("game-over", () => {
+        EventBus.on("game-over", (winner?: string) => {
             this.humanPlayer.isRunning = false;
+            this.aiPlayer.isRunning = false;
             this.isAlive = false;
+            
+            if (winner === 'human') {
+                this.gameOverText.setText('YOU WIN!');
+                this.gameOverText.setColor('#00ff00');
+            } else if (winner === 'ai') {
+                this.gameOverText.setText('BOT WINS!');
+                this.gameOverText.setColor('#ff0000');
+            } else {
+                this.gameOverText.setText('GAME OVER');
+                this.gameOverText.setColor('#ff0000');
+            }
+            
             this.gameOverText.setVisible(true);
             this.restartText.setVisible(true);
         });
@@ -166,7 +182,7 @@ export class GameScene extends Scene {
 
 
         // Add space key for restart
-        this.spaceKey = this.input.keyboard.addKey(
+        this.spaceKey = this.input.keyboard!.addKey(
             Phaser.Input.Keyboard.KeyCodes.SPACE
         );
 
@@ -218,6 +234,7 @@ export class GameScene extends Scene {
 
         //const renderFps = Math.round(this.game.loop.actualFps);
         //console.log(renderFps);
+        this.aiController.update(_time, delta);
         this.playerManager.update(_time, delta);
         this.debugHud.update(delta);
 
@@ -237,18 +254,23 @@ export class GameScene extends Scene {
             }
         }
 
-        // Check boundary collision
+        // Check boundary collision and rubber for all players
         if (
             this.humanPlayer.x < 0 ||
             this.humanPlayer.x > this.WORLD_WIDTH ||
             this.humanPlayer.y < 0 ||
-            this.humanPlayer.y > this.WORLD_HEIGHT
+            this.humanPlayer.y > this.WORLD_HEIGHT ||
+            this.humanPlayer.rubber <= 0
         ) {
-            EventBus.emit("game-over");
-
-        }
-        if (this.humanPlayer.rubber <= 0) {
-            EventBus.emit("game-over");
+            EventBus.emit("game-over", "ai");
+        } else if (
+            this.aiPlayer.x < 0 ||
+            this.aiPlayer.x > this.WORLD_WIDTH ||
+            this.aiPlayer.y < 0 ||
+            this.aiPlayer.y > this.WORLD_HEIGHT ||
+            this.aiPlayer.rubber <= 0
+        ) {
+            EventBus.emit("game-over", "human");
         }
 
     }

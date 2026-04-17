@@ -1,4 +1,3 @@
-import { EventBus } from "../EventBus";
 import Player from "./Player";
 
 

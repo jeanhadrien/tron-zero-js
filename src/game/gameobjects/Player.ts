@@ -178,7 +178,21 @@ export default class Player extends Phaser.GameObjects.Image {
             new Phaser.Geom.Line(worldWidth, worldHeight, 0, worldHeight),
             new Phaser.Geom.Line(0, worldHeight, 0, 0)
         ];
-        return [...this.trailLines, ...wallLines];
+        
+        const allTrails: Phaser.Geom.Line[] = [];
+        if (gameScene.playerManager && gameScene.playerManager.players) {
+            for (const p of gameScene.playerManager.players) {
+                allTrails.push(...p.trailLines);
+                // Include active line segments from other players
+                if (p !== this && p.currentLine) {
+                    allTrails.push(p.currentLine);
+                }
+            }
+        } else {
+            allTrails.push(...this.trailLines);
+        }
+        
+        return [...allTrails, ...wallLines];
     }
 
     _getClosestIntersectingPoint(sensorLine: Phaser.Geom.Line, obstacleLines: Phaser.Geom.Line[]) {
@@ -395,7 +409,6 @@ export default class Player extends Phaser.GameObjects.Image {
             }
             let isStuck = false;
 
-            const movementThisFrame = (this.BASE_SPEED * this.speed * delta) / 1000;
             const maxMovementThisFrame = (this.BASE_SPEED * this.targetSpeed * delta) / 1000;
             const slowDownDistance = Math.max(10, maxMovementThisFrame * 3);
 

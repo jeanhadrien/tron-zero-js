@@ -30,20 +30,19 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
       
-      # Add Node.js setup
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      # Add Bun setup
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
         with:
-          node-version: '18'
-          cache: 'npm'
+          bun-version: latest
       
       # Install dependencies
       - name: Install dependencies
-        run: npm ci
+        run: bun install
       
       # Build the project
       - name: Build
-        run: npm run build
+        run: bun run build
       
       - name: Setup Pages
         uses: actions/configure-pages@v5
