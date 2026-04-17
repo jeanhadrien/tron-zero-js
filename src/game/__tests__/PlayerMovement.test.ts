@@ -41,4 +41,23 @@ describe('Player Logic', () => {
         
         expect(player.speed).toBeGreaterThan(0.9);
     });
+
+    it('updates velocity immediately on turn to prevent diagonal movement', () => {
+        // Set initial direction to 0 (right)
+        player.direction = 0;
+        player.speed = 1;
+        player._setSpeed(player.speed);
+
+        // Velocity should be [BASE_SPEED, 0]
+        expect(player.velocity[0]).toBeCloseTo(player.BASE_SPEED, 4);
+        expect(player.velocity[1]).toBeCloseTo(0, 4);
+
+        // Turn right (down)
+        player.turn('right');
+
+        // Velocity should immediately be updated to [0, BASE_SPEED]
+        // This ensures the physics engine won't move the player diagonally in the current frame
+        expect(player.velocity[0]).toBeCloseTo(0, 4);
+        expect(player.velocity[1]).toBeCloseTo(player.BASE_SPEED, 4);
+    });
 });

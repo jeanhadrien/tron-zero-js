@@ -101,7 +101,7 @@ export default class Player extends Phaser.Physics.Arcade.Image {
 
     _getClosestIntersectingPoint(sensorLine: Phaser.Geom.Line, obstacleLines: Phaser.Geom.Line[]) {
         let point;
-        let closestPoint = { x: 999, y: 999 }; // Note: In a real game, consider using null or a max distance check
+        let closestPoint = { x: Infinity, y: Infinity }; // Note: In a real game, consider using null or a max distance check
 
         // Iterate over all lines
         for (const line of obstacleLines) {
@@ -176,13 +176,17 @@ export default class Player extends Phaser.Physics.Arcade.Image {
 
     // Helper to update line positions based on current x, y and direction
     _updateDetectionLines() {
+        const currentSpeed = this.speed || 0;
+        // Increase the lookAheadLength to ensure we never miss walls at high speeds or high delta times
+        const lookAheadLength = Math.max(2000, this.BASE_SPEED * currentSpeed * 0.5);
+
         // Front
         this.detectionLine = Phaser.Geom.Line.SetToAngle(
             this.detectionLine,
             this.x,
             this.y,
             this.direction,
-            this.DETECTION_LINE_LENGTH
+            lookAheadLength
         );
 
         // Left (-90 degrees)
@@ -191,7 +195,7 @@ export default class Player extends Phaser.Physics.Arcade.Image {
             this.x,
             this.y,
             this.direction - Math.PI / 2,
-            this.DETECTION_LINE_LENGTH
+            lookAheadLength
         );
 
         // Right (+90 degrees)
@@ -200,7 +204,7 @@ export default class Player extends Phaser.Physics.Arcade.Image {
             this.x,
             this.y,
             this.direction + Math.PI / 2,
-            this.DETECTION_LINE_LENGTH
+            lookAheadLength
         );
     }
 
@@ -227,6 +231,7 @@ export default class Player extends Phaser.Physics.Arcade.Image {
         }
         newDirection = newDirection % (Math.PI * 2);
         this._updateDirection(newDirection);
+        this._setSpeed(this.speed);
     }
 
     update(time: number, delta: number) {
@@ -265,15 +270,20 @@ export default class Player extends Phaser.Physics.Arcade.Image {
                 console.log("aa");
             }
             let isStuck = false;
+            
+            const movementThisFrame = (this.BASE_SPEED * this.speed * delta) / 1000;
+            // Add a buffer multiplier to the stop threshold to prevent skipping in edge cases
+            const stopThreshold = Math.max(3, movementThisFrame * 1.5);
+
             // If we are close enough to the obstacle, slow down
-            if (frontDistance < 3) {
+            if (frontDistance < stopThreshold) {
                 this._setSpeed((frontDistance * frontDistance) / 4000);
                 isStuck = true;
                 //this.rubber -= 0.5 / obstacleDistance;
             } else {
-                this.rubber += 0.1;
+                this.rubber += 0.006 * delta;
                 if (this.speed < this.targetSpeed) {
-                    this._setSpeed(Math.min(this.targetSpeed, this.speed + 0.5));
+                    this._setSpeed(Math.min(this.targetSpeed, this.speed + 0.03 * delta));
                 } else if (this.speed > this.targetSpeed) {
                     this._setSpeed(this.targetSpeed);
                 }
@@ -282,16 +292,16 @@ export default class Player extends Phaser.Physics.Arcade.Image {
 
             let isSliding = false;
             if (leftDistance < 10) {
-                this.targetSpeed *= 1.001;
+                this.targetSpeed *= Math.pow(1.001, delta / 16.666);
                 isSliding = true;
             }
             if (rightDistance < 10) {
-                this.targetSpeed *= 1.001;
+                this.targetSpeed *= Math.pow(1.001, delta / 16.666);
                 isSliding = true;
             }
 
             if (!isSliding && !isStuck && this.targetSpeed > 1) {
-                this.targetSpeed = Math.max(1, this.targetSpeed - 0.0025);
+                this.targetSpeed = Math.max(1, this.targetSpeed - 0.00015 * delta);
             }
 
 
