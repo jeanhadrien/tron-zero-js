@@ -1,5 +1,5 @@
 import { GameObjects } from 'phaser';
-import PlayerState from './PlayerState';
+import PlayerState from '../shared/PlayerState';
 
 export default class Player extends Phaser.GameObjects.Image {
     pState: PlayerState;
@@ -13,12 +13,12 @@ export default class Player extends Phaser.GameObjects.Image {
     panner: PannerNode | null = null;
     amp: GainNode | null = null;
 
-    constructor(scene: Phaser.Scene, x: number, y: number, color: number) {
-        super(scene, x, y, '_player');
+    constructor(scene: Phaser.Scene, state: PlayerState) {
+        super(scene, state.x, state.y, '_player');
         this.scene = scene;
         scene.add.existing(this);
         
-        this.pState = new PlayerState(x, y, 0, color);
+        this.pState = state;
         
         this.setVisible(false);
 
@@ -63,6 +63,17 @@ export default class Player extends Phaser.GameObjects.Image {
     }
 
     destroy(fromScene?: boolean) {
+        if (this.oscillator) {
+            this.oscillator.stop();
+            this.oscillator.disconnect();
+        }
+        if (this.filter) this.filter.disconnect();
+        if (this.panner) this.panner.disconnect();
+        if (this.amp) this.amp.disconnect();
+
+        if (this.driverGraphics) this.driverGraphics.destroy();
+        if (this.staticTrailGraphics) this.staticTrailGraphics.destroy();
+        if (this.activeTrailGraphics) this.activeTrailGraphics.destroy();
         super.destroy(fromScene);
     }
 
@@ -81,6 +92,7 @@ export default class Player extends Phaser.GameObjects.Image {
     }
 
     turn(type: string) {
+        // Turning is now done server-side, but keep this for local testing if needed
         this.pState.turn(type);
     }
 
@@ -192,57 +204,34 @@ export default class Player extends Phaser.GameObjects.Image {
         }
     }
 
-    _getLinesForCollision() {
-        const gameScene = this.scene as any;
-        const worldWidth = gameScene.WORLD_WIDTH || 900;
-        const worldHeight = gameScene.WORLD_HEIGHT || 600;
-
-        const allOtherTrails: Phaser.Geom.Line[] = [];
-        if (gameScene.playerManager && gameScene.playerManager.players) {
-            for (const p of gameScene.playerManager.players) {
-                if(!p.isRunning && p !== this) continue;
-                if(p !== this) {
-                    allOtherTrails.push(...p.trailLines);
-                    if (p.currentLine) {
-                        allOtherTrails.push(p.currentLine);
-                    }
-                }
-            }
-        }
+    updateServerState(serverState: any) {
+        const prevDir = this.pState.direction;
         
-        return this.pState.getLinesForCollision(allOtherTrails, worldWidth, worldHeight);
-    }
-
-    _getClosestIntersectingPoint(sensorLine: Phaser.Geom.Line, obstacleLines: Phaser.Geom.Line[]) {
-        return this.pState.getClosestIntersectingPoint(sensorLine, obstacleLines);
-    }
-
-    update(time: number, delta: number) {
-        let prevDir = this.pState.direction;
+        // Copy state from server
+        this.pState.x = serverState.x;
+        this.pState.y = serverState.y;
+        this.pState.direction = serverState.direction;
+        this.pState.rubber = serverState.rubber;
+        this.pState.isRunning = serverState.isRunning;
         
-        const gameScene = this.scene as any;
-        const worldWidth = gameScene.WORLD_WIDTH || 900;
-        const worldHeight = gameScene.WORLD_HEIGHT || 600;
-
-        const allOtherTrails: Phaser.Geom.Line[] = [];
-        if (gameScene.playerManager && gameScene.playerManager.players) {
-            for (const p of gameScene.playerManager.players) {
-                if(!p.isRunning && p !== this) continue;
-                if(p !== this) {
-                    allOtherTrails.push(...p.trailLines);
-                    if (p.currentLine) {
-                        allOtherTrails.push(p.currentLine);
-                    }
-                }
-            }
-        }
-
-        this.pState.update(time, delta, allOtherTrails, worldWidth, worldHeight);
+        // Reconstruct trail lines (since they come as raw coordinate objects)
+        this.pState.trailLines = serverState.trailLines.map((l: any) => new Phaser.Geom.Line(l.x1, l.y1, l.x2, l.y2));
+        this.pState.previousLineEnd.set(serverState.previousLineEnd.x, serverState.previousLineEnd.y);
+        this.pState.currentLine.setTo(this.pState.previousLineEnd.x, this.pState.previousLineEnd.y, this.pState.x, this.pState.y);
 
         if (prevDir !== this.pState.direction) {
             this._playTurnSound();
         }
 
+        this._draw();
+        this._updateEngineSound();
+    }
+
+    update(time: number, delta: number) {
+        // The game loop is handled by the authoritative server now.
+        // We just render the state we receive in updateServerState.
+        // We still need to call this just to make sure the engine sound stays smooth,
+        // although we might just want it called in updateServerState.
         this._draw();
         this._updateEngineSound();
     }

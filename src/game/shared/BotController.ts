@@ -1,12 +1,12 @@
-import Player from '../gameobjects/Player';
+import * as Phaser from 'phaser';
+import PlayerState from './PlayerState';
 
 export default class BotController {
-    player: Player;
-    scene: Phaser.Scene;
+    player: PlayerState;
 
     // AI Personality
     strategy: 'CUT_OFF' | 'BOX_IN' | 'SPEED_DEMON' | 'TRAPPER' = 'CUT_OFF';
-    targetPlayer: Player | null = null;
+    targetPlayer: PlayerState | null = null;
 
     // How far the bot looks ahead to avoid obstacles
     sightDistance: number = 100;
@@ -18,11 +18,9 @@ export default class BotController {
 
     // State tracking
     isEvading: boolean = false;
-    debugText: Phaser.GameObjects.Text;
     botName: string;
 
-    constructor(scene: Phaser.Scene, player: Player) {
-        this.scene = scene;
+    constructor(player: PlayerState) {
         this.player = player;
 
         // Randomly assign a personality on spawn
@@ -40,26 +38,13 @@ export default class BotController {
 
         this.botName = `${firstNames[Math.floor(Math.random() * firstNames.length)]} ${titles[this.strategy]}`;
         console.log(`Bot spawned: ${this.botName} (Strategy: ${this.strategy})`);
-
-        const colorHex = '#' + this.player.color.toString(16).padStart(6, '0');
-
-        this.debugText = scene.add.text(this.player.x, this.player.y, this.botName, {
-            fontSize: '12px',
-            color: colorHex,
-            fontStyle: 'bold',
-            stroke: '#000000',
-            strokeThickness: 3
-        }).setOrigin(0.5, 2);
     }
 
-    getNearestEnemy(): Player | null {
-        const gameScene = this.scene as any;
-        if (!gameScene.playerManager || !gameScene.playerManager.players) return null;
-
-        let nearest: Player | null = null;
+    getNearestEnemy(allPlayers: PlayerState[]): PlayerState | null {
+        let nearest: PlayerState | null = null;
         let minDistance = Infinity;
 
-        for (const p of gameScene.playerManager.players) {
+        for (const p of allPlayers) {
             if (p === this.player || !p.isRunning) continue;
 
             const dist = Phaser.Math.Distance.Between(this.player.x, this.player.y, p.x, p.y);
@@ -72,7 +57,7 @@ export default class BotController {
     }
 
     // Determine where the enemy is relative to the bot's current facing direction
-    getRelativePosition(enemy: Player): { distance: number, angleDiff: number, isAhead: boolean, isLeft: boolean } {
+    getRelativePosition(enemy: PlayerState): { distance: number, angleDiff: number, isAhead: boolean, isLeft: boolean } {
         const dist = Phaser.Math.Distance.Between(this.player.x, this.player.y, enemy.x, enemy.y);
 
         // Angle from bot to enemy
@@ -92,7 +77,7 @@ export default class BotController {
     }
 
     // Determine if the enemy is driving parallel, head-on, or perpendicular
-    getRelativeHeading(enemy: Player): 'PARALLEL' | 'HEAD_ON' | 'PERPENDICULAR' {
+    getRelativeHeading(enemy: PlayerState): 'PARALLEL' | 'HEAD_ON' | 'PERPENDICULAR' {
         let normalizedBotDir = Phaser.Math.Angle.Wrap(this.player.direction);
         let normalizedEnemyDir = Phaser.Math.Angle.Wrap(enemy.direction);
 
@@ -103,7 +88,7 @@ export default class BotController {
         return 'PERPENDICULAR';
     }
 
-    executeAttackPhase(time: number, enemy: Player, leftDist: number, rightDist: number) {
+    executeAttackPhase(time: number, enemy: PlayerState, leftDist: number, rightDist: number) {
         const relPos = this.getRelativePosition(enemy);
         const relHeading = this.getRelativeHeading(enemy);
 
@@ -212,16 +197,7 @@ export default class BotController {
         }
     }
 
-    update(time: number, _delta: number) {
-        if (this.debugText) {
-            this.debugText.setPosition(this.player.x, this.player.y - 20);
-            if (this.player.isRunning) {
-                this.debugText.setVisible(true);
-            } else {
-                this.debugText.setVisible(false);
-            }
-        }
-
+    update(time: number, delta: number, allPlayers: PlayerState[], worldWidth: number, worldHeight: number) {
         if (!this.player.isRunning) {
             return;
         }
@@ -232,17 +208,24 @@ export default class BotController {
         // Limit the number of turns the bot can make in a given timeframe
         if (time - this.lastActionTime < this.actionCooldownMs) return;
 
-        let collisionLines = this.player._getLinesForCollision();
+        let allOtherTrails: Phaser.Geom.Line[] = [];
+        for (const p of allPlayers) {
+            if (p !== this.player) {
+                allOtherTrails = allOtherTrails.concat(p.trailLines);
+            }
+        }
 
-        let pointFront = this.player._getClosestIntersectingPoint(this.player.detectionLine, collisionLines);
-        let pointLeft = this.player._getClosestIntersectingPoint(this.player.detectionLineLeft, collisionLines);
-        let pointRight = this.player._getClosestIntersectingPoint(this.player.detectionLineRight, collisionLines);
+        let collisionLines = this.player.getLinesForCollision(allOtherTrails, worldWidth, worldHeight);
+
+        let pointFront = this.player.getClosestIntersectingPoint(this.player.detectionLine, collisionLines);
+        let pointLeft = this.player.getClosestIntersectingPoint(this.player.detectionLineLeft, collisionLines);
+        let pointRight = this.player.getClosestIntersectingPoint(this.player.detectionLineRight, collisionLines);
 
         const frontDistance = Phaser.Math.Distance.Between(this.player.x, this.player.y, pointFront.x, pointFront.y);
         const leftDistance = Phaser.Math.Distance.Between(this.player.x, this.player.y, pointLeft.x, pointLeft.y);
         const rightDistance = Phaser.Math.Distance.Between(this.player.x, this.player.y, pointRight.x, pointRight.y);
 
-        this.targetPlayer = this.getNearestEnemy();
+        this.targetPlayer = this.getNearestEnemy(allPlayers);
         let relPos = this.targetPlayer ? this.getRelativePosition(this.targetPlayer) : null;
 
         // Determine if we should actively seek trails for momentum

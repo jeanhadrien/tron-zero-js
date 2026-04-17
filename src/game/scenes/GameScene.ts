@@ -3,30 +3,30 @@ import { EventBus } from '../EventBus';
 import Player from '../gameobjects/Player';
 import PlayerManager from '../gameobjects/PlayerManager';
 import DebugHud from '../gameobjects/DebugHud';
-import BotController from '../controllers/BotController';
+import { io, Socket } from 'socket.io-client';
+import PlayerState from '../shared/PlayerState';
 
 export class GameScene extends Scene {
     CANVAS_WIDTH: number;
     CANVAS_HEIGHT: number;
-    WORLD_WIDTH: number = 1000;
-    WORLD_HEIGHT: number = 1000;
+    WORLD_WIDTH: number = 4000;
+    WORLD_HEIGHT: number = 4000;
     PLAYER_VIEW_WIDTH: number = 800;
     isCameraFollowing: boolean = true;
 
     isKeyDown: Record<string, boolean>;
     gridGraphics: Phaser.GameObjects.Graphics;
-    humanPlayer: Player;
+    humanPlayer: Player | null = null;
     safeDistance: number;
     isAlive: boolean;
     gameOverText: Phaser.GameObjects.Text;
     restartText: Phaser.GameObjects.Text;
     spaceKey: Phaser.Input.Keyboard.Key;
-    aiPlayers: Player[] = [];
-    aiControllers: BotController[] = [];
-    NUM_BOTS: number = 5;
 
     playerManager: PlayerManager;
     debugHud: DebugHud;
+    socket: Socket;
+    myId: string | null = null;
 
     accumulator: number = 0;
     FIXED_DELTA: number = 1000 / 60; // 60 updates per second
@@ -69,19 +69,7 @@ export class GameScene extends Scene {
             }
         }
 
-        this.humanPlayer = this.playerManager.addPlayer(this.WORLD_WIDTH * (1 / 3), this.WORLD_HEIGHT / 2, 0x00ff00);
-        
-        for(let i=0; i<this.NUM_BOTS; i++) {
-            const spacing = this.WORLD_HEIGHT / (this.NUM_BOTS + 1);
-            const yPos = spacing * (i + 1);
-            const randomColor = Phaser.Display.Color.HSVToRGB(Math.random(), 1, 1).color;
-            const bot = this.playerManager.addPlayer(this.WORLD_WIDTH * (2 / 3), yPos, randomColor);
-            this.aiPlayers.push(bot);
-            this.aiControllers.push(new BotController(this, bot));
-        }
-
-        this.debugHud.add("Rubber", this.humanPlayer, "rubber");
-        this.debugHud.add("Speed", this.humanPlayer, "velocity");
+        this.setupSocket();
 
         EventBus.on('toggle-invincibility', (invincibleState: boolean) => {
             if (this.humanPlayer) {
@@ -100,8 +88,6 @@ export class GameScene extends Scene {
 
             this.updateCameraView();
         });
-
-        this.updateCameraView();
 
         // Game state
         this.isAlive = true;
@@ -134,26 +120,10 @@ export class GameScene extends Scene {
             .setDepth(1000)
             .setVisible(false);
 
-        this.restartText = this.add
-            .text(
-                this.CANVAS_WIDTH / 2,
-                this.CANVAS_HEIGHT / 2 + 30,
-                'Press SPACE to restart',
-                {
-                    fontSize: '24px',
-                    color: '#ffffff',
-                    fontFamily: 'Courier New',
-                }
-            )
-            .setOrigin(0.5)
-            .setVisible(false);
-
         EventBus.on("game-over", (winner?: string) => {
-            this.humanPlayer.isRunning = false;
-            for(let bot of this.aiPlayers) {
-                bot.isRunning = false;
-            }
+            // Server should handle game-over, but for now we keep local UI
             this.isAlive = false;
+            if (this.humanPlayer) this.humanPlayer.isRunning = false;
             
             if (winner === 'human') {
                 this.gameOverText.setText('YOU WIN!');
@@ -176,18 +146,8 @@ export class GameScene extends Scene {
                 audioCtx.resume();
             }
 
-            // Reset all game state
+            // In multiplayer, restart should probably re-join or tell server to respawn
             this.isAlive = true;
-
-            this.humanPlayer.reset(this.WORLD_WIDTH * (1 / 3), this.WORLD_HEIGHT / 2, -Math.PI / 2);
-            this.humanPlayer.isRunning = true;
-
-            for(let i=0; i<this.NUM_BOTS; i++) {
-                const spacing = this.WORLD_HEIGHT / (this.NUM_BOTS + 1);
-                const yPos = spacing * (i + 1);
-                this.aiPlayers[i].reset(this.WORLD_WIDTH * (2 / 3), yPos, -Math.PI / 2);
-                this.aiPlayers[i].isRunning = true;
-            }
 
             // Hide game over text
             this.gameOverText.setVisible(false);
@@ -196,7 +156,6 @@ export class GameScene extends Scene {
             // Reset key states
             this.isKeyDown = {};
         });
-
 
         // Add space key for restart
         this.spaceKey = this.input.keyboard!.addKey(
@@ -219,8 +178,9 @@ export class GameScene extends Scene {
             this.input.keyboard?.on(`keydown-${key}`, () => {
                 if (!this.isKeyDown[key]) {
                     this.isKeyDown[key] = true;
-                    this.humanPlayer.turn(direction);
-                    //EventBus.emit("human.move", direction);
+                    if (this.humanPlayer && this.humanPlayer.isRunning) {
+                        this.socket.emit('turn', { direction });
+                    }
                 }
             });
             this.input.keyboard?.on(`keyup-${key}`, () => {
@@ -229,8 +189,74 @@ export class GameScene extends Scene {
         });
     }
 
+    setupSocket() {
+        // Connect to Vite proxy which forwards to :3000
+        this.socket = io();
+
+        this.socket.on('connect', () => {
+            console.log('Connected to server with ID:', this.socket.id);
+            this.myId = this.socket.id!;
+        });
+
+        this.socket.on('init_state', (state: any) => {
+            console.log('Received init state', Object.keys(state).length, 'players');
+            // Clear existing players
+            for (let [id, p] of this.playerManager.players) {
+                p.destroy();
+            }
+            this.playerManager.players.clear();
+
+            // Recreate from state
+            for (const id in state) {
+                const pData = state[id];
+                const pState = new PlayerState(pData.x, pData.y, pData.direction, pData.color);
+                pState.id = id;
+                pState.rubber = pData.rubber;
+                pState.isRunning = pData.isRunning;
+                
+                const player = this.playerManager.addPlayer(pState);
+                player.setVisible(true);
+
+                if (id === this.myId) {
+                    this.humanPlayer = player;
+                    this.debugHud.add("Rubber", this.humanPlayer, "rubber");
+                    this.debugHud.add("Speed", this.humanPlayer, "velocity");
+                    this.updateCameraView();
+                }
+            }
+        });
+
+        this.socket.on('player_joined', (data: { id: string, state: any }) => {
+            console.log('Player joined', data.id);
+            if (!this.playerManager.players.has(data.id)) {
+                const pData = data.state;
+                const pState = new PlayerState(pData.x, pData.y, pData.direction, pData.color);
+                pState.id = data.id;
+                pState.rubber = pData.rubber;
+                pState.isRunning = pData.isRunning;
+                const player = this.playerManager.addPlayer(pState);
+                player.setVisible(true);
+            }
+        });
+
+        this.socket.on('player_left', (data: { id: string }) => {
+            console.log('Player left', data.id);
+            this.playerManager.removePlayer(data.id);
+        });
+
+        this.socket.on('sync_state', (state: any) => {
+            for (const id in state) {
+                const serverState = state[id];
+                const localPlayer = this.playerManager.players.get(id);
+                if (localPlayer) {
+                    localPlayer.updateServerState(serverState);
+                }
+            }
+        });
+    }
+
     update(_time: any, delta: number) {
-        if (!this.isAlive) {
+        if (!this.isAlive && this.humanPlayer) {
             // Keep game over text centered and correctly sized relative to camera
             const cx = this.cameras.main.worldView.centerX;
             const cy = this.cameras.main.worldView.centerY;
@@ -249,15 +275,10 @@ export class GameScene extends Scene {
             return;
         }
 
-        this.accumulator += delta;
-        while (this.accumulator >= this.FIXED_DELTA) {
-            for(let controller of this.aiControllers) {
-                controller.update(_time, this.FIXED_DELTA);
-            }
-            this.playerManager.update(_time, this.FIXED_DELTA);
-            this.accumulator -= this.FIXED_DELTA;
-        }
-        
+        // We no longer simulate the game locally.
+        // We just call update on players to update sound smoothly,
+        // and HUD.
+        this.playerManager.update(_time, delta);
         this.debugHud.update(delta);
 
         // Update audio listener to follow the camera center
@@ -276,44 +297,10 @@ export class GameScene extends Scene {
             }
         }
 
-        // Check boundary collision and rubber for all players
-        if (
-            this.humanPlayer.x < 0 ||
-            this.humanPlayer.x > this.WORLD_WIDTH ||
-            this.humanPlayer.y < 0 ||
-            this.humanPlayer.y > this.WORLD_HEIGHT ||
-            this.humanPlayer.rubber <= 0
-        ) {
+        // Handle death
+        if (this.humanPlayer && this.humanPlayer.rubber <= 0 && this.isAlive) {
             EventBus.emit("game-over", "ai");
-        } else {
-            let activeBots = 0;
-            for(let bot of this.aiPlayers) {
-                if(!bot.isRunning) continue;
-                
-                if (
-                    bot.x < 0 ||
-                    bot.x > this.WORLD_WIDTH ||
-                    bot.y < 0 ||
-                    bot.y > this.WORLD_HEIGHT ||
-                    bot.rubber <= 0
-                ) {
-                    bot.isRunning = false;
-                    bot.trailLines = [];
-                    bot.staticTrailGraphics.clear();
-                    bot.activeTrailGraphics.clear();
-                    bot.driverGraphics.clear();
-                    if(bot.oscillator) {
-                        try { bot.oscillator.stop(); } catch(e){}
-                    }
-                } else {
-                    activeBots++;
-                }
-            }
-            if(activeBots === 0) {
-                EventBus.emit("game-over", "human");
-            }
         }
-
     }
 
     releaseKey(key: string) {
@@ -344,6 +331,8 @@ export class GameScene extends Scene {
     }
 
     updateCameraView() {
+        if(!this.humanPlayer) return;
+
         if (this.isCameraFollowing) {
             this.cameras.main.setBounds(0, 0, this.WORLD_WIDTH, this.WORLD_HEIGHT, true);
             this.cameras.main.setZoom(this.CANVAS_WIDTH / this.PLAYER_VIEW_WIDTH);
@@ -357,6 +346,4 @@ export class GameScene extends Scene {
             this.cameras.main.centerOn(this.WORLD_WIDTH / 2, this.WORLD_HEIGHT / 2);
         }
     }
-
-
 }

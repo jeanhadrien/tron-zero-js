@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import 'phaser';
-import PlayerState from '../gameobjects/PlayerState';
+import PlayerState from '../shared/PlayerState';
 
 describe('Player Collision', () => {
     let state: PlayerState;
