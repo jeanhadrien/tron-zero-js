@@ -5,8 +5,12 @@ import PlayerManager from '../gameobjects/PlayerManager';
 import DebugHud from '../gameobjects/DebugHud';
 
 export class GameScene extends Scene {
-    CANVAS_WIDTH: number = 900;
-    CANVAS_HEIGHT: number = 600;
+    CANVAS_WIDTH: number;
+    CANVAS_HEIGHT: number;
+    WORLD_WIDTH: number = 1000;
+    WORLD_HEIGHT: number = 1000;
+    PLAYER_VIEW_WIDTH: number = 800;
+    isCameraFollowing: boolean = true;
 
     isKeyDown: Record<string, boolean>;
     gridGraphics: Phaser.GameObjects.Graphics;
@@ -26,6 +30,8 @@ export class GameScene extends Scene {
     }
 
     init() {
+        this.CANVAS_WIDTH = this.scale.width;
+        this.CANVAS_HEIGHT = this.scale.height;
         this.playerManager = new PlayerManager(this);
         this.debugHud = new DebugHud(this);
     }
@@ -57,8 +63,8 @@ export class GameScene extends Scene {
             }
         }
 
-        this.humanPlayer = this.playerManager.addPlayer(this.CANVAS_WIDTH * (1 / 3), this.CANVAS_HEIGHT / 2, 0x00ff00);
-        this.aiPlayer = this.playerManager.addPlayer(this.CANVAS_WIDTH * (2 / 3), this.CANVAS_HEIGHT / 2, 0xff0000);
+        this.humanPlayer = this.playerManager.addPlayer(this.WORLD_WIDTH * (1 / 3), this.WORLD_HEIGHT / 2, 0x00ff00);
+        this.aiPlayer = this.playerManager.addPlayer(this.WORLD_WIDTH * (2 / 3), this.WORLD_HEIGHT / 2, 0xff0000);
 
         this.debugHud.add("Rubber", this.humanPlayer, "rubber");
         this.debugHud.add("Speed", this.humanPlayer, "velocity");
@@ -69,13 +75,19 @@ export class GameScene extends Scene {
             }
         });
 
-        //this.debugHud.initialize();
+        EventBus.on('toggle-camera-follow', (followState: boolean) => {
+            this.isCameraFollowing = followState;
+            this.updateCameraView();
+        });
 
-        // add collision box
-        // let v = this.physics.add.staticBody(200, 200, 300, 30);
-        // this.physics.add.collider(this.humanPlayer, v, () => {
-        //   this.humanPlayer.persistTrail();
-        // });
+        this.scale.on('resize', (gameSize: Phaser.Structs.Size) => {
+            this.CANVAS_WIDTH = gameSize.width;
+            this.CANVAS_HEIGHT = gameSize.height;
+
+            this.updateCameraView();
+        });
+
+        this.updateCameraView();
 
         // Game state
         this.isAlive = true;
@@ -85,12 +97,27 @@ export class GameScene extends Scene {
 
         // Game Over text (hidden initially)
         this.gameOverText = this.add
-            .text(this.CANVAS_WIDTH / 2, this.CANVAS_HEIGHT / 2 - 30, 'GAME OVER', {
+            .text(0, 0, 'GAME OVER', {
                 fontSize: '48px',
                 color: '#ff0000',
                 fontFamily: 'Arial',
             })
             .setOrigin(0.5)
+            .setDepth(1000)
+            .setVisible(false);
+
+        this.restartText = this.add
+            .text(
+                0, 0,
+                'Press SPACE to restart',
+                {
+                    fontSize: '24px',
+                    color: '#ffffff',
+                    fontFamily: 'Courier New',
+                }
+            )
+            .setOrigin(0.5)
+            .setDepth(1000)
             .setVisible(false);
 
         this.restartText = this.add
@@ -121,15 +148,13 @@ export class GameScene extends Scene {
             }
 
             // Reset all game state
-            this.humanPlayer.isRunning = true;
             this.isAlive = true;
-            this.humanPlayer.x = 400;
-            this.humanPlayer.y = 500;
-            this.humanPlayer.direction = 0;
-            this.humanPlayer.driverGraphics.rotation = this.humanPlayer.direction + Math.PI / 2;
-            this.humanPlayer.staticTrailGraphics.clear();
-            this.humanPlayer.activeTrailGraphics.clear();
-            this.humanPlayer.trailLines = [];
+
+            this.humanPlayer.reset(this.WORLD_WIDTH * (1 / 3), this.WORLD_HEIGHT / 2, -Math.PI / 2);
+            this.humanPlayer.isRunning = true;
+
+            this.aiPlayer.reset(this.WORLD_WIDTH * (2 / 3), this.WORLD_HEIGHT / 2, -Math.PI / 2);
+            this.aiPlayer.isRunning = true;
 
             // Hide game over text
             this.gameOverText.setVisible(false);
@@ -173,6 +198,17 @@ export class GameScene extends Scene {
 
     update(_time: any, delta: number) {
         if (!this.isAlive) {
+            // Keep game over text centered and correctly sized relative to camera
+            const cx = this.cameras.main.worldView.centerX;
+            const cy = this.cameras.main.worldView.centerY;
+            const zoom = this.cameras.main.zoom;
+
+            this.gameOverText.setPosition(cx, cy - (30 / zoom));
+            this.gameOverText.setScale(1 / zoom);
+
+            this.restartText.setPosition(cx, cy + (30 / zoom));
+            this.restartText.setScale(1 / zoom);
+
             // Check for restart
             if (this.spaceKey.isDown) {
                 EventBus.emit("game-start");
@@ -185,12 +221,28 @@ export class GameScene extends Scene {
         this.playerManager.update(_time, delta);
         this.debugHud.update(delta);
 
+        // Update audio listener to follow the camera center
+        const audioCtx = (this.sound as any).context as AudioContext;
+        if (audioCtx) {
+            const listener = audioCtx.listener;
+            const cam = this.cameras.main;
+            const camMidX = cam.scrollX + cam.width / 2;
+            const camMidY = cam.scrollY + cam.height / 2;
+
+            if (listener.positionX) {
+                listener.positionX.setTargetAtTime(camMidX, audioCtx.currentTime, 0.05);
+                listener.positionY.setTargetAtTime(camMidY, audioCtx.currentTime, 0.05);
+            } else {
+                listener.setPosition(camMidX, camMidY, 300);
+            }
+        }
+
         // Check boundary collision
         if (
             this.humanPlayer.x < 0 ||
-            this.humanPlayer.x > this.CANVAS_WIDTH ||
+            this.humanPlayer.x > this.WORLD_WIDTH ||
             this.humanPlayer.y < 0 ||
-            this.humanPlayer.y > this.CANVAS_HEIGHT
+            this.humanPlayer.y > this.WORLD_HEIGHT
         ) {
             EventBus.emit("game-over");
 
@@ -212,20 +264,35 @@ export class GameScene extends Scene {
         const gridSize = 40; // Space between grid lines
 
         // Draw vertical lines
-        for (let x = 0; x <= this.CANVAS_WIDTH; x += gridSize) {
+        for (let x = 0; x <= this.WORLD_WIDTH; x += gridSize) {
             this.gridGraphics.moveTo(x, 0);
-            this.gridGraphics.lineTo(x, this.CANVAS_HEIGHT);
+            this.gridGraphics.lineTo(x, this.WORLD_HEIGHT);
         }
 
         // Draw horizontal lines
-        for (let y = 0; y <= this.CANVAS_HEIGHT; y += gridSize) {
+        for (let y = 0; y <= this.WORLD_HEIGHT; y += gridSize) {
             this.gridGraphics.moveTo(0, y);
-            this.gridGraphics.lineTo(this.CANVAS_WIDTH, y);
+            this.gridGraphics.lineTo(this.WORLD_WIDTH, y);
         }
         this.gridGraphics.strokePath();
 
         // Send grid to back so it appears behind other elements
         this.gridGraphics.setDepth(-1);
+    }
+
+    updateCameraView() {
+        if (this.isCameraFollowing) {
+            this.cameras.main.setBounds(0, 0, this.WORLD_WIDTH, this.WORLD_HEIGHT, true);
+            this.cameras.main.setZoom(this.CANVAS_WIDTH / this.PLAYER_VIEW_WIDTH);
+            this.cameras.main.startFollow(this.humanPlayer, true, 0.1, 0.1);
+        } else {
+            this.cameras.main.removeBounds();
+            this.cameras.main.stopFollow();
+            const zoomX = this.CANVAS_WIDTH / this.WORLD_WIDTH;
+            const zoomY = this.CANVAS_HEIGHT / this.WORLD_HEIGHT;
+            this.cameras.main.setZoom(Math.min(zoomX, zoomY));
+            this.cameras.main.centerOn(this.WORLD_WIDTH / 2, this.WORLD_HEIGHT / 2);
+        }
     }
 
 

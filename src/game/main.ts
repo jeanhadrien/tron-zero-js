@@ -19,7 +19,9 @@ const config: Phaser.Types.Core.GameConfig = {
     },
     scene: [GameScene],
     scale: {
-        mode: Phaser.Scale.FIT,
+        mode: Phaser.Scale.RESIZE,
+        width: '100%',
+        height: '100%',
         autoCenter: Phaser.Scale.CENTER_BOTH,
     },
 };

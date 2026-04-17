@@ -53,6 +53,6 @@ export const PhaserGame = (props: IProps) => {
     });
 
     return (
-        <div id="game-container" ref={gameContainer}></div>
+        <div id="game-container" ref={gameContainer} style={{ width: '100%', height: '100%', flex: 1 }}></div>
     );
 };

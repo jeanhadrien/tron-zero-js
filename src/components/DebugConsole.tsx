@@ -9,6 +9,7 @@ interface DebugValue {
 const DebugConsole = () => {
     const [debugData, setDebugData] = createSignal<DebugValue[]>([]);
     const [isInvincible, setIsInvincible] = createSignal(false);
+    const [isCameraFollowing, setIsCameraFollowing] = createSignal(true);
 
     onMount(() => {
         const handleDebugUpdate = (data: DebugValue[]) => {
@@ -50,6 +51,7 @@ const DebugConsole = () => {
                     EventBus.emit('toggle-invincibility', nextState);
                 }} 
                 style={{ 
+                    display: 'block',
                     'margin-top': '10px', 
                     padding: '5px', 
                     cursor: 'pointer', 
@@ -59,6 +61,24 @@ const DebugConsole = () => {
                 }}
             >
                 Toggle Invincibility
+            </button>
+            <button 
+                onClick={() => {
+                    const nextState = !isCameraFollowing();
+                    setIsCameraFollowing(nextState);
+                    EventBus.emit('toggle-camera-follow', nextState);
+                }} 
+                style={{ 
+                    display: 'block',
+                    'margin-top': '10px', 
+                    padding: '5px', 
+                    cursor: 'pointer', 
+                    background: '#333', 
+                    color: isCameraFollowing() ? '#0f0' : '#888', 
+                    border: `1px solid ${isCameraFollowing() ? '#0f0' : '#888'}` 
+                }}
+            >
+                Camera Follows Player
             </button>
         </div>
     );

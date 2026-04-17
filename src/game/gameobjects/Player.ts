@@ -8,14 +8,14 @@ export default class Player extends Phaser.GameObjects.Image {
     DETECTION_LINE_LENGTH: number = 20;
     TRAIL_MAX_LENGTH = 100;
     BASE_RUBBER = 10;
-    TURN_DELAY_MS = 40;
+    TURN_DELAY_MS = 50;
     COLLISION_EPSILON = 1e-10; // Tolerance for floating point inaccuracies
+    trailWidth = 3;
 
     driverGraphics: GameObjects.Graphics;
 
     trailLines: Phaser.Geom.Line[] = [];
 
-    trailWidth = 2.5;
     staticTrailGraphics: GameObjects.Graphics;
     activeTrailGraphics: GameObjects.Graphics;
     direction: number;
@@ -113,6 +113,23 @@ export default class Player extends Phaser.GameObjects.Image {
         super.destroy(fromScene);
     }
 
+    reset(x: number, y: number, direction: number) {
+        this.x = x;
+        this.y = y;
+        this.direction = direction;
+        this.driverGraphics.rotation = this.direction + Math.PI / 2;
+        this.trailLines = [];
+        this.staticTrailGraphics.clear();
+        this.activeTrailGraphics.clear();
+        this.previousLineEnd.set(this.x, this.y);
+        this.rubber = this.BASE_RUBBER;
+        this.speed = 1;
+        this.targetSpeed = 1;
+        this.turnQueue = [];
+        this._updateDetectionLines();
+        this._setSpeed(1);
+    }
+
     _updateDirection(angle: number) {
         if (this.direction == angle) {
             return;
@@ -150,15 +167,16 @@ export default class Player extends Phaser.GameObjects.Image {
     }
 
     _getLinesForCollision() {
-        const bounds = this.scene?.cameras?.main;
-        if (!bounds) return this.trailLines;
+        const gameScene = this.scene as any;
+        const worldWidth = gameScene.WORLD_WIDTH || 900;
+        const worldHeight = gameScene.WORLD_HEIGHT || 600;
 
-        // Use camera bounds as world bounds since we don't have physics world anymore
+        // Use world bounds
         const wallLines = [
-            new Phaser.Geom.Line(0, 0, bounds.width, 0),
-            new Phaser.Geom.Line(bounds.width, 0, bounds.width, bounds.height),
-            new Phaser.Geom.Line(bounds.width, bounds.height, 0, bounds.height),
-            new Phaser.Geom.Line(0, bounds.height, 0, 0)
+            new Phaser.Geom.Line(0, 0, worldWidth, 0),
+            new Phaser.Geom.Line(worldWidth, 0, worldWidth, worldHeight),
+            new Phaser.Geom.Line(worldWidth, worldHeight, 0, worldHeight),
+            new Phaser.Geom.Line(0, worldHeight, 0, 0)
         ];
         return [...this.trailLines, ...wallLines];
     }
@@ -223,10 +241,10 @@ export default class Player extends Phaser.GameObjects.Image {
             this.currentLine
         );
 
-        this.activeTrailGraphics.lineStyle(1, 0xff0000, 0.5); // Red for sensors
-        this.activeTrailGraphics.strokeLineShape(this.detectionLine);
-        this.activeTrailGraphics.strokeLineShape(this.detectionLineLeft);
-        this.activeTrailGraphics.strokeLineShape(this.detectionLineRight);
+        // this.activeTrailGraphics.lineStyle(1, 0xff0000, 0.5); // Red for sensors
+        // this.activeTrailGraphics.strokeLineShape(this.detectionLine);
+        // this.activeTrailGraphics.strokeLineShape(this.detectionLineLeft);
+        // this.activeTrailGraphics.strokeLineShape(this.detectionLineRight);
 
     }
 
@@ -374,7 +392,6 @@ export default class Player extends Phaser.GameObjects.Image {
             );
 
             if (frontDistance == 0) {
-                console.log("aa");
             }
             let isStuck = false;
 
@@ -428,7 +445,6 @@ export default class Player extends Phaser.GameObjects.Image {
 
         } else {
             this._setSpeed(0);
-            console.log("uhh");
         }
 
         this.rubber = Phaser.Math.Clamp(this.rubber, 0, this.BASE_RUBBER);
