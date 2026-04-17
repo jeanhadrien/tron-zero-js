@@ -41,9 +41,11 @@ export default class BotController {
         this.botName = `${firstNames[Math.floor(Math.random() * firstNames.length)]} ${titles[this.strategy]}`;
         console.log(`Bot spawned: ${this.botName} (Strategy: ${this.strategy})`);
 
+        const colorHex = '#' + this.player.color.toString(16).padStart(6, '0');
+
         this.debugText = scene.add.text(this.player.x, this.player.y, this.botName, {
             fontSize: '12px',
-            color: '#ff4444',
+            color: colorHex,
             fontStyle: 'bold',
             stroke: '#000000',
             strokeThickness: 3

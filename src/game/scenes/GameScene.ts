@@ -21,8 +21,9 @@ export class GameScene extends Scene {
     gameOverText: Phaser.GameObjects.Text;
     restartText: Phaser.GameObjects.Text;
     spaceKey: Phaser.Input.Keyboard.Key;
-    aiPlayer: Player;
-    aiController: BotController;
+    aiPlayers: Player[] = [];
+    aiControllers: BotController[] = [];
+    NUM_BOTS: number = 5;
 
     playerManager: PlayerManager;
     debugHud: DebugHud;
@@ -66,8 +67,15 @@ export class GameScene extends Scene {
         }
 
         this.humanPlayer = this.playerManager.addPlayer(this.WORLD_WIDTH * (1 / 3), this.WORLD_HEIGHT / 2, 0x00ff00);
-        this.aiPlayer = this.playerManager.addPlayer(this.WORLD_WIDTH * (2 / 3), this.WORLD_HEIGHT / 2, 0xff0000);
-        this.aiController = new BotController(this, this.aiPlayer);
+        
+        for(let i=0; i<this.NUM_BOTS; i++) {
+            const spacing = this.WORLD_HEIGHT / (this.NUM_BOTS + 1);
+            const yPos = spacing * (i + 1);
+            const randomColor = Phaser.Display.Color.HSVToRGB(Math.random(), 1, 1).color;
+            const bot = this.playerManager.addPlayer(this.WORLD_WIDTH * (2 / 3), yPos, randomColor);
+            this.aiPlayers.push(bot);
+            this.aiControllers.push(new BotController(this, bot));
+        }
 
         this.debugHud.add("Rubber", this.humanPlayer, "rubber");
         this.debugHud.add("Speed", this.humanPlayer, "velocity");
@@ -139,7 +147,9 @@ export class GameScene extends Scene {
 
         EventBus.on("game-over", (winner?: string) => {
             this.humanPlayer.isRunning = false;
-            this.aiPlayer.isRunning = false;
+            for(let bot of this.aiPlayers) {
+                bot.isRunning = false;
+            }
             this.isAlive = false;
             
             if (winner === 'human') {
@@ -169,8 +179,12 @@ export class GameScene extends Scene {
             this.humanPlayer.reset(this.WORLD_WIDTH * (1 / 3), this.WORLD_HEIGHT / 2, -Math.PI / 2);
             this.humanPlayer.isRunning = true;
 
-            this.aiPlayer.reset(this.WORLD_WIDTH * (2 / 3), this.WORLD_HEIGHT / 2, -Math.PI / 2);
-            this.aiPlayer.isRunning = true;
+            for(let i=0; i<this.NUM_BOTS; i++) {
+                const spacing = this.WORLD_HEIGHT / (this.NUM_BOTS + 1);
+                const yPos = spacing * (i + 1);
+                this.aiPlayers[i].reset(this.WORLD_WIDTH * (2 / 3), yPos, -Math.PI / 2);
+                this.aiPlayers[i].isRunning = true;
+            }
 
             // Hide game over text
             this.gameOverText.setVisible(false);
@@ -234,7 +248,9 @@ export class GameScene extends Scene {
 
         //const renderFps = Math.round(this.game.loop.actualFps);
         //console.log(renderFps);
-        this.aiController.update(_time, delta);
+        for(let controller of this.aiControllers) {
+            controller.update(_time, delta);
+        }
         this.playerManager.update(_time, delta);
         this.debugHud.update(delta);
 
@@ -263,14 +279,33 @@ export class GameScene extends Scene {
             this.humanPlayer.rubber <= 0
         ) {
             EventBus.emit("game-over", "ai");
-        } else if (
-            this.aiPlayer.x < 0 ||
-            this.aiPlayer.x > this.WORLD_WIDTH ||
-            this.aiPlayer.y < 0 ||
-            this.aiPlayer.y > this.WORLD_HEIGHT ||
-            this.aiPlayer.rubber <= 0
-        ) {
-            EventBus.emit("game-over", "human");
+        } else {
+            let activeBots = 0;
+            for(let bot of this.aiPlayers) {
+                if(!bot.isRunning) continue;
+                
+                if (
+                    bot.x < 0 ||
+                    bot.x > this.WORLD_WIDTH ||
+                    bot.y < 0 ||
+                    bot.y > this.WORLD_HEIGHT ||
+                    bot.rubber <= 0
+                ) {
+                    bot.isRunning = false;
+                    bot.trailLines = [];
+                    bot.staticTrailGraphics.clear();
+                    bot.activeTrailGraphics.clear();
+                    bot.driverGraphics.clear();
+                    if(bot.oscillator) {
+                        try { bot.oscillator.stop(); } catch(e){}
+                    }
+                } else {
+                    activeBots++;
+                }
+            }
+            if(activeBots === 0) {
+                EventBus.emit("game-over", "human");
+            }
         }
 
     }

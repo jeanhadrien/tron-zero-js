@@ -117,6 +117,12 @@ export default class Player extends Phaser.GameObjects.Image {
         this.x = x;
         this.y = y;
         this.direction = direction;
+        
+        // Re-draw driver graphics if it was cleared
+        this.driverGraphics.clear();
+        this.driverGraphics.fillStyle(this.color);
+        this.driverGraphics.fillTriangle(0, -7, -7, 7, 7, 7);
+        
         this.driverGraphics.rotation = this.direction + Math.PI / 2;
         this.trailLines = [];
         this.staticTrailGraphics.clear();
@@ -182,6 +188,7 @@ export default class Player extends Phaser.GameObjects.Image {
         const allTrails: Phaser.Geom.Line[] = [];
         if (gameScene.playerManager && gameScene.playerManager.players) {
             for (const p of gameScene.playerManager.players) {
+                if(!p.isRunning && p !== this) continue; // Only process running players (or self)
                 allTrails.push(...p.trailLines);
                 // Include active line segments from other players
                 if (p !== this && p.currentLine) {
