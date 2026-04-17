@@ -101,7 +101,15 @@ export default class Player extends Phaser.Physics.Arcade.Image {
     }
 
     _getLinesForCollision() {
-        return this.trailLines;
+        const bounds = this.scene?.physics?.world?.bounds;
+        if (!bounds) return this.trailLines;
+        const wallLines = [
+            new Phaser.Geom.Line(bounds.x, bounds.y, bounds.right, bounds.y),
+            new Phaser.Geom.Line(bounds.right, bounds.y, bounds.right, bounds.bottom),
+            new Phaser.Geom.Line(bounds.right, bounds.bottom, bounds.x, bounds.bottom),
+            new Phaser.Geom.Line(bounds.x, bounds.bottom, bounds.x, bounds.y)
+        ];
+        return [...this.trailLines, ...wallLines];
     }
 
     _getClosestIntersectingPoint(sensorLine: Phaser.Geom.Line, obstacleLines: Phaser.Geom.Line[]) {
@@ -239,9 +247,10 @@ export default class Player extends Phaser.Physics.Arcade.Image {
 
         if (this.isRunning) {
 
-            let pointFront = this._getClosestIntersectingPoint(this.detectionLine, this.trailLines);
-            let pointLeft = this._getClosestIntersectingPoint(this.detectionLineLeft, this.trailLines);
-            let pointRight = this._getClosestIntersectingPoint(this.detectionLineRight, this.trailLines);
+            let collisionLines = this._getLinesForCollision();
+            let pointFront = this._getClosestIntersectingPoint(this.detectionLine, collisionLines);
+            let pointLeft = this._getClosestIntersectingPoint(this.detectionLineLeft, collisionLines);
+            let pointRight = this._getClosestIntersectingPoint(this.detectionLineRight, collisionLines);
 
 
             const frontDistance = Phaser.Math.Distance.Between(
