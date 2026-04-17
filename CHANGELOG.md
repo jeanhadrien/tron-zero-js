@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.1.0](https://github.com/jeanhadrien/tron-zero-js/compare/v1.0.0...v1.1.0) (2026-04-17)
+
+
+### Features
+
+* **bots:** names ([c0f9bf9](https://github.com/jeanhadrien/tron-zero-js/commit/c0f9bf9a8703eb2b3738fa3344e7c33d3dbd25f3))
+
 ## 1.0.0 (2026-04-17)
 
 
