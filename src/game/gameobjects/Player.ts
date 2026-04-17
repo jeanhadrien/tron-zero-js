@@ -14,7 +14,8 @@ export default class Player extends Phaser.Physics.Arcade.Image {
     trailLines: Phaser.Geom.Line[] = [];
 
     trailWidth = 3;
-    trailGraphics: GameObjects.Graphics;
+    staticTrailGraphics: GameObjects.Graphics;
+    activeTrailGraphics: GameObjects.Graphics;
     direction: number;
 
 
@@ -61,7 +62,8 @@ export default class Player extends Phaser.Physics.Arcade.Image {
         this.driverGraphics.fillStyle(this.color);
         this.driverGraphics.fillTriangle(0, -7, -7, 7, 7, 7);
 
-        this.trailGraphics = scene.add.graphics();
+        this.staticTrailGraphics = scene.add.graphics();
+        this.activeTrailGraphics = scene.add.graphics();
         //this.trailGraphics.lineStyle(this.trailWidth, this.PLAYER_COLOR, 0.03);
         //this.trailGraphics.beginPath();
         //this.trailGraphics.moveTo(this.x, this.y);
@@ -81,14 +83,17 @@ export default class Player extends Phaser.Physics.Arcade.Image {
     }
 
     _persistTrail() {
-        this.trailLines.push(
-            new Phaser.Geom.Line(
-                this.previousLineEnd.x,
-                this.previousLineEnd.y,
-                this.x,
-                this.y
-            )
+        let newLine = new Phaser.Geom.Line(
+            this.previousLineEnd.x,
+            this.previousLineEnd.y,
+            this.x,
+            this.y
         );
+        this.trailLines.push(newLine);
+        
+        this.staticTrailGraphics.lineStyle(this.trailWidth, this.color, 0.5);
+        this.staticTrailGraphics.strokeLineShape(newLine);
+
         if (this.trailLines.length > this.TRAIL_MAX_LENGTH) {
             this.trailLines.shift();
         }
@@ -151,26 +156,18 @@ export default class Player extends Phaser.Physics.Arcade.Image {
         this.driverGraphics.x = this.x;
         this.driverGraphics.y = this.y;
 
-        // Redraw trail every frame. TODO: don't do that
-        this.trailGraphics.clear();
-
-        if (this.trailLines.length > 0) {
-            this.trailGraphics.lineStyle(this.trailWidth, this.color, 0.5);
-            // Iterate over all lines and draw them
-            for (let i = 0; i < this.trailLines.length; i++) {
-                this.trailGraphics.strokeLineShape(this.trailLines[i]);
-            }
-        }
+        this.activeTrailGraphics.clear();
 
         // Draw the last line
-        this.trailGraphics.strokeLineShape(
+        this.activeTrailGraphics.lineStyle(this.trailWidth, this.color, 0.5);
+        this.activeTrailGraphics.strokeLineShape(
             this.currentLine
         );
 
-        this.trailGraphics.lineStyle(1, 0xff0000, 0.5); // Red for sensors
-        this.trailGraphics.strokeLineShape(this.detectionLine);
-        this.trailGraphics.strokeLineShape(this.detectionLineLeft);
-        this.trailGraphics.strokeLineShape(this.detectionLineRight);
+        this.activeTrailGraphics.lineStyle(1, 0xff0000, 0.5); // Red for sensors
+        this.activeTrailGraphics.strokeLineShape(this.detectionLine);
+        this.activeTrailGraphics.strokeLineShape(this.detectionLineLeft);
+        this.activeTrailGraphics.strokeLineShape(this.detectionLineRight);
 
     }
 

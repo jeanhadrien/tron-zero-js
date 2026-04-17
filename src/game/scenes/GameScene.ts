@@ -70,7 +70,7 @@ export class GameScene extends Scene {
         this.gameOverText = this.add
             .text(this.CANVAS_WIDTH / 2, this.CANVAS_HEIGHT / 2 - 30, 'GAME OVER', {
                 fontSize: '48px',
-                fill: '#ff0000',
+                color: '#ff0000',
                 fontFamily: 'Arial',
             })
             .setOrigin(0.5)
@@ -83,7 +83,7 @@ export class GameScene extends Scene {
                 'Press SPACE to restart',
                 {
                     fontSize: '24px',
-                    fill: '#ffffff',
+                    color: '#ffffff',
                     fontFamily: 'Courier New',
                 }
             )
@@ -105,7 +105,8 @@ export class GameScene extends Scene {
             this.humanPlayer.y = 500;
             this.humanPlayer.direction = 0;
             this.humanPlayer.driverGraphics.rotation = this.humanPlayer.direction + Math.PI / 2;
-            this.humanPlayer.trailGraphics.clear();
+            this.humanPlayer.staticTrailGraphics.clear();
+            this.humanPlayer.activeTrailGraphics.clear();
             this.humanPlayer.trailLines = [];
 
             // Hide game over text
