@@ -8,4 +8,5 @@ bun run build
 ```
 
 use prettier rc for format
-s
+
+!
