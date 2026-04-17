@@ -1,6 +1,7 @@
 import type { IRefPhaserGame } from './PhaserGame';
 import { PhaserGame } from './PhaserGame';
 import Phaser from 'phaser';
+import DebugConsole from './components/DebugConsole';
 
 const App = () => {
 
@@ -8,9 +9,9 @@ const App = () => {
     let phaserRef: IRefPhaserGame;
 
     return (
-        <div id="app">
+        <div id="app" style={{ position: 'relative' }}>
             <PhaserGame ref={(el: IRefPhaserGame) => phaserRef = el} />
-
+            <DebugConsole />
         </div>
     );
 
