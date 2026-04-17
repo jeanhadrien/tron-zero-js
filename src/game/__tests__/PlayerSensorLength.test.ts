@@ -3,15 +3,14 @@ import 'phaser';
 import Player from '../gameobjects/Player';
 
 const mockSys = { queueDepthSort: vi.fn(), displayList: { add: vi.fn() }, updateList: { add: vi.fn() }, events: { emit: vi.fn(), once: vi.fn(), on: vi.fn(), off: vi.fn() }, textures: { get: vi.fn().mockReturnValue({ get: vi.fn().mockReturnValue({}) }) } };
-const mockScene = { sys: mockSys, add: { existing: vi.fn(), graphics: vi.fn().mockReturnValue({ fillStyle: vi.fn(), fillTriangle: vi.fn(), clear: vi.fn(), lineStyle: vi.fn(), strokeLineShape: vi.fn(), rotation: 0, x: 0, y: 0 }) }, physics: { add: { existing: vi.fn() } } } as unknown as Phaser.Scene;
+const mockScene = { sys: mockSys, cameras: { main: { width: 800, height: 600 } }, add: { existing: vi.fn(), graphics: vi.fn().mockReturnValue({ fillStyle: vi.fn(), fillTriangle: vi.fn(), clear: vi.fn(), lineStyle: vi.fn(), strokeLineShape: vi.fn(), setDepth: vi.fn(), rotation: 0, x: 0, y: 0 }) } } as unknown as Phaser.Scene;
 
 describe('Player Long Sensor Issues', () => {
     let player: Player;
 
     beforeEach(() => {
         vi.clearAllMocks();
-        vi.spyOn(Player.prototype, 'setBodySize').mockImplementation(function() { return this as any; });
-        vi.spyOn(Player.prototype, 'setVelocity').mockImplementation(function(x, y) { (this as any).velocity = [x, y]; return this as any; });
+        vi.spyOn(Player.prototype, 'setVisible').mockImplementation(function() { return this as any; });
 
         // Place player near (999, 999) to trigger the bug
         player = new Player(mockScene, 1000, 1000, 0xff0000);

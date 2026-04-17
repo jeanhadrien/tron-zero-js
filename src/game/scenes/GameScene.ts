@@ -37,15 +37,6 @@ export class GameScene extends Scene {
     create() {
         this.drawGridOnce();
 
-        let bounds = this.physics.world.setBounds(
-            0,
-            0,
-            this.CANVAS_WIDTH,
-            this.CANVAS_HEIGHT
-        );
-
-        this.physics.world.setBoundsCollision();
-
         // Initialize AudioContext listener
         const audioCtx = (this.sound as any).context as AudioContext;
         if (audioCtx) {

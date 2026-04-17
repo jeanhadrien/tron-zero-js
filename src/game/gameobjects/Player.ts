@@ -1,6 +1,6 @@
 import { GameObjects } from 'phaser';
 
-export default class Player extends Phaser.Physics.Arcade.Image {
+export default class Player extends Phaser.GameObjects.Image {
 
     ROTATION_ANGLE: number = Math.PI / 2;
     BASE_SPEED: number = 100;
@@ -8,7 +8,7 @@ export default class Player extends Phaser.Physics.Arcade.Image {
     DETECTION_LINE_LENGTH: number = 20;
     TRAIL_MAX_LENGTH = 100;
     BASE_RUBBER = 10;
-    TURN_DELAY_MS = 70;
+    TURN_DELAY_MS = 40;
     COLLISION_EPSILON = 1e-10; // Tolerance for floating point inaccuracies
 
     driverGraphics: GameObjects.Graphics;
@@ -50,11 +50,10 @@ export default class Player extends Phaser.Physics.Arcade.Image {
         super(scene, x, y, '_player');
         this.scene = scene;
         scene.add.existing(this);
-        scene.physics.add.existing(this);
         this.color = color;
         this.direction = 0;
-        this.setBodySize(0, 0);
-        this.setVelocity(0, 0);
+        this.setVisible(false);
+        this.velocity = [0, 0];
         this.isRunning = false;
         this.rubber = this.BASE_RUBBER;
 
@@ -69,12 +68,12 @@ export default class Player extends Phaser.Physics.Arcade.Image {
         this.trailLines = [];
         this.previousLineEnd = new Phaser.Math.Vector2(this.x, this.y);
 
-        this.driverGraphics = scene.add.graphics();
-        this.driverGraphics.fillStyle(this.color);
-        this.driverGraphics.fillTriangle(0, -7, -7, 7, 7, 7);
-
         this.staticTrailGraphics = scene.add.graphics();
         this.activeTrailGraphics = scene.add.graphics();
+        this.driverGraphics = scene.add.graphics();
+        this.driverGraphics.setDepth(10);
+        this.driverGraphics.fillStyle(this.color);
+        this.driverGraphics.fillTriangle(0, -7, -7, 7, 7, 7);
 
         this._initEngineSound();
     }
@@ -109,6 +108,10 @@ export default class Player extends Phaser.Physics.Arcade.Image {
         this.oscillator.start();
     }
 
+
+    destroy(fromScene?: boolean) {
+        super.destroy(fromScene);
+    }
 
     _updateDirection(angle: number) {
         if (this.direction == angle) {
@@ -147,13 +150,15 @@ export default class Player extends Phaser.Physics.Arcade.Image {
     }
 
     _getLinesForCollision() {
-        const bounds = this.scene?.physics?.world?.bounds;
+        const bounds = this.scene?.cameras?.main;
         if (!bounds) return this.trailLines;
+
+        // Use camera bounds as world bounds since we don't have physics world anymore
         const wallLines = [
-            new Phaser.Geom.Line(bounds.x, bounds.y, bounds.right, bounds.y),
-            new Phaser.Geom.Line(bounds.right, bounds.y, bounds.right, bounds.bottom),
-            new Phaser.Geom.Line(bounds.right, bounds.bottom, bounds.x, bounds.bottom),
-            new Phaser.Geom.Line(bounds.x, bounds.bottom, bounds.x, bounds.y)
+            new Phaser.Geom.Line(0, 0, bounds.width, 0),
+            new Phaser.Geom.Line(bounds.width, 0, bounds.width, bounds.height),
+            new Phaser.Geom.Line(bounds.width, bounds.height, 0, bounds.height),
+            new Phaser.Geom.Line(0, bounds.height, 0, 0)
         ];
         return [...this.trailLines, ...wallLines];
     }
@@ -270,7 +275,6 @@ export default class Player extends Phaser.Physics.Arcade.Image {
 
         this.velocity = [vx, vy];
         this.speed = speed;
-        this.setVelocity(vx, vy);
     }
 
     turn(type: string) {
@@ -341,7 +345,6 @@ export default class Player extends Phaser.Physics.Arcade.Image {
         }
 
         this._updateDetectionLines();
-        this.currentLine = new Phaser.Geom.Line(this.previousLineEnd.x, this.previousLineEnd.y, this.x, this.y);
 
         if (this.isRunning) {
 
@@ -384,14 +387,14 @@ export default class Player extends Phaser.Physics.Arcade.Image {
                 isStuck = true;
 
                 let speedRatio = (frontDistance * frontDistance) / (slowDownDistance * slowDownDistance);
-                
+
                 // Zeno's Paradox slowdown: We limit maxSafeSpeed so the player covers at most half
                 // the remaining distance in this frame. This creates a smooth curve where the player
                 // approaches the wall infinitely without ever mathematically touching it.
                 let maxSafeSpeed = ((frontDistance * 0.5) * 1000) / (this.BASE_SPEED * delta);
 
                 this._setSpeed(Math.min(this.targetSpeed * speedRatio, maxSafeSpeed));
-                
+
                 if (!this.isInvincible) {
                     this.rubber -= (0.5 * delta / 16.666) / Math.max(0.1, frontDistance);
                 }
@@ -419,6 +422,10 @@ export default class Player extends Phaser.Physics.Arcade.Image {
                 this.targetSpeed = Math.max(1, this.targetSpeed - 0.00015 * delta);
             }
 
+            // Manually move the player using exact delta, ignoring Arcade Physics
+            this.x += this.velocity[0] * delta / 1000;
+            this.y += this.velocity[1] * delta / 1000;
+
         } else {
             this._setSpeed(0);
             console.log("uhh");
@@ -428,7 +435,9 @@ export default class Player extends Phaser.Physics.Arcade.Image {
         //Phaser.Math.Clamp(this.speed, this.BASE_SPEED, this.MAX_SPEED)
         this._setSpeed(this.speed);
 
+        this.currentLine = new Phaser.Geom.Line(this.previousLineEnd.x, this.previousLineEnd.y, this.x, this.y);
         this._draw();
+
         this._updateEngineSound();
     }
 

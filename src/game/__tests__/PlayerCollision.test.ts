@@ -3,15 +3,14 @@ import 'phaser';
 import Player from '../gameobjects/Player';
 
 const mockSys = { queueDepthSort: vi.fn(), displayList: { add: vi.fn() }, updateList: { add: vi.fn() }, events: { emit: vi.fn(), once: vi.fn(), on: vi.fn(), off: vi.fn() }, textures: { get: vi.fn().mockReturnValue({ get: vi.fn().mockReturnValue({}) }) } };
-const mockScene = { sys: mockSys, add: { existing: vi.fn(), graphics: vi.fn().mockReturnValue({ fillStyle: vi.fn(), fillTriangle: vi.fn(), clear: vi.fn(), lineStyle: vi.fn(), strokeLineShape: vi.fn(), rotation: 0, x: 0, y: 0 }) }, physics: { add: { existing: vi.fn() } } } as unknown as Phaser.Scene;
+const mockScene = { sys: mockSys, cameras: { main: { width: 800, height: 600 } }, add: { existing: vi.fn(), graphics: vi.fn().mockReturnValue({ fillStyle: vi.fn(), fillTriangle: vi.fn(), clear: vi.fn(), lineStyle: vi.fn(), strokeLineShape: vi.fn(), setDepth: vi.fn(), rotation: 0, x: 0, y: 0 }) } } as unknown as Phaser.Scene;
 
 describe('Player Collision', () => {
     let player: Player;
 
     beforeEach(() => {
         vi.clearAllMocks();
-        vi.spyOn(Player.prototype, 'setBodySize').mockImplementation(function() { return this as any; });
-        vi.spyOn(Player.prototype, 'setVelocity').mockImplementation(function(x, y) { (this as any).velocity = [x, y]; return this as any; });
+        vi.spyOn(Player.prototype, 'setVisible').mockImplementation(function() { return this as any; });
 
         player = new Player(mockScene, 0, 0, 0xff0000);
         player.isRunning = true;
@@ -44,12 +43,6 @@ describe('Player Collision', () => {
         // Wait, right now it won't detect it because DETECTION_LINE_LENGTH = 20.
         // Let's see what happens. If it fails to detect, it maintains high speed.
         
-        // Simulate player moving based on velocity
-        // velocity is BASE_SPEED * speed = 150 * 10 = 1500
-        // distance moved = 1500 * (16.666 / 1000) = ~25
-        player.x += player.velocity[0] * (delta / 1000);
-        player.y += player.velocity[1] * (delta / 1000);
-        
         // Second frame update
         player.update(0 + delta, delta);
         
@@ -58,8 +51,6 @@ describe('Player Collision', () => {
         
         // Simulate a few more frames to show it approaches 0 and never passes the wall
         for (let i = 0; i < 10; i++) {
-            player.x += player.velocity[0] * (delta / 1000);
-            player.y += player.velocity[1] * (delta / 1000);
             player.update(0 + delta * (i + 2), delta);
         }
         

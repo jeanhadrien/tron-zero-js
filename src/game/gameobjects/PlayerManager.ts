@@ -15,7 +15,6 @@ export default class PlayerManager {
         p._updateDirection(-Math.PI / 2);
         p._setSpeed(1);
         p.isRunning = true;
-        p.setCollideWorldBounds(false);
         this.players.push(p);
         return p;
     }
