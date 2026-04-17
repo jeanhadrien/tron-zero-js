@@ -1,61 +1,54 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import 'phaser'; 
-import Player from '../gameobjects/Player';
-
-const mockSys = { queueDepthSort: vi.fn(), displayList: { add: vi.fn() }, updateList: { add: vi.fn() }, events: { emit: vi.fn(), once: vi.fn(), on: vi.fn(), off: vi.fn() }, textures: { get: vi.fn().mockReturnValue({ get: vi.fn().mockReturnValue({}) }) } };
-const mockScene = { sys: mockSys, add: { existing: vi.fn(), graphics: vi.fn().mockReturnValue({ fillStyle: vi.fn(), fillTriangle: vi.fn(), clear: vi.fn(), lineStyle: vi.fn(), strokeLineShape: vi.fn(), setDepth: vi.fn(), rotation: 0, x: 0, y: 0 }) } } as unknown as Phaser.Scene;
+import PlayerState from '../gameobjects/PlayerState';
 
 describe('Player Logic', () => {
-    let player: Player;
+    let state: PlayerState;
 
     beforeEach(() => {
-        vi.clearAllMocks();
-        vi.spyOn(Player.prototype, 'setVisible').mockImplementation(function() { return this as any; });
-
-        player = new Player(mockScene, 100, 100, 0x00ff00);
-        player.isRunning = true;
+        state = new PlayerState(100, 100, 0, 0x00ff00);
+        state.isRunning = true;
     });
 
     it('zig zag should not crash', () => {
-        player.speed = 1;
-        player._setSpeed(player.speed);
+        state.speed = 1;
+        state._setSpeed(state.speed);
 
         const dt = 16;
         let time = 0;
 
         const updateFrame = () => {
-            player.update(time, dt);
+            state.update(time, dt, [], 1000, 1000);
             time += dt;
         };
 
-        player.turn('right');
-        player.turn('right');
+        state.turn('right');
+        state.turn('right');
         updateFrame();
 
-        player.turn('left');
-        player.turn('left');
+        state.turn('left');
+        state.turn('left');
         updateFrame();
         
-        expect(player.speed).toBeGreaterThan(0.9);
+        expect(state.speed).toBeGreaterThan(0.9);
     });
 
     it('updates velocity immediately on turn to prevent diagonal movement', () => {
         // Set initial direction to 0 (right)
-        player.direction = 0;
-        player.speed = 1;
-        player._setSpeed(player.speed);
+        state.direction = 0;
+        state.speed = 1;
+        state._setSpeed(state.speed);
 
         // Velocity should be [BASE_SPEED, 0]
-        expect(player.velocity[0]).toBeCloseTo(player.BASE_SPEED, 4);
-        expect(player.velocity[1]).toBeCloseTo(0, 4);
+        expect(state.velocity[0]).toBeCloseTo(state.BASE_SPEED, 4);
+        expect(state.velocity[1]).toBeCloseTo(0, 4);
 
         // Turn right (down)
-        player.turn('right');
-        player.update(100, 16);
+        state.turn('right');
+        state.update(100, 16, [], 1000, 1000);
 
         // Velocity should immediately be updated to [0, BASE_SPEED]
-        // This ensures the physics engine won't move the player diagonally in the current frame
-        expect(player.velocity[0]).toBeCloseTo(0, 4);
-        expect(player.velocity[1]).toBeCloseTo(player.BASE_SPEED, 4);
+        expect(state.velocity[0]).toBeCloseTo(0, 4);
+        expect(state.velocity[1]).toBeCloseTo(state.BASE_SPEED, 4);
     });
 });

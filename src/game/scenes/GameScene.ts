@@ -28,6 +28,9 @@ export class GameScene extends Scene {
     playerManager: PlayerManager;
     debugHud: DebugHud;
 
+    accumulator: number = 0;
+    FIXED_DELTA: number = 1000 / 60; // 60 updates per second
+
     constructor() {
         super('Game');
     }
@@ -246,12 +249,15 @@ export class GameScene extends Scene {
             return;
         }
 
-        //const renderFps = Math.round(this.game.loop.actualFps);
-        //console.log(renderFps);
-        for(let controller of this.aiControllers) {
-            controller.update(_time, delta);
+        this.accumulator += delta;
+        while (this.accumulator >= this.FIXED_DELTA) {
+            for(let controller of this.aiControllers) {
+                controller.update(_time, this.FIXED_DELTA);
+            }
+            this.playerManager.update(_time, this.FIXED_DELTA);
+            this.accumulator -= this.FIXED_DELTA;
         }
-        this.playerManager.update(_time, delta);
+        
         this.debugHud.update(delta);
 
         // Update audio listener to follow the camera center
