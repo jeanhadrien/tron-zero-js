@@ -4,20 +4,219 @@ export default class BotController {
     player: Player;
     scene: Phaser.Scene;
     
+    // AI Personality
+    strategy: 'CUT_OFF' | 'BOX_IN' | 'SPEED_DEMON' | 'TRAPPER' = 'CUT_OFF';
+    targetPlayer: Player | null = null;
+    
     // How far the bot looks ahead to avoid obstacles
     sightDistance: number = 100;
+    attackDistance: number = 400; // How close before engaging
     
     // AI Reaction limits
     lastActionTime: number = 0;
-    actionCooldownMs: number = 400; // Limit to ~2.5 turns per second
+    actionCooldownMs: number = 300; 
+    
+    // State tracking
+    isEvading: boolean = false;
+    debugText: Phaser.GameObjects.Text;
     
     constructor(scene: Phaser.Scene, player: Player) {
         this.scene = scene;
         this.player = player;
+        
+        // Randomly assign a personality on spawn
+        const strategies: ('CUT_OFF' | 'BOX_IN' | 'SPEED_DEMON' | 'TRAPPER')[] = ['CUT_OFF', 'BOX_IN', 'SPEED_DEMON', 'TRAPPER'];
+        this.strategy = strategies[Math.floor(Math.random() * strategies.length)];
+        console.log(`Bot spawned with strategy: ${this.strategy}`);
+
+        this.debugText = scene.add.text(this.player.x, this.player.y, '', {
+            fontSize: '12px',
+            color: '#ffffff',
+            backgroundColor: '#000000'
+        }).setOrigin(0.5, 2);
+    }
+
+    getNearestEnemy(): Player | null {
+        const gameScene = this.scene as any;
+        if (!gameScene.playerManager || !gameScene.playerManager.players) return null;
+        
+        let nearest: Player | null = null;
+        let minDistance = Infinity;
+
+        for (const p of gameScene.playerManager.players) {
+            if (p === this.player || !p.isRunning) continue;
+            
+            const dist = Phaser.Math.Distance.Between(this.player.x, this.player.y, p.x, p.y);
+            if (dist < minDistance) {
+                minDistance = dist;
+                nearest = p;
+            }
+        }
+        return nearest;
+    }
+
+    // Determine where the enemy is relative to the bot's current facing direction
+    getRelativePosition(enemy: Player): { distance: number, angleDiff: number, isAhead: boolean, isLeft: boolean } {
+        const dist = Phaser.Math.Distance.Between(this.player.x, this.player.y, enemy.x, enemy.y);
+        
+        // Angle from bot to enemy
+        const angleToEnemy = Phaser.Math.Angle.Between(this.player.x, this.player.y, enemy.x, enemy.y);
+        
+        // Normalize angles to -PI to PI
+        let normalizedBotDir = Phaser.Math.Angle.Wrap(this.player.direction);
+        let normalizedAngleToEnemy = Phaser.Math.Angle.Wrap(angleToEnemy);
+        
+        // Difference in angle
+        let angleDiff = Phaser.Math.Angle.Wrap(normalizedAngleToEnemy - normalizedBotDir);
+        
+        const isAhead = Math.abs(angleDiff) < Math.PI / 2;
+        const isLeft = angleDiff < 0;
+
+        return { distance: dist, angleDiff, isAhead, isLeft };
+    }
+
+    // Determine if the enemy is driving parallel, head-on, or perpendicular
+    getRelativeHeading(enemy: Player): 'PARALLEL' | 'HEAD_ON' | 'PERPENDICULAR' {
+        let normalizedBotDir = Phaser.Math.Angle.Wrap(this.player.direction);
+        let normalizedEnemyDir = Phaser.Math.Angle.Wrap(enemy.direction);
+        
+        let headingDiff = Math.abs(Phaser.Math.Angle.Wrap(normalizedEnemyDir - normalizedBotDir));
+        
+        if (headingDiff < 0.5) return 'PARALLEL'; // roughly facing same way
+        if (headingDiff > Math.PI - 0.5) return 'HEAD_ON'; // roughly facing opposite
+        return 'PERPENDICULAR';
+    }
+
+    executeAttackPhase(time: number, enemy: Player, leftDist: number, rightDist: number) {
+        const relPos = this.getRelativePosition(enemy);
+        const relHeading = this.getRelativeHeading(enemy);
+
+        this.debugText.setText(`${this.strategy}\n${relHeading}\nAhead:${relPos.isAhead}\nLeft:${relPos.isLeft}\nDist:${Math.round(relPos.distance)}`);
+
+        // If enemy is too far away, just wander toward them if safe
+        if (relPos.distance > 250) {
+            if (relPos.isLeft && leftDist > 100 && !relPos.isAhead) {
+                // If they are to our left and behind, and we have space, turn left to loop back
+                this.player.turn('left');
+                this.lastActionTime = time;
+            } else if (!relPos.isLeft && rightDist > 100 && !relPos.isAhead) {
+                this.player.turn('right');
+                this.lastActionTime = time;
+            }
+            return;
+        }
+
+        switch (this.strategy) {
+            case 'CUT_OFF':
+                // Aggressive: If parallel, slightly ahead, and enemy is on a specific side, cut into their lane
+                if (relHeading === 'PARALLEL' && !relPos.isAhead && relPos.distance < 150) {
+                    // Enemy is behind/beside us and going the same way. Cut them off!
+                    if (relPos.isLeft && leftDist > 50) {
+                        this.player.turn('left');
+                        this.lastActionTime = time;
+                    } else if (!relPos.isLeft && rightDist > 50) {
+                        this.player.turn('right');
+                        this.lastActionTime = time;
+                    }
+                } else if (relHeading === 'PERPENDICULAR' && relPos.isAhead && relPos.distance < 150) {
+                     // Try to intercept if they are ahead and perpendicular
+                     if (relPos.isLeft && leftDist > 50) {
+                         this.player.turn('left');
+                         this.lastActionTime = time;
+                     } else if (!relPos.isLeft && rightDist > 50) {
+                         this.player.turn('right');
+                         this.lastActionTime = time;
+                     }
+                }
+                break;
+
+            case 'BOX_IN':
+                // Constrictor: Try to pin them to walls. Drive parallel and close the gap.
+                if (relHeading === 'PARALLEL' && relPos.distance < 200) {
+                     // We just want to stay parallel and slowly encroach, not turn into them yet
+                     // If they are drifting away, try to turn towards them but be careful
+                     if (relPos.distance > 100 && relPos.distance < 150) {
+                         if (relPos.isLeft && leftDist > 100) {
+                             this.player.turn('left');
+                             this.lastActionTime = time;
+                         } else if (!relPos.isLeft && rightDist > 100) {
+                             this.player.turn('right');
+                             this.lastActionTime = time;
+                         }
+                     }
+                } else if (relHeading === 'PERPENDICULAR' && relPos.distance < 150) {
+                    // Turn to match their heading
+                    if (relPos.isLeft && leftDist > 30) {
+                        this.player.turn('left');
+                        this.lastActionTime = time;
+                    } else if (!relPos.isLeft && rightDist > 30) {
+                        this.player.turn('right');
+                        this.lastActionTime = time;
+                    }
+                }
+                break;
+
+            case 'SPEED_DEMON':
+                // Drafter: Purposefully get close to walls/trails to build speed, then rush them
+                // We rely on the game's targetSpeed multiplier when leftDistance or rightDistance < 10
+                if (leftDist > 40 && rightDist > 40 && relPos.distance > 150) {
+                    // Turn towards the nearest wall, but prevent spinning
+                    // Only turn if we haven't turned recently and we are going straight towards open space
+                    if (leftDist < rightDist && leftDist < 200) {
+                         this.player.turn('left');
+                         this.lastActionTime = time + 500; // longer cooldown to prevent spinning
+                    } else if (rightDist < leftDist && rightDist < 200) {
+                         this.player.turn('right');
+                         this.lastActionTime = time + 500;
+                    }
+                } else if (this.player.targetSpeed > 1.2 && relPos.distance < 200) {
+                    // We are fast! Dive bomb the enemy
+                    if (relPos.isLeft && leftDist > 20) {
+                         this.player.turn('left');
+                         this.lastActionTime = time;
+                    } else if (!relPos.isLeft && rightDist > 20) {
+                         this.player.turn('right');
+                         this.lastActionTime = time;
+                    }
+                }
+                break;
+
+            case 'TRAPPER':
+                // Baiter: If someone is right on our tail, drop a U-turn wall
+                if (relHeading === 'PARALLEL' && !relPos.isAhead && relPos.distance < 80) {
+                    // They are right behind us! Double turn!
+                    // Check which way is safer to U-turn
+                    if (leftDist > rightDist && leftDist > 50) {
+                        this.player.turn('left');
+                        this.player.turn('left'); // Queue second turn
+                    } else if (rightDist > 50) {
+                        this.player.turn('right');
+                        this.player.turn('right');
+                    }
+                    this.lastActionTime = time + 500; // wait before doing it again
+                } else if (relPos.isAhead && relPos.distance > 150) {
+                    // try to get in front of them
+                    if (relPos.isLeft && leftDist > 50) {
+                        this.player.turn('left');
+                        this.lastActionTime = time;
+                    } else if (!relPos.isLeft && rightDist > 50) {
+                        this.player.turn('right');
+                        this.lastActionTime = time;
+                    }
+                }
+                break;
+        }
     }
 
     update(time: number, _delta: number) {
-        if (!this.player.isRunning) return;
+        if (this.debugText) {
+            this.debugText.setPosition(this.player.x, this.player.y - 20);
+        }
+        
+        if (!this.player.isRunning) {
+            if (this.debugText) this.debugText.setText('');
+            return;
+        }
         
         // Don't issue new commands if one is already pending
         if (this.player.turnQueue.length > 0) return;
@@ -35,8 +234,11 @@ export default class BotController {
         const leftDistance = Phaser.Math.Distance.Between(this.player.x, this.player.y, pointLeft.x, pointLeft.y);
         const rightDistance = Phaser.Math.Distance.Between(this.player.x, this.player.y, pointRight.x, pointRight.y);
 
+        // Phase 1: Survival Override
         // Turn logic when an obstacle is detected within sight distance
         if (frontDistance < this.sightDistance) {
+            this.isEvading = true;
+            this.debugText.setText(`Evading`);
             // Decide which way to turn based on which side has more open space
             // Add a small threshold (e.g., 5 units) so it doesn't just jitter between left and right if they are nearly equal
             if (leftDistance > rightDistance + 5) {
@@ -54,6 +256,20 @@ export default class BotController {
             
             // Record the time of the action to enforce the cooldown
             this.lastActionTime = time;
+            return; // Important: Evade and don't try to attack
+        } else {
+            this.isEvading = false;
+        }
+
+        // Phase 2: Attack Execution
+        this.targetPlayer = this.getNearestEnemy();
+        if (this.targetPlayer && !this.isEvading) {
+            const relPos = this.getRelativePosition(this.targetPlayer);
+            if (relPos.distance < this.attackDistance) {
+                this.executeAttackPhase(time, this.targetPlayer, leftDistance, rightDistance);
+            } else {
+                this.debugText.setText(`Wandering\nDist:${Math.round(relPos.distance)}`);
+            }
         }
     }
 }
