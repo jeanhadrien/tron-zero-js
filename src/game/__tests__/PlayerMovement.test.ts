@@ -54,6 +54,7 @@ describe('Player Logic', () => {
 
         // Turn right (down)
         player.turn('right');
+        player.update(100, 16);
 
         // Velocity should immediately be updated to [0, BASE_SPEED]
         // This ensures the physics engine won't move the player diagonally in the current frame

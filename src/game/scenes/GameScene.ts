@@ -46,6 +46,26 @@ export class GameScene extends Scene {
 
         this.physics.world.setBoundsCollision();
 
+        // Initialize AudioContext listener
+        const audioCtx = (this.sound as any).context as AudioContext;
+        if (audioCtx) {
+            const listener = audioCtx.listener;
+            if (listener.positionX) {
+                listener.positionX.value = this.CANVAS_WIDTH / 2;
+                listener.positionY.value = this.CANVAS_HEIGHT / 2;
+                listener.positionZ.value = 300;
+                listener.forwardX.value = 0;
+                listener.forwardY.value = 0;
+                listener.forwardZ.value = -1;
+                listener.upX.value = 0;
+                listener.upY.value = 1;
+                listener.upZ.value = 0;
+            } else {
+                listener.setPosition(this.CANVAS_WIDTH / 2, this.CANVAS_HEIGHT / 2, 300);
+                listener.setOrientation(0, 0, -1, 0, 1, 0);
+            }
+        }
+
         this.humanPlayer = this.playerManager.addPlayer(this.CANVAS_WIDTH * (1 / 3), this.CANVAS_HEIGHT / 2, 0x00ff00);
         this.aiPlayer = this.playerManager.addPlayer(this.CANVAS_WIDTH * (2 / 3), this.CANVAS_HEIGHT / 2, 0xff0000);
 
@@ -98,6 +118,11 @@ export class GameScene extends Scene {
         });
 
         EventBus.on("game-start", () => {
+            const audioCtx = (this.sound as any).context as AudioContext;
+            if (audioCtx && audioCtx.state === 'suspended') {
+                audioCtx.resume();
+            }
+
             // Reset all game state
             this.humanPlayer.isRunning = true;
             this.isAlive = true;

@@ -3,20 +3,24 @@ import { GameObjects } from 'phaser';
 export default class Player extends Phaser.Physics.Arcade.Image {
 
     ROTATION_ANGLE: number = Math.PI / 2;
-    BASE_SPEED: number = 150;
+    BASE_SPEED: number = 100;
     MAX_SPEED: number = 200;
     DETECTION_LINE_LENGTH: number = 20;
-    TRAIL_MAX_LENGTH = 200;
+    TRAIL_MAX_LENGTH = 100;
     BASE_RUBBER = 10;
+    TURN_DELAY_MS = 50;
 
     driverGraphics: GameObjects.Graphics;
 
     trailLines: Phaser.Geom.Line[] = [];
 
-    trailWidth = 3;
+    trailWidth = 2.5;
     staticTrailGraphics: GameObjects.Graphics;
     activeTrailGraphics: GameObjects.Graphics;
     direction: number;
+
+    turnQueue: string[] = [];
+    lastTurnTime: number = 0;
 
 
     detectionLine: Phaser.Geom.Line;
@@ -34,6 +38,11 @@ export default class Player extends Phaser.Physics.Arcade.Image {
     speed: number;
     targetSpeed: number = 1;
     currentLine: Phaser.Geom.Line;
+
+    oscillator: OscillatorNode | null = null;
+    filter: BiquadFilterNode | null = null;
+    panner: PannerNode | null = null;
+    amp: GainNode | null = null;
 
     constructor(scene: Phaser.Scene, x: number, y: number, color: number) {
         super(scene, x, y, '_player');
@@ -64,9 +73,38 @@ export default class Player extends Phaser.Physics.Arcade.Image {
 
         this.staticTrailGraphics = scene.add.graphics();
         this.activeTrailGraphics = scene.add.graphics();
-        //this.trailGraphics.lineStyle(this.trailWidth, this.PLAYER_COLOR, 0.03);
-        //this.trailGraphics.beginPath();
-        //this.trailGraphics.moveTo(this.x, this.y);
+
+        this._initEngineSound();
+    }
+
+    _initEngineSound() {
+        const audioCtx = this.scene.sound ? (this.scene.sound as any).context as AudioContext | undefined : undefined;
+        if (!audioCtx) return;
+
+        this.oscillator = audioCtx.createOscillator();
+        this.oscillator.type = 'triangle';
+        this.oscillator.frequency.value = 60; // Deep bass
+
+        this.filter = audioCtx.createBiquadFilter();
+        this.filter.type = 'lowpass';
+        this.filter.frequency.value = 250; // Keep strictly in low-end
+
+        this.panner = audioCtx.createPanner();
+        this.panner.panningModel = 'HRTF';
+        this.panner.distanceModel = 'exponential';
+        this.panner.refDistance = 300; // Match the listener's Z height
+        this.panner.maxDistance = 10000;
+        this.panner.rolloffFactor = 2;
+
+        this.amp = audioCtx.createGain();
+        this.amp.gain.value = 0.1;
+
+        this.oscillator.connect(this.filter);
+        this.filter.connect(this.panner);
+        this.panner.connect(this.amp);
+        this.amp.connect(audioCtx.destination);
+
+        this.oscillator.start();
     }
 
 
@@ -76,7 +114,7 @@ export default class Player extends Phaser.Physics.Arcade.Image {
         }
         this.direction = angle;
         this.driverGraphics.rotation = this.direction + Math.PI / 2;
-        
+
         if (this.x !== this.previousLineEnd.x || this.y !== this.previousLineEnd.y) {
             this._persistTrail();
         }
@@ -90,13 +128,19 @@ export default class Player extends Phaser.Physics.Arcade.Image {
             this.y
         );
         this.trailLines.push(newLine);
-        
-        this.staticTrailGraphics.lineStyle(this.trailWidth, this.color, 0.5);
-        this.staticTrailGraphics.strokeLineShape(newLine);
 
         if (this.trailLines.length > this.TRAIL_MAX_LENGTH) {
             this.trailLines.shift();
+            this.staticTrailGraphics.clear();
+            this.staticTrailGraphics.lineStyle(this.trailWidth, this.color, 0.5);
+            for (let line of this.trailLines) {
+                this.staticTrailGraphics.strokeLineShape(line);
+            }
+        } else {
+            this.staticTrailGraphics.lineStyle(this.trailWidth, this.color, 0.5);
+            this.staticTrailGraphics.strokeLineShape(newLine);
         }
+
         this.previousLineEnd.set(this.x, this.y);
     }
 
@@ -228,6 +272,10 @@ export default class Player extends Phaser.Physics.Arcade.Image {
     }
 
     turn(type: string) {
+        this.turnQueue.push(type);
+    }
+
+    _executeTurn(type: string) {
         let newDirection = this.direction;
         if (type === 'left') {
             newDirection = this.direction - this.ROTATION_ANGLE;
@@ -237,10 +285,58 @@ export default class Player extends Phaser.Physics.Arcade.Image {
         newDirection = newDirection % (Math.PI * 2);
         this._updateDirection(newDirection);
         this._setSpeed(this.speed);
+        this._playTurnSound();
+    }
+
+    _playTurnSound() {
+        const audioCtx = this.scene.sound ? (this.scene.sound as any).context as AudioContext | undefined : undefined;
+        if (!audioCtx) return;
+
+        const time = audioCtx.currentTime;
+
+        const osc = audioCtx.createOscillator();
+        osc.type = 'square';
+
+        // Start high and drop quickly for a sharp "zap"
+        osc.frequency.setValueAtTime(1200, time);
+        osc.frequency.exponentialRampToValueAtTime(150, time + 0.05);
+
+        const gain = audioCtx.createGain();
+        gain.gain.setValueAtTime(0, time);
+        gain.gain.linearRampToValueAtTime(0.05, time + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.001, time + 0.05);
+
+        const panner = audioCtx.createPanner();
+        panner.panningModel = 'HRTF';
+        panner.distanceModel = 'exponential';
+        panner.refDistance = 300;
+        panner.maxDistance = 10000;
+        panner.rolloffFactor = 2;
+
+        if (panner.positionX) {
+            panner.positionX.setValueAtTime(this.x, time);
+            panner.positionY.setValueAtTime(this.y, time);
+            panner.positionZ.setValueAtTime(0, time);
+        } else {
+            panner.setPosition(this.x, this.y, 0);
+        }
+
+        osc.connect(gain);
+        gain.connect(panner);
+        panner.connect(audioCtx.destination);
+
+        osc.start(time);
+        osc.stop(time + 0.06);
     }
 
     update(time: number, delta: number) {
         // super.update(delta);
+
+        if (this.turnQueue.length > 0 && time > this.lastTurnTime + this.TURN_DELAY_MS) {
+            let nextTurn = this.turnQueue.shift()!;
+            this._executeTurn(nextTurn);
+            this.lastTurnTime = time;
+        }
 
         this._updateDetectionLines();
         this.currentLine = new Phaser.Geom.Line(this.previousLineEnd.x, this.previousLineEnd.y, this.x, this.y);
@@ -276,7 +372,7 @@ export default class Player extends Phaser.Physics.Arcade.Image {
                 console.log("aa");
             }
             let isStuck = false;
-            
+
             const movementThisFrame = (this.BASE_SPEED * this.speed * delta) / 1000;
             // Add a buffer multiplier to the stop threshold to prevent skipping in edge cases
             const stopThreshold = Math.max(3, movementThisFrame * 1.5);
@@ -310,8 +406,6 @@ export default class Player extends Phaser.Physics.Arcade.Image {
                 this.targetSpeed = Math.max(1, this.targetSpeed - 0.00015 * delta);
             }
 
-
-
         } else {
             this._setSpeed(0);
             console.log("uhh");
@@ -322,7 +416,28 @@ export default class Player extends Phaser.Physics.Arcade.Image {
         this._setSpeed(this.speed);
 
         this._draw();
+        this._updateEngineSound();
+    }
 
+    _updateEngineSound() {
+        const audioCtx = this.scene.sound ? (this.scene.sound as any).context as AudioContext | undefined : undefined;
+        if (!audioCtx || !this.oscillator || !this.panner) return;
+
+        const time = audioCtx.currentTime;
+
+        // Map speed to frequency: deep bass for engine
+        const baseFreq = 80;
+        const targetFreq = baseFreq + (this.speed * 40);
+        this.oscillator.frequency.setTargetAtTime(targetFreq, time, 0.1);
+
+        // Update panner position
+        if (this.panner.positionX) {
+            this.panner.positionX.setTargetAtTime(this.x, time, 0.05);
+            this.panner.positionY.setTargetAtTime(this.y, time, 0.05);
+            this.panner.positionZ.setTargetAtTime(0, time, 0.05);
+        } else {
+            this.panner.setPosition(this.x, this.y, 0);
+        }
     }
 
 
