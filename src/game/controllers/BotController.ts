@@ -29,7 +29,8 @@ export default class BotController {
         const strategies: ('CUT_OFF' | 'BOX_IN' | 'SPEED_DEMON' | 'TRAPPER')[] = ['CUT_OFF', 'BOX_IN', 'SPEED_DEMON', 'TRAPPER'];
         this.strategy = strategies[Math.floor(Math.random() * strategies.length)];
 
-        const firstNames = ['Rex', 'Zurg', 'Grievous', 'Tron', 'Clu', 'Sark', 'Byte', 'Glitch', 'Null', 'Void', 'Crash', 'Bane', 'Zed'];
+        const firstNames = ['Kova', 'Atro', 'Hayzeur', 'Nobody', 'Rampiece', 'Hyouz', 'Ksiyae',
+            'Koniev', 'Dys', 'Shelby', 'Ryv', 'Tangz', 'Kaflao', 'Boby',];
         const titles = {
             'CUT_OFF': 'The Slicer',
             'BOX_IN': 'The Constrictor',
