@@ -53,8 +53,17 @@ describe('Player Collision', () => {
         // Second frame update
         player.update(0 + delta, delta);
         
-        // If it passed through the wall, x is > 21, and speed is still high
-        // If collision works, speed should drop drastically
-        expect(player.speed).toBeLessThan(1);
+        // If collision works, speed should drop significantly compared to targetSpeed (10)
+        expect(player.speed).toBeLessThan(2);
+        
+        // Simulate a few more frames to show it approaches 0 and never passes the wall
+        for (let i = 0; i < 10; i++) {
+            player.x += player.velocity[0] * (delta / 1000);
+            player.y += player.velocity[1] * (delta / 1000);
+            player.update(0 + delta * (i + 2), delta);
+        }
+        
+        expect(player.x).toBeLessThan(21);
+        expect(player.speed).toBeLessThan(0.3);
     });
 });

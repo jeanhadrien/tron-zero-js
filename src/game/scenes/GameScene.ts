@@ -72,6 +72,12 @@ export class GameScene extends Scene {
         this.debugHud.add("Rubber", this.humanPlayer, "rubber");
         this.debugHud.add("Speed", this.humanPlayer, "velocity");
 
+        EventBus.on('toggle-invincibility', (invincibleState: boolean) => {
+            if (this.humanPlayer) {
+                this.humanPlayer.isInvincible = invincibleState;
+            }
+        });
+
         //this.debugHud.initialize();
 
         // add collision box

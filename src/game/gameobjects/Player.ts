@@ -8,7 +8,8 @@ export default class Player extends Phaser.Physics.Arcade.Image {
     DETECTION_LINE_LENGTH: number = 20;
     TRAIL_MAX_LENGTH = 100;
     BASE_RUBBER = 10;
-    TURN_DELAY_MS = 50;
+    TURN_DELAY_MS = 70;
+    COLLISION_EPSILON = 1e-10; // Tolerance for floating point inaccuracies
 
     driverGraphics: GameObjects.Graphics;
 
@@ -32,6 +33,7 @@ export default class Player extends Phaser.Physics.Arcade.Image {
 
     target: Phaser.Math.Vector2;
     isRunning: boolean;
+    isInvincible: boolean = false;
     rubber: number;
     color: number;
     velocity: number[];
@@ -167,7 +169,7 @@ export default class Player extends Phaser.Physics.Arcade.Image {
             // Check intersection with the specific sensor passed in
             if (Phaser.Geom.Intersects.LineToLine(sensorLine, line, point)) {
 
-                if (point.x == this.x && point.y == this.y) {
+                if (Phaser.Math.Distance.Between(point.x, point.y, this.x, this.y) < this.COLLISION_EPSILON) {
                     continue;
                 }
 
@@ -176,8 +178,8 @@ export default class Player extends Phaser.Physics.Arcade.Image {
                 let isRecentCorner = false;
                 for (let i = Math.max(0, this.trailLines.length - 3); i < this.trailLines.length; i++) {
                     let recentLine = this.trailLines[i];
-                    if ((point.x === recentLine.x1 && point.y === recentLine.y1) ||
-                        (point.x === recentLine.x2 && point.y === recentLine.y2)) {
+                    if (Phaser.Math.Distance.Between(point.x, point.y, recentLine.x1, recentLine.y1) < this.COLLISION_EPSILON ||
+                        Phaser.Math.Distance.Between(point.x, point.y, recentLine.x2, recentLine.y2) < this.COLLISION_EPSILON) {
                         isRecentCorner = true;
                         break;
                     }
@@ -374,14 +376,25 @@ export default class Player extends Phaser.Physics.Arcade.Image {
             let isStuck = false;
 
             const movementThisFrame = (this.BASE_SPEED * this.speed * delta) / 1000;
-            // Add a buffer multiplier to the stop threshold to prevent skipping in edge cases
-            const stopThreshold = Math.max(3, movementThisFrame * 1.5);
+            const maxMovementThisFrame = (this.BASE_SPEED * this.targetSpeed * delta) / 1000;
+            const slowDownDistance = Math.max(10, maxMovementThisFrame * 3);
 
             // If we are close enough to the obstacle, slow down
-            if (frontDistance < stopThreshold) {
-                this._setSpeed((frontDistance * frontDistance) / 4000);
+            if (frontDistance < slowDownDistance) {
                 isStuck = true;
-                //this.rubber -= 0.5 / obstacleDistance;
+
+                let speedRatio = (frontDistance * frontDistance) / (slowDownDistance * slowDownDistance);
+                
+                // Zeno's Paradox slowdown: We limit maxSafeSpeed so the player covers at most half
+                // the remaining distance in this frame. This creates a smooth curve where the player
+                // approaches the wall infinitely without ever mathematically touching it.
+                let maxSafeSpeed = ((frontDistance * 0.5) * 1000) / (this.BASE_SPEED * delta);
+
+                this._setSpeed(Math.min(this.targetSpeed * speedRatio, maxSafeSpeed));
+                
+                if (!this.isInvincible) {
+                    this.rubber -= (0.5 * delta / 16.666) / Math.max(0.1, frontDistance);
+                }
             } else {
                 this.rubber += 0.006 * delta;
                 if (this.speed < this.targetSpeed) {
@@ -411,7 +424,7 @@ export default class Player extends Phaser.Physics.Arcade.Image {
             console.log("uhh");
         }
 
-        Phaser.Math.Clamp(this.rubber, 0, this.BASE_RUBBER);
+        this.rubber = Phaser.Math.Clamp(this.rubber, 0, this.BASE_RUBBER);
         //Phaser.Math.Clamp(this.speed, this.BASE_SPEED, this.MAX_SPEED)
         this._setSpeed(this.speed);
 
