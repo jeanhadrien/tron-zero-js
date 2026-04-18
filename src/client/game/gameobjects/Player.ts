@@ -1,5 +1,5 @@
 import { GameObjects } from 'phaser';
-import PlayerState from '../shared/PlayerState';
+import PlayerState from '../../../shared/PlayerState';
 
 export default class Player extends Phaser.GameObjects.Image {
     pState: PlayerState;
@@ -91,9 +91,9 @@ export default class Player extends Phaser.GameObjects.Image {
         this.activeTrailGraphics.clear();
     }
 
-    turn(type: string) {
+    turn(type: string, tick?: number) {
         // Turning is now done server-side, but keep this for local testing if needed
-        this.pState.turn(type);
+        this.pState.turn(type, tick);
     }
 
     // Pass-through getters/setters for BotController / Scene / DebugHUD
@@ -259,7 +259,7 @@ export default class Player extends Phaser.GameObjects.Image {
         }
     }
 
-    update(time: number, delta: number) {
+    update(_time: number, delta: number) {
         // We render smoothly on the client update loop (144fps etc)
         // by lerping `this.x` towards `this.pState.x`.
         this._draw(delta);

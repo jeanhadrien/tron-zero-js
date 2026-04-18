@@ -1,5 +1,5 @@
 import Player from "./Player";
-import PlayerState from '../shared/PlayerState';
+import PlayerState from '../../../shared/PlayerState';
 
 export default class PlayerManager {
     scene: Phaser.Scene;

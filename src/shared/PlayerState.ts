@@ -220,7 +220,7 @@ export default class PlayerState {
         this._setSpeed(this.speed);
     }
 
-    update(time: number, delta: number, allOtherTrails: Phaser.Geom.Line[], worldWidth: number, worldHeight: number, currentTick: number = 0) {
+    update(_time: number, delta: number, allOtherTrails: Phaser.Geom.Line[], worldWidth: number, worldHeight: number, currentTick: number = 0) {
         if (this.turnQueue.length > 0 && currentTick > this.lastTurnTick + this.TURN_DELAY_TICKS) {
             // Check if we should execute the turn yet
             if (this.turnQueue[0].tick <= currentTick) {

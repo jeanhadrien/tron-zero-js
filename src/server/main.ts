@@ -17,12 +17,12 @@ const io = new Server(httpServer, {
 // Serve static assets from 'dist' directory
 app.use(express.static(path.join(process.cwd(), 'dist')));
 
-app.get(/^.*$/, (req, res) => {
+app.get(/^.*$/, (_req, res) => {
     res.sendFile(path.join(process.cwd(), 'dist', 'index.html'));
 });
 
 // Initialize Headless Phaser (forces Phaser's math/geometry to work)
-const phaserGame = new Phaser.Game({
+new Phaser.Game({
     type: Phaser.HEADLESS,
     width: 800,
     height: 600,

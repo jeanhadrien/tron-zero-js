@@ -10,7 +10,6 @@ export default class BotController {
 
     // How far the bot looks ahead to avoid obstacles
     sightDistance: number = 100;
-    attackDistance: number = 400; // How close before engaging
 
     // AI Reaction limits
     lastActionTime: number = 0;
@@ -197,7 +196,7 @@ export default class BotController {
         }
     }
 
-    update(time: number, delta: number, allPlayers: PlayerState[], worldWidth: number, worldHeight: number, currentTick: number = 0) {
+    update(time: number, _delta: number, allPlayers: PlayerState[], worldWidth: number, worldHeight: number, _currentTick: number = 0) {
         if (!this.player.isRunning) {
             return;
         }

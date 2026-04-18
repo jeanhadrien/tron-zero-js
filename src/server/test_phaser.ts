@@ -4,7 +4,7 @@ async function main() {
     const Phaser = (await import('phaser')).default;
     console.log("Phaser loaded version:", Phaser.VERSION);
 
-    const game = new Phaser.Game({
+    new Phaser.Game({
         type: Phaser.HEADLESS,
         width: 800,
         height: 600,

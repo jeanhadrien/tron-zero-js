@@ -20,10 +20,7 @@
     "noUnusedLocals": true,
     "strictPropertyInitialization": false,
     "noUnusedParameters": true,
-    "noFallthroughCasesInSwitch": true,
-    "paths": {
-      "phaser": ["./node_modules/phaser/dist/phaser.js"]
-    }
+    "noFallthroughCasesInSwitch": true
   },
   "include": ["src"],
   "references": [{ "path": "./tsconfig.node.json" }]

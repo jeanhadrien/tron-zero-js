@@ -21,12 +21,12 @@
         "typescript"
     ],
     "scripts": {
-        "dev": "node log.js dev & vite --config vite/config.dev.mjs",
-        "build": "node log.js build & vite build --config vite/config.prod.mjs",
-        "dev-nolog": "vite --config vite/config.dev.mjs",
-        "build-nolog": "vite build --config vite/config.prod.mjs",
+        "dev": "concurrently \"bun run dev:server\" \"bun run dev:client\"",
+        "dev:client": "vite --config vite/config.dev.mjs",
+        "dev:server": "bun run --watch src/server/index.ts",
+        "build": "vite build --config vite/config.prod.mjs",
         "test": "vitest run",
-        "server": "bun run server/index.ts"
+        "server": "bun run src/server/index.ts"
     },
     "dependencies": {
         "express": "^5.2.1",
@@ -39,8 +39,10 @@
     },
     "devDependencies": {
         "@types/express": "^5.0.6",
+        "@types/jsdom": "^28.0.1",
         "@vitest/browser": "^4.1.4",
         "canvas": "^3.2.3",
+        "concurrently": "^9.2.1",
         "jsdom": "^29.0.2",
         "jsdom-worker": "^0.3.0",
         "terser": "5.39.0",

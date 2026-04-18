@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import 'phaser'; 
-import PlayerState from '../shared/PlayerState';
+import PlayerState from '../PlayerState';
 
 describe('Player Logic', () => {
     let state: PlayerState;
@@ -18,7 +18,7 @@ describe('Player Logic', () => {
         let time = 0;
 
         const updateFrame = () => {
-            state.update(time, dt, [], 1000, 1000);
+            state.update(time, dt, [], 1000, 1000, 4);
             time += dt;
         };
 
@@ -45,7 +45,7 @@ describe('Player Logic', () => {
 
         // Turn right (down)
         state.turn('right');
-        state.update(100, 16, [], 1000, 1000);
+        state.update(100, 16, [], 1000, 1000, 4);
 
         // Velocity should immediately be updated to [0, BASE_SPEED]
         expect(state.velocity[0]).toBeCloseTo(0, 4);

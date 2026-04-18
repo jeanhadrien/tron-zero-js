@@ -1,5 +1,5 @@
-import PlayerState from '../src/game/shared/PlayerState';
-import BotController from '../src/game/shared/BotController';
+import PlayerState from '../shared/PlayerState';
+import BotController from '../shared/BotController';
 import * as Phaser from 'phaser';
 
 export default class GameRoom {

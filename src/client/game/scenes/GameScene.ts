@@ -4,7 +4,7 @@ import Player from '../gameobjects/Player';
 import PlayerManager from '../gameobjects/PlayerManager';
 import DebugHud from '../gameobjects/DebugHud';
 import { io, Socket } from 'socket.io-client';
-import PlayerState from '../shared/PlayerState';
+import PlayerState from '../../../shared/PlayerState';
 
 export class GameScene extends Scene {
     CANVAS_WIDTH: number;
@@ -224,7 +224,7 @@ export class GameScene extends Scene {
             
             console.log('Received init state', Object.keys(state).length, 'players');
             // Clear existing players
-            for (let [id, p] of this.playerManager.players) {
+            for (let [_id, p] of this.playerManager.players) {
                 p.destroy();
             }
             this.playerManager.players.clear();
