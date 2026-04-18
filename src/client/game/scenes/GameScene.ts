@@ -415,10 +415,6 @@ export class GameScene extends Scene {
                     // Simulate physics locally for human player
                     this.humanPlayer.pState.update(_time, this.FIXED_DELTA, otherTrails, this.WORLD_WIDTH, this.WORLD_HEIGHT, this.currentTick);
                     
-                    // We don't want to lerp the local player. They are predicted instantly.
-                    this.humanPlayer.x = this.humanPlayer.pState.x;
-                    this.humanPlayer.y = this.humanPlayer.pState.y;
-                    
                     // Record snapshot for this tick
                     this.history.push({
                         tick: this.currentTick,
@@ -436,7 +432,8 @@ export class GameScene extends Scene {
         }
 
         // We just call update on players to update sound smoothly and draw graphics
-        this.playerManager.update(_time, delta);
+        const alpha = this.accumulator / this.FIXED_DELTA;
+        this.playerManager.update(_time, delta, alpha, this.myId);
         this.debugHud.update(delta);
 
         // Update audio listener to follow the camera center

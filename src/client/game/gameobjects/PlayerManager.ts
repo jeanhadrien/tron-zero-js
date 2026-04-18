@@ -23,9 +23,9 @@ export default class PlayerManager {
         }
     }
 
-    update(time: number, delta: number) {
-        for (const player of this.players.values()) {
-            player.update(time, delta);
+    update(time: number, delta: number, alpha: number = 0, localPlayerId: string | null = null) {
+        for (const [id, player] of this.players) {
+            player.update(time, delta, alpha, id === localPlayerId);
         }
     }
 }

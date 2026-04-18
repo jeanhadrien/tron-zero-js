@@ -23,7 +23,7 @@
     "scripts": {
         "dev": "concurrently \"bun run dev:server\" \"bun run dev:client\"",
         "dev:client": "vite --config vite/config.dev.mjs",
-        "dev:server": "bun run --watch src/server/index.ts",
+        "dev:server": "bun run --inspect=localhost:9229 --watch src/server/index.ts",
         "build": "vite build --config vite/config.prod.mjs",
         "test": "vitest run",
         "server": "bun run src/server/index.ts"

@@ -127,7 +127,7 @@ export default class Player extends Phaser.GameObjects.Image {
         this.pState._setSpeed(speed);
     }
 
-    _draw(delta?: number) {
+    _draw(delta: number, alpha: number = 0, isLocal: boolean = false) {
         if (!this.pState.isRunning) {
             this.driverGraphics.setVisible(false);
             this.setVisible(false); // Hide the missing texture fallback image
@@ -139,15 +139,22 @@ export default class Player extends Phaser.GameObjects.Image {
             this.setVisible(true);
         }
 
-        // Visual interpolation for smooth 144hz rendering of 60hz server ticks
-        if (delta && delta > 0) {
-            const lerpFactor = 1.0 - Math.exp(-delta * 0.03); // Adjust interpolation speed here
-            this.x += (this.pState.x - this.x) * lerpFactor;
-            this.y += (this.pState.y - this.y) * lerpFactor;
+        if (isLocal) {
+            // Extrapolate position using the remaining accumulator fraction (alpha)
+            const timeSinceLastTick = (alpha * (1000 / 60)) / 1000; // time in seconds
+            this.x = this.pState.x + this.pState.velocity[0] * timeSinceLastTick;
+            this.y = this.pState.y + this.pState.velocity[1] * timeSinceLastTick;
         } else {
-            // Immediate snap
-            this.x = this.pState.x;
-            this.y = this.pState.y;
+            // Visual interpolation for smooth 144hz rendering of 60hz server ticks
+            if (delta && delta > 0) {
+                const lerpFactor = 1.0 - Math.exp(-delta * 0.03); // Adjust interpolation speed here
+                this.x += (this.pState.x - this.x) * lerpFactor;
+                this.y += (this.pState.y - this.y) * lerpFactor;
+            } else {
+                // Immediate snap
+                this.x = this.pState.x;
+                this.y = this.pState.y;
+            }
         }
         
         this.driverGraphics.x = this.x;
@@ -259,10 +266,10 @@ export default class Player extends Phaser.GameObjects.Image {
         }
     }
 
-    update(_time: number, delta: number) {
+    update(_time: number, delta: number, alpha: number = 0, isLocal: boolean = false) {
         // We render smoothly on the client update loop (144fps etc)
         // by lerping `this.x` towards `this.pState.x`.
-        this._draw(delta);
+        this._draw(delta, alpha, isLocal);
         this._updateEngineSound();
     }
 }
