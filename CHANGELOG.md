@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.2.0](https://github.com/jeanhadrien/tron-zero-js/compare/v1.1.0...v1.2.0) (2026-04-18)
+
+
+### Features
+
+* **multi:** init ([c8f5679](https://github.com/jeanhadrien/tron-zero-js/commit/c8f5679d6f09f0df9107cd568727420b79b8b88f))
+* setup authoritative server with headless phaser and socket.io sync ([a205283](https://github.com/jeanhadrien/tron-zero-js/commit/a205283b9e42e532dbf926d34dce7bd9a7ae4c03))
+
 ## [1.1.0](https://github.com/jeanhadrien/tron-zero-js/compare/v1.0.0...v1.1.0) (2026-04-17)
 
 
