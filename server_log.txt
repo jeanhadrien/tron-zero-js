@@ -1,0 +1,8 @@
+Running setup...
+Setup complete.
+Bot spawned: Shelby The Constrictor (Strategy: BOX_IN)
+Bot spawned: Koniev The Constrictor (Strategy: BOX_IN)
+Bot spawned: Boby The Constrictor (Strategy: BOX_IN)
+Bot spawned: Nobody The Slicer (Strategy: CUT_OFF)
+Bot spawned: Rampiece The Trapper (Strategy: TRAPPER)
+Server listening on port 3000

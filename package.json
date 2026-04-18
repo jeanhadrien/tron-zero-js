@@ -30,7 +30,9 @@
     },
     "dependencies": {
         "express": "^5.2.1",
+        "jsdom-global": "^3.0.2",
         "phaser": "^3.90.0",
+        "phaser3spectorjs": "^0.0.8",
         "socket.io": "^4.8.3",
         "socket.io-client": "^4.8.3",
         "solid-js": "1.9.5"

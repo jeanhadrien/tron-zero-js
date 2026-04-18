@@ -197,7 +197,7 @@ export default class BotController {
         }
     }
 
-    update(time: number, delta: number, allPlayers: PlayerState[], worldWidth: number, worldHeight: number) {
+    update(time: number, delta: number, allPlayers: PlayerState[], worldWidth: number, worldHeight: number, currentTick: number = 0) {
         if (!this.player.isRunning) {
             return;
         }

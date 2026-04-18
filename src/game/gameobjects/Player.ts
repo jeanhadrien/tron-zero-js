@@ -127,16 +127,39 @@ export default class Player extends Phaser.GameObjects.Image {
         this.pState._setSpeed(speed);
     }
 
-    _draw() {
-        this.x = this.pState.x;
-        this.y = this.pState.y;
-        this.driverGraphics.x = this.pState.x;
-        this.driverGraphics.y = this.pState.y;
+    _draw(delta?: number) {
+        if (!this.pState.isRunning) {
+            this.driverGraphics.setVisible(false);
+            this.setVisible(false); // Hide the missing texture fallback image
+            this.activeTrailGraphics.clear();
+            this.staticTrailGraphics.clear();
+            return;
+        } else {
+            this.driverGraphics.setVisible(true);
+            this.setVisible(true);
+        }
+
+        // Visual interpolation for smooth 144hz rendering of 60hz server ticks
+        if (delta && delta > 0) {
+            const lerpFactor = 1.0 - Math.exp(-delta * 0.03); // Adjust interpolation speed here
+            this.x += (this.pState.x - this.x) * lerpFactor;
+            this.y += (this.pState.y - this.y) * lerpFactor;
+        } else {
+            // Immediate snap
+            this.x = this.pState.x;
+            this.y = this.pState.y;
+        }
+        
+        this.driverGraphics.x = this.x;
+        this.driverGraphics.y = this.y;
         this.driverGraphics.rotation = this.pState.direction + Math.PI / 2;
 
         this.activeTrailGraphics.clear();
         this.activeTrailGraphics.lineStyle(this.pState.trailWidth, this.pState.color, 0.5);
-        this.activeTrailGraphics.strokeLineShape(this.pState.currentLine);
+        // In Phaser, Graphics uses strokeLineShape for lines, or moveTo/lineTo directly.
+        // We'll create a temporary line just for rendering this active frame to our smoothed X/Y.
+        const tempLine = new Phaser.Geom.Line(this.pState.previousLineEnd.x, this.pState.previousLineEnd.y, this.x, this.y);
+        this.activeTrailGraphics.strokeLineShape(tempLine);
 
         this.staticTrailGraphics.clear();
         this.staticTrailGraphics.lineStyle(this.pState.trailWidth, this.pState.color, 0.5);
@@ -213,26 +236,33 @@ export default class Player extends Phaser.GameObjects.Image {
         this.pState.direction = serverState.direction;
         this.pState.rubber = serverState.rubber;
         this.pState.isRunning = serverState.isRunning;
+        this.pState.speed = serverState.speed;
+        this.pState.targetSpeed = serverState.targetSpeed;
+        this.pState.velocity = serverState.velocity;
         
         // Reconstruct trail lines (since they come as raw coordinate objects)
         this.pState.trailLines = serverState.trailLines.map((l: any) => new Phaser.Geom.Line(l.x1, l.y1, l.x2, l.y2));
         this.pState.previousLineEnd.set(serverState.previousLineEnd.x, serverState.previousLineEnd.y);
+        
+        // Note: the server might update currentLine but we dynamically draw it from previousLineEnd to current X/Y
+        // Because of our lerping, we need the active trail to always connect to where the player physically is right now.
+        // Actually, we should draw it to the REAL pState.x to not mess up geometry, but visually it connects to driverGraphics.x.
+        // I will just let it use pState.x for exact physics alignment.
         this.pState.currentLine.setTo(this.pState.previousLineEnd.x, this.pState.previousLineEnd.y, this.pState.x, this.pState.y);
 
         if (prevDir !== this.pState.direction) {
             this._playTurnSound();
+            
+            // If they turned, snap them immediately so the corner is sharp, no lerp around corners!
+            this.x = this.pState.x;
+            this.y = this.pState.y;
         }
-
-        this._draw();
-        this._updateEngineSound();
     }
 
     update(time: number, delta: number) {
-        // The game loop is handled by the authoritative server now.
-        // We just render the state we receive in updateServerState.
-        // We still need to call this just to make sure the engine sound stays smooth,
-        // although we might just want it called in updateServerState.
-        this._draw();
+        // We render smoothly on the client update loop (144fps etc)
+        // by lerping `this.x` towards `this.pState.x`.
+        this._draw(delta);
         this._updateEngineSound();
     }
 }

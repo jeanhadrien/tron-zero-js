@@ -9,8 +9,8 @@ import PlayerState from '../shared/PlayerState';
 export class GameScene extends Scene {
     CANVAS_WIDTH: number;
     CANVAS_HEIGHT: number;
-    WORLD_WIDTH: number = 4000;
-    WORLD_HEIGHT: number = 4000;
+    WORLD_WIDTH: number = 2000;
+    WORLD_HEIGHT: number = 2000;
     PLAYER_VIEW_WIDTH: number = 800;
     isCameraFollowing: boolean = true;
 
@@ -30,6 +30,11 @@ export class GameScene extends Scene {
 
     accumulator: number = 0;
     FIXED_DELTA: number = 1000 / 60; // 60 updates per second
+    
+    currentTick: number = 0;
+    tickOffset: number = 1; // Default minimum offset
+    history: { tick: number; x: number; y: number; direction: number }[] = [];
+    pendingInputs: { tick: number; direction: 'left' | 'right' }[] = [];
 
     constructor() {
         super('Game');
@@ -155,6 +160,9 @@ export class GameScene extends Scene {
 
             // Reset key states
             this.isKeyDown = {};
+            this.currentTick = 0; // Will be resynced on next init_state
+            this.history = [];
+            this.pendingInputs = [];
         });
 
         // Add space key for restart
@@ -179,7 +187,9 @@ export class GameScene extends Scene {
                 if (!this.isKeyDown[key]) {
                     this.isKeyDown[key] = true;
                     if (this.humanPlayer && this.humanPlayer.isRunning) {
-                        this.socket.emit('turn', { direction });
+                        this.humanPlayer.turn(direction, this.currentTick);
+                        this.pendingInputs.push({ tick: this.currentTick, direction: direction as 'left' | 'right' });
+                        this.socket.emit('turn', { direction, sequenceNumber: this.currentTick });
                     }
                 }
             });
@@ -196,9 +206,22 @@ export class GameScene extends Scene {
         this.socket.on('connect', () => {
             console.log('Connected to server with ID:', this.socket.id);
             this.myId = this.socket.id!;
+            
+            // Measure latency
+            this.socket.emit('ping', performance.now());
         });
 
-        this.socket.on('init_state', (state: any) => {
+        this.socket.on('pong', (clientTime: number) => {
+            const rtt = performance.now() - clientTime;
+            const latencyMs = rtt / 2;
+            this.tickOffset = Math.ceil(latencyMs / this.FIXED_DELTA);
+            console.log(`Measured RTT: ${rtt.toFixed(2)}ms, Latency: ${latencyMs.toFixed(2)}ms, Tick Offset: ${this.tickOffset}`);
+        });
+
+        this.socket.on('init_state', (data: any) => {
+            const state = data.state;
+            this.currentTick = data.tick + this.tickOffset;
+            
             console.log('Received init state', Object.keys(state).length, 'players');
             // Clear existing players
             for (let [id, p] of this.playerManager.players) {
@@ -213,12 +236,26 @@ export class GameScene extends Scene {
                 pState.id = id;
                 pState.rubber = pData.rubber;
                 pState.isRunning = pData.isRunning;
+                pState.speed = pData.speed;
+                pState.targetSpeed = pData.targetSpeed;
+                pState.velocity = pData.velocity;
+                if (pData.trailLines) {
+                    pState.trailLines = pData.trailLines.map((l: any) => new Phaser.Geom.Line(l.x1, l.y1, l.x2, l.y2));
+                }
+                if (pData.previousLineEnd) {
+                    pState.previousLineEnd = new Phaser.Math.Vector2(pData.previousLineEnd.x, pData.previousLineEnd.y);
+                }
                 
+                pState.currentLine.setTo(pState.previousLineEnd.x, pState.previousLineEnd.y, pState.x, pState.y);
+
                 const player = this.playerManager.addPlayer(pState);
-                player.setVisible(true);
 
                 if (id === this.myId) {
                     this.humanPlayer = player;
+                    this.currentTick = state[id].lastProcessedInput > 0 ? state[id].lastProcessedInput : this.currentTick;
+                    this.history = [];
+                    this.pendingInputs = [];
+                    
                     this.debugHud.add("Rubber", this.humanPlayer, "rubber");
                     this.debugHud.add("Speed", this.humanPlayer, "velocity");
                     this.updateCameraView();
@@ -234,6 +271,15 @@ export class GameScene extends Scene {
                 pState.id = data.id;
                 pState.rubber = pData.rubber;
                 pState.isRunning = pData.isRunning;
+                pState.speed = pData.speed;
+                pState.targetSpeed = pData.targetSpeed;
+                pState.velocity = pData.velocity;
+                if (pData.trailLines) {
+                    pState.trailLines = pData.trailLines.map((l: any) => new Phaser.Geom.Line(l.x1, l.y1, l.x2, l.y2));
+                }
+                if (pData.previousLineEnd) {
+                    pState.previousLineEnd = new Phaser.Math.Vector2(pData.previousLineEnd.x, pData.previousLineEnd.y);
+                }
                 const player = this.playerManager.addPlayer(pState);
                 player.setVisible(true);
             }
@@ -244,12 +290,84 @@ export class GameScene extends Scene {
             this.playerManager.removePlayer(data.id);
         });
 
-        this.socket.on('sync_state', (state: any) => {
+        this.socket.on('sync_state', (data: { tick: number, state: any }) => {
+            const serverTick = data.tick;
+            const state = data.state;
+
+            if (this.currentTick === 0) {
+                // Estimate that the server tick is a bit behind us (e.g. ping offset)
+                this.currentTick = serverTick + this.tickOffset; 
+            }
+
             for (const id in state) {
                 const serverState = state[id];
                 const localPlayer = this.playerManager.players.get(id);
                 if (localPlayer) {
-                    localPlayer.updateServerState(serverState);
+                    if (id === this.myId) {
+                        // Reconciliation for the human player
+                        const snapshot = this.history.find(h => h.tick === serverTick);
+                        if (snapshot && localPlayer.isRunning) {
+                            const dx = Math.abs(snapshot.x - serverState.x);
+                            const dy = Math.abs(snapshot.y - serverState.y);
+                            const dirDiff = Math.abs(snapshot.direction - serverState.direction);
+
+                            // If drift is significant (e.g., wall collision slowed us down differently, or server denied a move)
+                            if (dx > 2 || dy > 2 || dirDiff > 0.1) {
+                                console.warn(`Client drift detected! Rolled back to server tick ${serverTick}. dx: ${dx.toFixed(2)}, dy: ${dy.toFixed(2)} (Client Y: ${snapshot.y.toFixed(2)}, Server Y: ${serverState.y.toFixed(2)})`);
+
+                                // 1. Snap to authoritative server state
+                                localPlayer.pState.x = serverState.x;
+                                localPlayer.pState.y = serverState.y;
+                                localPlayer.pState.direction = serverState.direction;
+                                localPlayer.pState.speed = serverState.speed;
+                                localPlayer.pState.targetSpeed = serverState.targetSpeed;
+                                localPlayer.pState.velocity = serverState.velocity;
+                                localPlayer.pState.trailLines = serverState.trailLines.map((l: any) => new Phaser.Geom.Line(l.x1, l.y1, l.x2, l.y2));
+                                localPlayer.pState.previousLineEnd.set(serverState.previousLineEnd.x, serverState.previousLineEnd.y);
+                                localPlayer.pState.currentLine.setTo(serverState.previousLineEnd.x, serverState.previousLineEnd.y, serverState.x, serverState.y);
+
+                                // 2. Replay all frames from serverTick to currentTick
+                                for (let t = serverTick + 1; t <= this.currentTick; t++) {
+                                    // Apply any unacknowledged inputs for this historical tick
+                                    const inputsForTick = this.pendingInputs.filter(i => i.tick === t);
+                                    for (const input of inputsForTick) {
+                                        localPlayer.turn(input.direction, t);
+                                    }
+
+                                    // Collect other trails (simplified: assuming remote players are at their LATEST state during this replay)
+                                    let otherTrails: Phaser.Geom.Line[] = [];
+                                    for (const [otherId, otherP] of this.playerManager.players) {
+                                        if (otherId !== this.myId) {
+                                            otherTrails = otherTrails.concat(otherP.pState.trailLines);
+                                        }
+                                    }
+
+                                    // Re-simulate physics step
+                                    localPlayer.pState.update(performance.now(), this.FIXED_DELTA, otherTrails, this.WORLD_WIDTH, this.WORLD_HEIGHT, t);
+
+                                    // Update history for this re-simulated tick
+                                    const histIdx = this.history.findIndex(h => h.tick === t);
+                                    if (histIdx !== -1) {
+                                        this.history[histIdx] = { tick: t, x: localPlayer.pState.x, y: localPlayer.pState.y, direction: localPlayer.pState.direction };
+                                    } else {
+                                        this.history.push({ tick: t, x: localPlayer.pState.x, y: localPlayer.pState.y, direction: localPlayer.pState.direction });
+                                    }
+                                }
+                            }
+                        }
+
+                        // Always sync non-physics stats
+                        localPlayer.pState.rubber = serverState.rubber;
+                        localPlayer.pState.isRunning = serverState.isRunning;
+                        
+                        // Clean up old history and inputs older than the server's snapshot
+                        this.history = this.history.filter(h => h.tick > serverTick);
+                        this.pendingInputs = this.pendingInputs.filter(i => i.tick > serverTick);
+
+                    } else {
+                        // Remote players: just snap to server state (for now, before interpolation)
+                        localPlayer.updateServerState(serverState);
+                    }
                 }
             }
         });
@@ -270,14 +388,54 @@ export class GameScene extends Scene {
 
             // Check for restart
             if (this.spaceKey.isDown) {
+                this.socket.emit("respawn");
+                this.currentTick = 0; // Trigger resync
                 EventBus.emit("game-start");
             }
             return;
         }
 
-        // We no longer simulate the game locally.
-        // We just call update on players to update sound smoothly,
-        // and HUD.
+        // We run a fixed timestep for the local physics prediction
+        this.accumulator += delta;
+        while (this.accumulator >= this.FIXED_DELTA) {
+            this.accumulator -= this.FIXED_DELTA;
+            
+            if (this.currentTick > 0) { // Only step if we are synced
+                this.currentTick++;
+                
+                if (this.humanPlayer && this.humanPlayer.isRunning) {
+                    // Gather other trails
+                    let otherTrails: Phaser.Geom.Line[] = [];
+                    for (const [id, p] of this.playerManager.players) {
+                        if (id !== this.myId && p.isRunning) {
+                            otherTrails = otherTrails.concat(p.pState.trailLines);
+                        }
+                    }
+
+                    // Simulate physics locally for human player
+                    this.humanPlayer.pState.update(_time, this.FIXED_DELTA, otherTrails, this.WORLD_WIDTH, this.WORLD_HEIGHT, this.currentTick);
+                    
+                    // We don't want to lerp the local player. They are predicted instantly.
+                    this.humanPlayer.x = this.humanPlayer.pState.x;
+                    this.humanPlayer.y = this.humanPlayer.pState.y;
+                    
+                    // Record snapshot for this tick
+                    this.history.push({
+                        tick: this.currentTick,
+                        x: this.humanPlayer.pState.x,
+                        y: this.humanPlayer.pState.y,
+                        direction: this.humanPlayer.pState.direction
+                    });
+
+                    // Keep history bounded just in case
+                    if (this.history.length > 300) {
+                        this.history.shift();
+                    }
+                }
+            }
+        }
+
+        // We just call update on players to update sound smoothly and draw graphics
         this.playerManager.update(_time, delta);
         this.debugHud.update(delta);
 

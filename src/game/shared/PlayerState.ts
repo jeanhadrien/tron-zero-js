@@ -12,28 +12,31 @@ export default class PlayerState {
     DETECTION_LINE_LENGTH: number = 20;
     TRAIL_MAX_LENGTH = 100;
     BASE_RUBBER = 10;
-    TURN_DELAY_MS = 50;
+    TURN_DELAY_TICKS = 3;
     COLLISION_EPSILON = 1e-10;
     trailWidth = 3;
 
     trailLines: Phaser.Geom.Line[] = [];
     previousLineEnd: Phaser.Math.Vector2;
     currentLine: Phaser.Geom.Line;
-
-    turnQueue: string[] = [];
-    lastTurnTime: number = 0;
-
+    
+    speed: number = 1;
+    targetSpeed: number = 1;
+    velocity: number[] = [0, 0];
+    isRunning: boolean = false;
+    rubber: number;
+    color: number;
+    isInvincible: boolean = false;
+    
     detectionLine: Phaser.Geom.Line;
     detectionLineLeft: Phaser.Geom.Line;
     detectionLineRight: Phaser.Geom.Line;
 
-    isRunning: boolean;
-    isInvincible: boolean = false;
-    rubber: number;
-    color: number;
-    velocity: number[];
-    speed: number;
-    targetSpeed: number = 1;
+    turnQueue: { tick: number, type: string }[] = [];
+
+    // Networking
+    lastProcessedInput: number = 0;
+    lastTurnTick: number = 0;
 
     constructor(x: number, y: number, direction: number, color: number) {
         this.id = Math.random().toString(36).substring(7);
@@ -43,6 +46,7 @@ export default class PlayerState {
         this.color = color;
 
         this.velocity = [0, 0];
+        this.speed = 1;
         this.isRunning = false;
         this.rubber = this.BASE_RUBBER;
 
@@ -193,27 +197,38 @@ export default class PlayerState {
         this.speed = speed;
     }
 
-    turn(type: string) {
-        this.turnQueue.push(type);
+    turn(type: string, tick: number = 0) {
+        this.turnQueue.push({ tick, type });
     }
 
     _executeTurn(type: string) {
+        // Difference in angle
         let newDirection = this.direction;
         if (type === 'left') {
             newDirection = this.direction - this.ROTATION_ANGLE;
         } else if (type === 'right') {
             newDirection = this.direction + this.ROTATION_ANGLE;
         }
+
+        // Normalize newDirection to be within 0 and 2*PI, always positive
         newDirection = newDirection % (Math.PI * 2);
+        if (newDirection < 0) {
+            newDirection += Math.PI * 2;
+        }
+
         this.updateDirection(newDirection);
         this._setSpeed(this.speed);
     }
 
-    update(time: number, delta: number, allOtherTrails: Phaser.Geom.Line[], worldWidth: number, worldHeight: number) {
-        if (this.turnQueue.length > 0 && time > this.lastTurnTime + this.TURN_DELAY_MS) {
-            let nextTurn = this.turnQueue.shift()!;
-            this._executeTurn(nextTurn);
-            this.lastTurnTime = time;
+    update(time: number, delta: number, allOtherTrails: Phaser.Geom.Line[], worldWidth: number, worldHeight: number, currentTick: number = 0) {
+        if (this.turnQueue.length > 0 && currentTick > this.lastTurnTick + this.TURN_DELAY_TICKS) {
+            // Check if we should execute the turn yet
+            if (this.turnQueue[0].tick <= currentTick) {
+                let nextTurn = this.turnQueue.shift()!;
+                this._executeTurn(nextTurn.type);
+                this.lastTurnTick = currentTick;
+                if (nextTurn.tick > 0) this.lastProcessedInput = nextTurn.tick;
+            }
         }
 
         this._updateDetectionLines();
@@ -230,24 +245,29 @@ export default class PlayerState {
 
             let isStuck = false;
 
-            const maxMovementThisFrame = (this.BASE_SPEED * this.targetSpeed * delta) / 1000;
+            // In server execution with massive latency or startup spikes, delta can be huge. 
+            // Clamp it here or it will overshoot the speed
+            const safeDelta = Math.max(1, Math.min(delta, 33)); // Cap logic at roughly 30 FPS equivalent to prevent runaway values
+            const maxMovementThisFrame = (this.BASE_SPEED * this.targetSpeed * safeDelta) / 1000;
             const slowDownDistance = Math.max(10, maxMovementThisFrame * 3);
 
             if (frontDistance < slowDownDistance) {
                 isStuck = true;
 
                 let speedRatio = (frontDistance * frontDistance) / (slowDownDistance * slowDownDistance);
-                let maxSafeSpeed = ((frontDistance * 0.5) * 1000) / (this.BASE_SPEED * delta);
+                let maxSafeSpeed = ((frontDistance * 0.5) * 1000) / (this.BASE_SPEED * safeDelta);
 
                 this._setSpeed(Math.min(this.targetSpeed * speedRatio, maxSafeSpeed));
 
                 if (!this.isInvincible) {
-                    this.rubber -= (0.5 * delta / 16.666) / Math.max(0.1, frontDistance);
+                    this.rubber -= (0.5 * safeDelta / 16.666) / Math.max(0.1, frontDistance);
                 }
             } else {
-                this.rubber += 0.006 * delta;
+                if (this.rubber < this.BASE_RUBBER) {
+                    this.rubber += 0.006 * safeDelta;
+                }
                 if (this.speed < this.targetSpeed) {
-                    this._setSpeed(Math.min(this.targetSpeed, this.speed + 0.03 * delta));
+                    this._setSpeed(Math.min(this.targetSpeed, this.speed + 0.03 * safeDelta));
                 } else if (this.speed > this.targetSpeed) {
                     this._setSpeed(this.targetSpeed);
                 }
@@ -255,20 +275,25 @@ export default class PlayerState {
 
             let isSliding = false;
             if (leftDistance < 10) {
-                this.targetSpeed *= Math.pow(1.001, delta / 16.666);
+                this.targetSpeed *= Math.pow(1.001, safeDelta / 16.666);
                 isSliding = true;
             }
             if (rightDistance < 10) {
-                this.targetSpeed *= Math.pow(1.001, delta / 16.666);
+                this.targetSpeed *= Math.pow(1.001, safeDelta / 16.666);
                 isSliding = true;
             }
 
             if (!isSliding && !isStuck && this.targetSpeed > 1) {
-                this.targetSpeed = Math.max(1, this.targetSpeed - 0.00015 * delta);
+                this.targetSpeed = Math.max(1, this.targetSpeed - 0.00015 * safeDelta);
             }
 
-            this.x += this.velocity[0] * delta / 1000;
-            this.y += this.velocity[1] * delta / 1000;
+            // Also use safeDelta for movement calculation
+            this.x += this.velocity[0] * safeDelta / 1000;
+            this.y += this.velocity[1] * safeDelta / 1000;
+
+            // Simple wall boundaries (which we were colliding against but this acts as hard limit)
+            this.x = Phaser.Math.Clamp(this.x, 0, worldWidth);
+            this.y = Phaser.Math.Clamp(this.y, 0, worldHeight);
 
         } else {
             this._setSpeed(0);
