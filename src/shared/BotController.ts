@@ -211,6 +211,9 @@ export default class BotController {
         for (const p of allPlayers) {
             if (p !== this.player) {
                 allOtherTrails = allOtherTrails.concat(p.trailLines);
+                if (p.isRunning) {
+                    allOtherTrails.push(p.currentLine);
+                }
             }
         }
 

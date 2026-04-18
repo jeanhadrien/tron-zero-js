@@ -104,17 +104,20 @@ export default class GameRoom {
             bot.update(time, delta, allPlayers, this.worldWidth, this.worldHeight, currentTick);
         }
 
-        // Gather all trails
-        let allTrails: Phaser.Geom.Line[] = [];
-        for (const p of allPlayers) {
-            allTrails = allTrails.concat(p.trailLines);
-        }
-
         // Update players
         for (const p of allPlayers) {
             if (p.isRunning) {
                 // Get trails of *other* players
-                const otherTrails = allTrails.filter(t => !p.trailLines.includes(t));
+                let otherTrails: Phaser.Geom.Line[] = [];
+                for (const other of allPlayers) {
+                    if (other !== p) {
+                        otherTrails = otherTrails.concat(other.trailLines);
+                        if (other.isRunning) {
+                            otherTrails.push(other.currentLine);
+                        }
+                    }
+                }
+                
                 p.update(time, delta, otherTrails, this.worldWidth, this.worldHeight, currentTick);
                 
                 if (p.rubber <= 0) { console.log(`Player ${p.id} died! Rubber: ${p.rubber}, x: ${p.x}, y: ${p.y}`); 

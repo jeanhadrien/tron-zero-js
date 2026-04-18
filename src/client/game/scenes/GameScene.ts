@@ -339,6 +339,9 @@ export class GameScene extends Scene {
                                     for (const [otherId, otherP] of this.playerManager.players) {
                                         if (otherId !== this.myId) {
                                             otherTrails = otherTrails.concat(otherP.pState.trailLines);
+                                            if (otherP.isRunning) {
+                                                otherTrails.push(otherP.pState.currentLine);
+                                            }
                                         }
                                     }
 
@@ -407,8 +410,11 @@ export class GameScene extends Scene {
                     // Gather other trails
                     let otherTrails: Phaser.Geom.Line[] = [];
                     for (const [id, p] of this.playerManager.players) {
-                        if (id !== this.myId && p.isRunning) {
+                        if (id !== this.myId) {
                             otherTrails = otherTrails.concat(p.pState.trailLines);
+                            if (p.isRunning) {
+                                otherTrails.push(p.pState.currentLine);
+                            }
                         }
                     }
 
