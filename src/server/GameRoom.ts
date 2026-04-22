@@ -1,5 +1,6 @@
+import { GameEventBus } from '../shared/GameEventBus';
 import PlayerState from '../shared/PlayerState';
-import BotController from '../shared/BotController';
+import BotController from './BotController';
 import * as Phaser from 'phaser';
 
 export default class GameRoom {
@@ -8,13 +9,16 @@ export default class GameRoom {
     worldWidth = 2000;
     worldHeight = 2000;
 
-    constructor() {
+    constructor(private bus: GameEventBus) {
+        this.bus = bus;
         // Initialize some bots
         for (let i = 0; i < 5; i++) {
             const botId = `bot_${i}`;
             const startX = 100 + Math.random() * (this.worldWidth - 200);
             const startY = 100 + Math.random() * (this.worldHeight - 200);
             const state = new PlayerState(
+                this.bus,
+                0,
                 startX,
                 startY,
                 Math.floor(Math.random() * 4) * (Math.PI / 2),
@@ -28,12 +32,14 @@ export default class GameRoom {
         }
     }
 
-    addPlayer(id: string) {
+    addPlayer(id: string, tick: number) {
         // Start away from walls by padding by 100
         const startX = 100 + Math.random() * (this.worldWidth - 200);
         const startY = 100 + Math.random() * (this.worldHeight - 200);
 
         const state = new PlayerState(
+            this.bus,
+            tick,
             startX,
             startY,
             Math.floor(Math.random() * 4) * (Math.PI / 2),
@@ -69,14 +75,13 @@ export default class GameRoom {
                 id: player.id,
                 x: player.x,
                 y: player.y,
-                direction: player.direction,
+                direction: player._direction,
                 rubber: player.rubber,
                 isRunning: player.isRunning,
                 color: player.color,
                 speed: player.speed,
                 targetSpeed: player.targetSpeed,
                 velocity: player.velocity,
-                lastProcessedInput: player.lastProcessedInput,
                 // We only need to send the endpoints of the trail lines over the network to save bandwidth
                 // But for now let's just send what client expects
                 trailLines: player.trailLines.map(l => ({ x1: l.x1, y1: l.y1, x2: l.x2, y2: l.y2 })),
@@ -89,16 +94,14 @@ export default class GameRoom {
     handleTurn(id: string, direction: 'left' | 'right', sequenceNumber?: number) {
         const player = this.players.get(id);
         if (player) {
-            player.turn(direction, sequenceNumber);
-            if (sequenceNumber !== undefined) {
-                player.lastProcessedInput = sequenceNumber;
-            }
+            player.queueTurn(direction, sequenceNumber);
         }
     }
 
     update(time: number, delta: number, currentTick: number) {
         const allPlayers = Array.from(this.players.values());
-        
+        const events: any[] = [];
+
         // Update bots
         for (const bot of this.bots.values()) {
             bot.update(time, delta, allPlayers, this.worldWidth, this.worldHeight, currentTick);
@@ -117,15 +120,38 @@ export default class GameRoom {
                         }
                     }
                 }
-                
+
+                const prevDir = p._direction;
                 p.update(time, delta, otherTrails, this.worldWidth, this.worldHeight, currentTick);
-                
-                if (p.rubber <= 0) { console.log(`Player ${p.id} died! Rubber: ${p.rubber}, x: ${p.x}, y: ${p.y}`); 
+
+                if (prevDir !== p._direction) {
+                    events.push({
+                        type: 'turn',
+                        id: p.id,
+                        tick: currentTick,
+                        x: p.x,
+                        y: p.y,
+                        direction: p._direction,
+                        speed: p.speed,
+                        targetSpeed: p.targetSpeed,
+                        velocity: p.velocity,
+                        rubber: p.rubber
+                    });
+                }
+
+                if (p.rubber <= 0) {
+                    console.log(`Player ${p.id} died! Rubber: ${p.rubber}, x: ${p.x}, y: ${p.y}`);
                     p.isRunning = false;
                     // Clear the trails completely when a player dies
                     p.trailLines = [];
                     p.currentLine.setTo(p.x, p.y, p.x, p.y);
                     p.previousLineEnd.set(p.x, p.y);
+
+                    events.push({
+                        type: 'death',
+                        id: p.id,
+                        tick: currentTick
+                    });
 
                     if (this.bots.has(p.id)) {
                         this.respawnPlayer(p.id);
@@ -134,5 +160,6 @@ export default class GameRoom {
                 }
             }
         }
+        return events;
     }
 }

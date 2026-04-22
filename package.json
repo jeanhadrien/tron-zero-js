@@ -1,54 +1,57 @@
 {
-    "name": "template-solidjs",
-    "description": "A Phaser 3 template using SolidJS.",
-    "version": "1.1.0",
-    "repository": {
-        "type": "git",
-        "url": "git+https://github.com/phaserjs/template-solid.git"
-    },
-    "author": "Phaser Studio <support@phaser.io> (https://phaser.io/)",
-    "license": "MIT",
-    "licenseUrl": "http://www.opensource.org/licenses/mit-license.php",
-    "bugs": {
-        "url": "https://github.com/phaserjs/template-solid/issues"
-    },
-    "homepage": "https://github.com/phaserjs/template-solid#readme",
-    "keywords": [
-        "phaser",
-        "phaser3",
-        "solidjs",
-        "vite",
-        "typescript"
-    ],
-    "scripts": {
-        "dev": "concurrently \"bun run dev:server\" \"bun run dev:client\"",
-        "dev:client": "vite --config vite/config.dev.mjs",
-        "dev:server": "bun run --inspect=localhost:9229 --watch src/server/index.ts",
-        "build": "vite build --config vite/config.prod.mjs",
-        "test": "vitest run",
-        "server": "bun run src/server/index.ts"
-    },
-    "dependencies": {
-        "express": "^5.2.1",
-        "jsdom-global": "^3.0.2",
-        "phaser": "^3.90.0",
-        "phaser3spectorjs": "^0.0.8",
-        "socket.io": "^4.8.3",
-        "socket.io-client": "^4.8.3",
-        "solid-js": "1.9.5"
-    },
-    "devDependencies": {
-        "@types/express": "^5.0.6",
-        "@types/jsdom": "^28.0.1",
-        "@vitest/browser": "^4.1.4",
-        "canvas": "^3.2.3",
-        "concurrently": "^9.2.1",
-        "jsdom": "^29.0.2",
-        "jsdom-worker": "^0.3.0",
-        "terser": "5.39.0",
-        "typescript": "5.7.2",
-        "vite": "6.3.1",
-        "vite-plugin-solid": "2.11.6",
-        "vitest": "^4.1.4"
-    }
+  "name": "template-solidjs",
+  "description": "A Phaser 3 template using SolidJS.",
+  "version": "1.1.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/phaserjs/template-solid.git"
+  },
+  "author": "Phaser Studio <support@phaser.io> (https://phaser.io/)",
+  "license": "MIT",
+  "licenseUrl": "http://www.opensource.org/licenses/mit-license.php",
+  "bugs": {
+    "url": "https://github.com/phaserjs/template-solid/issues"
+  },
+  "homepage": "https://github.com/phaserjs/template-solid#readme",
+  "keywords": [
+    "phaser",
+    "phaser3",
+    "solidjs",
+    "vite",
+    "typescript"
+  ],
+  "scripts": {
+    "dev": "concurrently \"bun run dev:server\" \"bun run dev:client\"",
+    "dev:client": "vite --config vite/config.dev.mjs",
+    "dev:server": "bun run --inspect=localhost:9229 --watch src/server/index.ts",
+    "build": "vite build --config vite/config.prod.mjs",
+    "test": "vitest run",
+    "server": "bun run src/server/index.ts"
+  },
+  "dependencies": {
+    "@geckos.io/client": "^3.1.0",
+    "@geckos.io/server": "^3.1.0",
+    "express": "^5.2.1",
+    "jsdom-global": "^3.0.2",
+    "phaser": "^3.90.0",
+    "phaser3spectorjs": "^0.0.8",
+    "solid-js": "1.9.5"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "@types/jsdom": "^28.0.1",
+    "@vitest/browser": "^4.1.4",
+    "canvas": "^3.2.3",
+    "concurrently": "^9.2.1",
+    "jsdom": "^29.0.2",
+    "jsdom-worker": "^0.3.0",
+    "terser": "5.39.0",
+    "typescript": "5.7.2",
+    "vite": "6.3.1",
+    "vite-plugin-solid": "2.11.6",
+    "vitest": "^4.1.4"
+  },
+  "trustedDependencies": [
+    "node-datachannel"
+  ]
 }

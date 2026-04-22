@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import 'phaser'; 
+import 'phaser';
 import PlayerState from '../PlayerState';
 
 describe('Player Logic', () => {
@@ -22,20 +22,20 @@ describe('Player Logic', () => {
             time += dt;
         };
 
-        state.turn('right');
-        state.turn('right');
+        state.queueTurn('right');
+        state.queueTurn('right');
         updateFrame();
 
-        state.turn('left');
-        state.turn('left');
+        state.queueTurn('left');
+        state.queueTurn('left');
         updateFrame();
-        
+
         expect(state.speed).toBeGreaterThan(0.9);
     });
 
     it('updates velocity immediately on turn to prevent diagonal movement', () => {
         // Set initial direction to 0 (right)
-        state.direction = 0;
+        state._direction = 0;
         state.speed = 1;
         state._setSpeed(state.speed);
 
@@ -44,7 +44,7 @@ describe('Player Logic', () => {
         expect(state.velocity[1]).toBeCloseTo(0, 4);
 
         // Turn right (down)
-        state.turn('right');
+        state.queueTurn('right');
         state.update(100, 16, [], 1000, 1000, 4);
 
         // Velocity should immediately be updated to [0, BASE_SPEED]

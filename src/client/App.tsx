@@ -1,11 +1,13 @@
 import { PhaserGame } from './PhaserGame';
 import DebugConsole from './components/DebugConsole';
+import FpsCounter from './components/FpsCounter';
 
 const App = () => {
     return (
         <div id="app" style={{ position: 'relative' }}>
             <PhaserGame />
             <DebugConsole />
+            <FpsCounter />
             <div style={{
                 position: 'absolute',
                 bottom: '10px',
