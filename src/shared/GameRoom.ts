@@ -93,14 +93,16 @@ export default class GameRoom {
 
   update(deltaTime: number) {
     const ticksToProcess = this.clock.update(deltaTime);
+    const startTick = this.clock.tick - ticksToProcess + 1;
 
     const allPlayers = Array.from(this.players.values());
     for (let index = 0; index < ticksToProcess; index++) {
+      const currentSimTick = startTick + index;
       for (const p of allPlayers) {
         if (p.isRunning == false) {
           this.spawnPlayer(p);
         }
-        p.update(this.clock.tick, allPlayers, this.area);
+        p.update(currentSimTick, allPlayers, this.area);
       }
     }
   }

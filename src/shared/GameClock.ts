@@ -1,24 +1,24 @@
 export default class GameClock {
   tick: number = 0;
-  readonly tickRate: number; // 60 tick rate (16.666... ms)
+  readonly tickTimeMs: number;
   accumulator: number = 0;
 
-  constructor(tickRate: number = 1000 / 60, startTick: number = 0) {
-    this.tickRate = tickRate;
+  constructor(tickTimeMs: number = 1000 / 240, startTick: number = 0) {
+    this.tickTimeMs = tickTimeMs;
     this.tick = startTick;
   }
 
   /**
    * Updates the accumulator and returns the number of fixed ticks that should be processed.
-   * @param delta The time elapsed since the last update in milliseconds.
+   * @param deltaTime The time elapsed since the last update in milliseconds.
    * @returns The number of ticks to process this frame.
    */
-  update(delta: number): number {
-    this.accumulator += delta;
+  update(deltaTime: number): number {
+    this.accumulator += deltaTime;
     let ticksToProcess = 0;
 
-    while (this.accumulator >= this.tickRate) {
-      this.accumulator -= this.tickRate;
+    while (this.accumulator >= this.tickTimeMs) {
+      this.accumulator -= this.tickTimeMs;
       this.tick++;
       ticksToProcess++;
     }
@@ -32,7 +32,7 @@ export default class GameClock {
    * This is useful for smoothing out movement on the client side.
    */
   getAlpha(): number {
-    return this.accumulator / this.tickRate;
+    return this.accumulator / this.tickTimeMs;
   }
 
   /**

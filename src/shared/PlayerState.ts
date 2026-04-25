@@ -331,6 +331,8 @@ export default class PlayerState {
       newDirection += Math.PI * 2;
     }
 
+    this.lastTurnTick = this.currentTick;
+
     // if player is still on last point, just update the direction
     const points = this.trail.getPoints();
     if (points.length > 0) {
@@ -378,6 +380,7 @@ export default class PlayerState {
 
     this.currentTick = currentTick;
 
+    // Check for death
     if (!this.isRunning || this.rubber <= 0) {
       if (this.shouldHandleDeath) {
         this.eventBus.emit('player_death', this);
@@ -387,15 +390,13 @@ export default class PlayerState {
       }
       return;
     }
-    if (
-      this.turnQueue.length > 0 &&
-      currentTick > this.lastTurnTick + PlayerState.TURN_DELAY_TICKS
-    ) {
-      // Check if we should execute the turn yet
+
+    // Turn (one turn per tick max)
+    if (this.turnQueue.length > 0) {
       let nextTurn = this.turnQueue.shift()!;
       this._executeTurn(nextTurn.type);
-      this.lastTurnTick = currentTick;
     }
+
     const otherPlayers = allPlayers.filter((player) => player.id !== this.id);
 
     this._updateDetectionLines();

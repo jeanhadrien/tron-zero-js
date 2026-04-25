@@ -39,7 +39,7 @@ export class GameScene extends Scene {
   clientChannel: ClientChannel;
   bus: GameEventBus;
 
-  tickOffset: number = -1; // Default minimum offset for latency
+  tickOffset: number = 1;
 
   lastFpsEmitTime: number = 0;
   gameAreaRenderer: GameAreaRenderer;
@@ -237,18 +237,20 @@ export class GameScene extends Scene {
     this.clientChannel.on('pong', (data: any) => {
       const oldTime = data;
       const pingDifferenceTime = performance.now() - oldTime;
-      this.tickOffset = Math.ceil(pingDifferenceTime);
+      this.tickOffset = Math.ceil(
+        pingDifferenceTime / this.gameClock.tickTimeMs
+      );
       console.info(
         `<pong> pingDifferenceTime: ${pingDifferenceTime.toFixed(2)}ms, Tick Offset: ${this.tickOffset}`
       );
-      this.gameClock.setTick(this.gameClock.tick + this.tickOffset);
+      // Removed double-adding tickOffset on pong
     });
 
     this.clientChannel.on('init_state', (data: any) => {
       console.log('<init_state>', data);
       const [_tick, _playerStateDTOList]: [number, PlayerStateDTO[]] = data;
 
-      this.gameClock.setTick(data.tick + this.tickOffset);
+      this.gameClock.setTick(_tick + this.tickOffset);
 
       this.gameRoom.players.clear();
 
@@ -381,32 +383,34 @@ export class GameScene extends Scene {
     for (const [id, renderer] of this.playerRenderers) {
       renderer.render(this.gameRoom.getPlayer(id));
     }
-    const ticksToProcess = this.gameClock.update(delta);
-    for (let i = 0; i < ticksToProcess; i++) {
-      if (this.gameClock.tick > 0) {
-        // Simulate all players
-        for (const [id, p] of this.gameRoom.players) {
-          if (p.isRunning) {
-            // Gather other trails
-            let otherTrails: Phaser.Geom.Line[] = [];
-            for (const [otherId, otherP] of this.gameRoom.players) {
-              if (otherId !== id) {
-                otherTrails = otherTrails.concat(otherP.trailLines);
-                if (otherP.isRunning) {
-                  otherTrails.push(otherP.currentLine);
-                }
-              }
-            }
 
-            p.update(
-              this.gameClock.tick,
-              this.gameRoom.getAllPlayers(),
-              this.gameArea
-            );
-          }
-        }
-      }
-    }
+    this.gameRoom.update(delta);
+    // const ticksToProcess = this.gameClock.update(delta);
+    // for (let i = 0; i < ticksToProcess; i++) {
+    //   const currentSimTick = startTick + i;
+
+    //   // Simulate all players
+    //   for (const [id, p] of this.gameRoom.players) {
+    //     if (p.isRunning) {
+    //       // Gather other trails
+    //       let otherTrails: Phaser.Geom.Line[] = [];
+    //       for (const [otherId, otherP] of this.gameRoom.players) {
+    //         if (otherId !== id) {
+    //           otherTrails = otherTrails.concat(otherP.trailLines);
+    //           if (otherP.isRunning) {
+    //             otherTrails.push(otherP.currentLine);
+    //           }
+    //         }
+    //       }
+
+    //       p.update(
+    //         currentSimTick,
+    //         this.gameRoom.getAllPlayers(),
+    //         this.gameArea
+    //       );
+    //     }
+    //   }
+    // }
 
     // Debug HUD is throttled internally (~12 Hz) to avoid SolidJS reactivity spam
     this.debugHud.update(_time);

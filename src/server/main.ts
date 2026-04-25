@@ -114,7 +114,7 @@ let lastTime = performance.now();
 
 setInterval(() => {
   const now = performance.now();
-  const delta = now - lastTime; // <-- VERY IMPORTANT: changed from delta +=
+  const delta = now - lastTime;
   lastTime = now;
   gameRoom.update(delta);
   const p = Array.from(gameRoom.players.values())[0];
