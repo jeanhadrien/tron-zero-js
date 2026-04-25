@@ -117,15 +117,15 @@ setInterval(() => {
   const delta = now - lastTime;
   lastTime = now;
   gameRoom.update(delta);
-  const p = Array.from(gameRoom.players.values())[0];
-  if (p && gameClock.tick % 60 === 0)
-    if (gameClock.tick % 180 === 0) {
-      // Periodic full sync to correct drift (every 3 seconds)
-      io.emit('sync_state', {
-        tick: gameClock.tick,
-        state: gameRoom.getState(),
-      });
-    }
+  //   const p = Array.from(gameRoom.players.values())[0];
+  //   if (p && gameClock.tick % 60 === 0)
+  //     if (gameClock.tick % 180 === 0) {
+  //       // Periodic full sync to correct drift (every 3 seconds)
+  //       io.emit('sync_state', {
+  //         tick: gameClock.tick,
+  //         state: gameRoom.getState(),
+  //       });
+  //     }
 }, TICK_RATE);
 
 const PORT = process.env.PORT || 3000;
