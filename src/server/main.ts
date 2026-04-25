@@ -141,15 +141,6 @@ setInterval(() => {
   botCtrl3.update(bot3, allPlayer, gameArea);
   botCtrl4.update(bot4, allPlayer, gameArea);
   botCtrl5.update(bot5, allPlayer, gameArea);
-  //   const p = Array.from(gameRoom.players.values())[0];
-  //   if (p && gameClock.tick % 60 === 0)
-  //     if (gameClock.tick % 180 === 0) {
-  //       // Periodic full sync to correct drift (every 3 seconds)
-  //       io.emit('sync_state', {
-  //         tick: gameClock.tick,
-  //         state: gameRoom.getState(),
-  //       });
-  //     }
 }, TICK_RATE);
 
 const PORT = process.env.PORT || 3000;

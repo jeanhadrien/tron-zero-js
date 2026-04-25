@@ -112,7 +112,7 @@ export default class PlayerState {
         direction,
         this.velocity,
         this.speedMult,
-        0
+        this.currentTick
       )
     );
     this._updateDetectionLines();

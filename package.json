@@ -35,6 +35,8 @@
     "jsdom-global": "^3.0.2",
     "phaser": "^3.90.0",
     "phaser3spectorjs": "^0.0.8",
+    "playwright": "^1.59.1",
+    "puppeteer": "^24.42.0",
     "solid-js": "1.9.5"
   },
   "devDependencies": {

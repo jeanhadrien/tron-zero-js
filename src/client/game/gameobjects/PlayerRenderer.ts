@@ -11,6 +11,10 @@ export default class PlayerRenderer extends Phaser.GameObjects.Image {
   panner: PannerNode | null = null;
   amp: GainNode | null = null;
 
+  private _lastTrail: any = null;
+  private _lastStaticTrailLength: number = -1;
+  private _lastStaticTrailTick: number = -1;
+
   constructor(scene: Phaser.Scene) {
     super(scene, 0, 0, '_playerRenderer');
     this.scene = scene;
@@ -20,7 +24,7 @@ export default class PlayerRenderer extends Phaser.GameObjects.Image {
 
     this.staticTrailGraphics = this.scene.add.graphics();
     this.activeTrailGraphics = this.scene.add.graphics();
-    this.driverGraphics = this.scene.add.graphics();
+    this.driverGraphics = this.scene.add.graphics().setDepth(10);
 
     this._initEngineSound();
   }
@@ -78,17 +82,17 @@ export default class PlayerRenderer extends Phaser.GameObjects.Image {
       this.driverGraphics.setVisible(false);
       this.activeTrailGraphics.clear();
       this.staticTrailGraphics.clear();
+      this._lastStaticTrailLength = -1;
       return;
-    } else {
-      this.driverGraphics.setVisible(true);
-      //this.setVisible(true); // Debug square
     }
+
+    this.driverGraphics.setVisible(true);
 
     this.driverGraphics.x = player.x;
     this.driverGraphics.y = player.y;
     this.driverGraphics.rotation = player.direction + Math.PI / 2;
+    this.driverGraphics.clear();
     this.driverGraphics.fillStyle(player.color);
-    this.driverGraphics.setDepth(10);
     this.driverGraphics.fillTriangle(0, -7, -7, 7, 7, 7);
 
     const points = player.trail.getPoints();
@@ -99,20 +103,33 @@ export default class PlayerRenderer extends Phaser.GameObjects.Image {
 
     const lastPoint = points[points.length - 1];
     if (lastPoint) {
-      const tempLine = new Phaser.Geom.Line(
+      this.activeTrailGraphics.beginPath();
+      this.activeTrailGraphics.moveTo(
         lastPoint.coordinates.x,
-        lastPoint.coordinates.y,
-        player.x,
-        player.y
+        lastPoint.coordinates.y
       );
-      this.activeTrailGraphics.strokeLineShape(tempLine);
+      this.activeTrailGraphics.lineTo(player.x, player.y);
+      this.activeTrailGraphics.strokePath();
     }
 
     // STATIC TRAIL
+    const length = points.length;
+    const lastTick = length > 0 ? points[length - 1].tick : -1;
+
+    if (
+      this._lastTrail === player.trail &&
+      this._lastStaticTrailLength === length &&
+      this._lastStaticTrailTick === lastTick
+    ) {
+      return; // Nothing changed, skip redrawing the static trail
+    }
+
+    this._lastTrail = player.trail;
+    this._lastStaticTrailLength = length;
+    this._lastStaticTrailTick = lastTick;
+
     this.staticTrailGraphics.clear();
     this.staticTrailGraphics.lineStyle(player.trailWidth, player.color, 0.5);
-
-    const length = points.length;
 
     if (length >= 1) {
       this.staticTrailGraphics.beginPath();
@@ -184,16 +201,14 @@ export default class PlayerRenderer extends Phaser.GameObjects.Image {
       : undefined;
     if (!audioCtx || !this.oscillator || !this.panner) return;
 
-    const time = audioCtx.currentTime;
-
     const baseFreq = 80;
     const targetFreq = baseFreq + player.speedMult * 40;
-    this.oscillator.frequency.setTargetAtTime(targetFreq, time, 0.1);
+    this.oscillator.frequency.value = targetFreq;
 
     if (this.panner.positionX) {
-      this.panner.positionX.setTargetAtTime(player.x, time, 0.05);
-      this.panner.positionY.setTargetAtTime(player.y, time, 0.05);
-      this.panner.positionZ.setTargetAtTime(0, time, 0.05);
+      this.panner.positionX.value = player.x;
+      this.panner.positionY.value = player.y;
+      this.panner.positionZ.value = 0;
     } else {
       this.panner.setPosition(player.x, player.y, 0);
     }
