@@ -4,6 +4,7 @@ import { PlayerTrail } from './PlayerTrail';
 import { PlayerPoint } from './PlayerPoint';
 import { PlayerEventBus } from './PlayerStateEventBus';
 import GameArea from './GameArea';
+import GameClock from './GameClock';
 
 export const ROTATION_ANGLE = Math.PI / 2;
 export const BASE_SPEED = 100;
@@ -12,8 +13,8 @@ export const EPSILON = 1e-12;
 
 export default class PlayerState {
   public static readonly ROTATION_ANGLE: number = Math.PI / 2;
-  public static readonly BASE_SPEED: number = 100;
-  public static readonly MAX_SPEED: number = 200;
+  public static readonly BASE_SPEED: number = 150;
+  public static readonly MAX_SPEED: number = 500;
   public static readonly DETECTION_LINE_LENGTH: number = 20;
   public static readonly TRAIL_MAX_LENGTH = 100;
   public static readonly BASE_RUBBER = 10;
@@ -34,7 +35,7 @@ export default class PlayerState {
   trail: PlayerTrail = new PlayerTrail();
 
   speedMult: number = 1;
-  targetSpeed: number = 1;
+  targetSpeedMult: number = 1;
   velocity: number[] = [0, 0];
   isRunning: boolean = false;
   rubber: number;
@@ -90,7 +91,7 @@ export default class PlayerState {
   }
 
   // Reset player state (after death..)
-  spawn(x: number, y: number, direction: number) {
+  spawn(x: number, y: number, direction: number, tickTimeMs: number) {
     this.x = x;
     this.y = y;
     this.direction = direction;
@@ -102,8 +103,8 @@ export default class PlayerState {
     this.rubber = PlayerState.BASE_RUBBER;
     this.isRunning = true;
     this.turnQueue = [];
-    this._setSpeedAndVelocity(1);
-    this.targetSpeed = this.speedMult;
+    this._setSpeedAndVelocity(1, tickTimeMs);
+    this.targetSpeedMult = this.speedMult;
     this.shouldHandleDeath = true;
     this.trail = PlayerTrail.fromPoint(
       new PlayerPoint(
@@ -116,7 +117,7 @@ export default class PlayerState {
     );
     this._updateDetectionLines();
     this.eventBus.emit('player_spawn', this);
-    console.info(this.currentTick, this.id, 'spawn()');
+    console.debug(this.currentTick, this.id, 'spawn()');
   }
 
   disable() {
@@ -124,11 +125,13 @@ export default class PlayerState {
     this.speedMult = 0;
     this.velocity = [0, 0];
     this.rubber = 0;
-    this.targetSpeed = 0;
+    this.targetSpeedMult = 0;
     this.isRunning = false;
     this.turnQueue = [];
     this.trail = new PlayerTrail();
-    console.info(this.currentTick, this.id, 'disable()');
+    this.shouldHandleDeath = true;
+
+    console.debug(this.currentTick, this.id, 'disable()');
 
     // to remove
     this.currentLine.setTo(this.x, this.y, this.x, this.y);
@@ -142,7 +145,7 @@ export default class PlayerState {
       y: this.y,
       direction: this.direction,
       speedMult: this.speedMult,
-      targetSpeed: this.targetSpeed,
+      targetSpeed: this.targetSpeedMult,
       rubber: this.rubber,
       velocity: this.velocity,
       isRunning: this.isRunning,
@@ -157,7 +160,7 @@ export default class PlayerState {
     this.y = playerDto.y;
     this.direction = playerDto.direction;
     this.speedMult = playerDto.speedMult;
-    this.targetSpeed = playerDto.targetSpeed;
+    this.targetSpeedMult = playerDto.targetSpeed;
     this.rubber = playerDto.rubber;
     this.velocity = playerDto.velocity;
     this.isRunning = playerDto.isRunning;
@@ -301,9 +304,17 @@ export default class PlayerState {
     );
   }
 
-  _setSpeedAndVelocity(speed: number) {
-    let vx = Math.cos(this.direction) * PlayerState.BASE_SPEED * speed;
-    let vy = Math.sin(this.direction) * PlayerState.BASE_SPEED * speed;
+  _setSpeedAndVelocity(speedMult: number, tickTimeMs: number) {
+    let vx =
+      Math.cos(this.direction) *
+      PlayerState.BASE_SPEED *
+      speedMult *
+      tickTimeMs;
+    let vy =
+      Math.sin(this.direction) *
+      PlayerState.BASE_SPEED *
+      speedMult *
+      tickTimeMs;
 
     if (Math.abs(vx) <= EPSILON) {
       vx = 0;
@@ -313,18 +324,18 @@ export default class PlayerState {
     }
 
     this.velocity = [vx, vy];
-    this.speedMult = speed;
+    this.speedMult = speedMult;
   }
 
   queueTurn(type: string, tick: number = 0) {
     if (this.isRunning) {
       this.turnQueue.push({ tick, type });
     } else {
-      console.info(this.currentTick, this.id, 'skipped turn, not running');
+      console.debug(this.currentTick, this.id, 'skipped turn, not running');
     }
   }
 
-  _executeTurn(type: string) {
+  _executeTurn(type: string, tickTimeMs: number) {
     // Difference in angle
     let newDirection = this.direction;
     if (type === 'left') {
@@ -353,7 +364,7 @@ export default class PlayerState {
       ) {
         // We haven't moved since the last turn/spawn point!
         this.setDirection(newDirection);
-        this._setSpeedAndVelocity(this.speedMult);
+        this._setSpeedAndVelocity(this.speedMult, tickTimeMs);
 
         lastTurn.direction = newDirection;
         lastTurn.velocity = this.velocity;
@@ -373,12 +384,17 @@ export default class PlayerState {
     this.trail.addTurn(turnPoint);
 
     this.setDirection(newDirection);
-    this._setSpeedAndVelocity(this.speedMult);
+    this._setSpeedAndVelocity(this.speedMult, tickTimeMs);
 
     this.eventBus.emit('player_turn', this, turnPoint);
   }
 
-  update(currentTick: number, allPlayers: PlayerState[], gameArea: GameArea) {
+  update(
+    currentTick: number,
+    allPlayers: PlayerState[],
+    gameArea: GameArea,
+    gameClock: GameClock
+  ) {
     if (this.currentTick === null || this.currentTick === undefined) {
       throw new Error('Null tick');
     }
@@ -400,7 +416,6 @@ export default class PlayerState {
       if (this.shouldHandleDeath) {
         this.eventBus.emit('player_death', this);
         this.disable();
-        this.shouldHandleDeath = false;
       }
       return;
     }
@@ -408,7 +423,7 @@ export default class PlayerState {
     // Turn (one turn per tick max)
     if (this.turnQueue.length > 0) {
       let nextTurn = this.turnQueue.shift()!;
-      this._executeTurn(nextTurn.type);
+      this._executeTurn(nextTurn.type, gameClock.tickTimeMs);
     }
 
     const otherPlayers = allPlayers.filter((player) => player.id !== this.id);
@@ -453,71 +468,77 @@ export default class PlayerState {
 
     let isStuck = false;
 
-    const safeDelta = 33;
-    const maxMovementThisFrame =
-      (PlayerState.BASE_SPEED * this.targetSpeed * safeDelta) / 1000;
-    const slowDownDistance = Math.max(10, maxMovementThisFrame * 3);
+    const deltaStuff = 12;
+    const slowDownDistance = 10;
 
     // console.debug('maxMovementThisFrame', maxMovementThisFrame);
     // console.debug('slowDownDistance', slowDownDistance);
 
     if (this.collisionDistanceFront < slowDownDistance) {
+      // Case 1: Running in a wall
       isStuck = true;
 
+      // speed ratio never reaches 0 (player never reaches the tail)
       let speedRatio =
         (this.collisionDistanceFront * this.collisionDistanceFront) /
         (slowDownDistance * slowDownDistance);
+
       let maxSafeSpeed =
         (this.collisionDistanceFront * 0.5 * 1000) /
-        (PlayerState.BASE_SPEED * safeDelta);
+        (PlayerState.BASE_SPEED * deltaStuff);
 
       this._setSpeedAndVelocity(
-        Math.min(this.targetSpeed * speedRatio, maxSafeSpeed)
+        Math.min(this.targetSpeedMult * speedRatio, maxSafeSpeed),
+        gameClock.tickTimeMs
       );
 
       if (!this.isInvincible) {
         this.rubber -=
-          (0.5 * safeDelta) /
+          (0.5 * deltaStuff) /
           16.666 /
           Math.max(0.1, this.collisionDistanceFront);
       }
     } else {
       if (this.rubber < PlayerState.BASE_RUBBER) {
-        this.rubber += 0.006 * safeDelta;
+        this.rubber += 0.006 * deltaStuff;
       }
-      if (this.speedMult < this.targetSpeed) {
+      if (this.speedMult < this.targetSpeedMult) {
         this._setSpeedAndVelocity(
-          Math.min(this.targetSpeed, this.speedMult + 0.03 * safeDelta)
+          Math.min(this.targetSpeedMult, this.speedMult + 0.03 * deltaStuff),
+          gameClock.tickTimeMs
         );
-      } else if (this.speedMult > this.targetSpeed) {
-        this._setSpeedAndVelocity(this.targetSpeed);
+      } else if (this.speedMult > this.targetSpeedMult) {
+        this._setSpeedAndVelocity(this.targetSpeedMult, gameClock.tickTimeMs);
       }
     }
 
     let isSliding = false;
     if (this.collisionDistanceLeft < 10) {
-      this.targetSpeed *= Math.pow(1.001, safeDelta / 16.666);
+      this.targetSpeedMult *= Math.pow(1.001, deltaStuff / 16.666);
       isSliding = true;
     }
     if (this.collisionDistanceRight < 10) {
-      this.targetSpeed *= Math.pow(1.001, safeDelta / 16.666);
+      this.targetSpeedMult *= Math.pow(1.001, deltaStuff / 16.666);
       isSliding = true;
     }
 
-    if (!isSliding && !isStuck && this.targetSpeed > 1) {
-      this.targetSpeed = Math.max(1, this.targetSpeed - 0.00015 * safeDelta);
+    if (!isSliding && !isStuck && this.targetSpeedMult > 1) {
+      this.targetSpeedMult = Math.max(
+        1,
+        this.targetSpeedMult - 0.00015 * deltaStuff
+      );
     }
+    this._setSpeedAndVelocity(this.speedMult, gameClock.tickTimeMs);
 
-    // Also use safeDelta for movement calculation
-    this.x += (this.velocity[0] * safeDelta) / 1000;
-    this.y += (this.velocity[1] * safeDelta) / 1000;
+    // This actually moves the player
+    this.x += this.velocity[0] / 1000;
+    this.y += this.velocity[1] / 1000;
 
     // Simple wall boundaries (which we were colliding against but this acts as hard limit)
     this.x = Phaser.Math.Clamp(this.x, 0, gameArea.width);
     this.y = Phaser.Math.Clamp(this.y, 0, gameArea.height);
 
     this.rubber = Phaser.Math.Clamp(this.rubber, 0, PlayerState.BASE_RUBBER);
-    this._setSpeedAndVelocity(this.speedMult);
 
     // console.debug('speed', this.speedMult);
     // console.debug('vel', this.velocity);

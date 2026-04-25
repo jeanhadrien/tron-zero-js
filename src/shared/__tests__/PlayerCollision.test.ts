@@ -16,7 +16,7 @@ describe('Player Collision', () => {
     state.y = 0;
 
     state.speedMult = 10;
-    state.targetSpeed = 10;
+    state.targetSpeedMult = 10;
     state._setSpeedAndVelocity(10);
 
     const wall = new Phaser.Geom.Line(21, -10, 21, 10);

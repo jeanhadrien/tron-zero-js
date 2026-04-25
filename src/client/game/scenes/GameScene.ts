@@ -52,8 +52,8 @@ export class GameScene extends Scene {
     this.CANVAS_WIDTH = this.scale.width;
     this.CANVAS_HEIGHT = this.scale.height;
     this.bus = new GameEventBus();
-    this.gameArea = new GameArea(2000, 2000);
-    this.gameClock = new GameClock(1000 / 60, 0);
+    this.gameArea = new GameArea();
+    this.gameClock = new GameClock();
     this.gameRoom = new GameRoom(this.bus, this.gameArea, this.gameClock);
     this.debugHud = new DebugHud(this);
 
@@ -296,7 +296,7 @@ export class GameScene extends Scene {
         pState.rubber = pData.rubber;
         pState.isRunning = pData.isRunning;
         pState.speedMult = pData.speed;
-        pState.targetSpeed = pData.targetSpeed;
+        pState.targetSpeedMult = pData.targetSpeed;
         pState.velocity = pData.velocity;
         if (pData.trailLines) {
           pState.trailLines = pData.trailLines.map(
@@ -330,19 +330,25 @@ export class GameScene extends Scene {
       if (!player) throw new Error("can't handle turn");
       const turnPoint = PlayerPoint.fromDto(turnPointDTO);
       player.trail.fillTurn(turnPoint);
+
+      // TODO: REMOVE THIS AND USE TURNS?
       player.direction = turnPoint.direction;
       player.x = turnPoint.coordinates.x;
       player.y = turnPoint.coordinates.y;
       player.velocity = turnPoint.velocity;
       player.speedMult = turnPoint.speed;
-      player._setSpeedAndVelocity(player.speedMult);
-      
+
       player.currentTick = turnPoint.tick;
       const ticksBehind = this.gameClock.tick - turnPoint.tick;
       if (ticksBehind > 0) {
         const allPlayers = this.gameRoom.getAllPlayers();
         for (let i = 0; i < ticksBehind; i++) {
-          player.update(turnPoint.tick + i + 1, allPlayers, this.gameArea);
+          player.update(
+            turnPoint.tick + i + 1,
+            allPlayers,
+            this.gameArea,
+            this.gameClock
+          );
         }
       }
 

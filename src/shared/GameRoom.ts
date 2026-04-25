@@ -56,7 +56,8 @@ export default class GameRoom {
     player.spawn(
       100 + Math.random() * (this.area.width - 200),
       100 + Math.random() * (this.area.height - 200),
-      Math.floor(Math.random() * 4) * (Math.PI / 2)
+      Math.floor(Math.random() * 4) * (Math.PI / 2),
+      this.clock.tickTimeMs
     );
   }
 
@@ -93,7 +94,7 @@ export default class GameRoom {
     for (let index = 0; index < ticksToProcess; index++) {
       const currentSimTick = startTick + index;
       for (const p of allPlayers) {
-        p.update(currentSimTick, allPlayers, this.area);
+        p.update(currentSimTick, allPlayers, this.area, this.clock);
       }
     }
   }

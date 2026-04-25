@@ -3,7 +3,7 @@ export default class GameClock {
   readonly tickTimeMs: number;
   accumulatorTimeMs: number = 0;
 
-  constructor(tickTimeMs: number = 1000 / 240, startTick: number = 0) {
+  constructor(tickTimeMs: number = 1000 / 120, startTick: number = 0) {
     this.tickTimeMs = tickTimeMs;
     this.tick = startTick;
   }

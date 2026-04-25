@@ -46,8 +46,12 @@ export class PlayerTrail {
       insertIndex--;
     }
 
-    if (this.points[insertIndex - 1].coordinates == turnPoint.coordinates) {
-      throw new Error('handle me');
+    if (
+      this.points[insertIndex - 1].coordinates.equals(turnPoint.coordinates)
+    ) {
+      this.points[insertIndex - 1].direction = turnPoint.direction;
+      this.points[insertIndex - 1].velocity = turnPoint.velocity;
+      this.points[insertIndex - 1].speed = turnPoint.speed;
     }
     if (insertIndex > 0) {
       this.validate(this.points[insertIndex - 1], turnPoint);

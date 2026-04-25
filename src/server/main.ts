@@ -40,7 +40,7 @@ const playerChannels = new Map<string, ServerChannel>();
 const gameBus = new GameEventBus();
 const gameArea = new GameArea();
 const gameClock = new GameClock();
-const gameRoom = new GameRoom(gameBus, gameArea, gameClock, true);
+const gameRoom = new GameRoom(gameBus, gameArea, gameClock);
 
 const bot1 = gameRoom.createPlayerWithForcedId('bot1');
 const bot2 = gameRoom.createPlayerWithForcedId('bot2');

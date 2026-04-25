@@ -215,7 +215,7 @@ export default class BotController {
 
       case 'SPEED_DEMON':
         // Drafter: We build up speed by hugging trails, then dive bomb when fast
-        if (player.targetSpeed > 1.2 && relPos.distance < 200) {
+        if (player.targetSpeedMult > 1.2 && relPos.distance < 200) {
           if (relPos.isLeft && leftDist > 20) {
             player.queueTurn('left');
             this.lastActionTick = tick;
@@ -289,7 +289,7 @@ export default class BotController {
       if (this.strategy === 'SPEED_DEMON' || relPos.distance > 150) {
         // Don't seek speed if we are already very fast
         if (
-          player.targetSpeed < 1.8 &&
+          player.targetSpeedMult < 1.8 &&
           (leftDistance > 15 || rightDistance > 15)
         ) {
           wantsToSlide = true;
