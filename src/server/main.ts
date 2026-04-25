@@ -9,6 +9,7 @@ import PlayerState from '../shared/PlayerState';
 import { GameEventBus } from '../shared/GameEventBus';
 import GameArea from '../shared/GameArea';
 import GameClock from '../shared/GameClock';
+import BotController from './BotController';
 
 const app = express();
 const httpServer = createServer(app);
@@ -39,7 +40,18 @@ const playerChannels = new Map<string, ServerChannel>();
 const gameBus = new GameEventBus();
 const gameArea = new GameArea();
 const gameClock = new GameClock();
-const gameRoom = new GameRoom(gameBus, gameArea, gameClock);
+const gameRoom = new GameRoom(gameBus, gameArea, gameClock, true);
+
+const bot1 = gameRoom.createPlayerWithForcedId('bot1');
+const bot2 = gameRoom.createPlayerWithForcedId('bot2');
+const bot3 = gameRoom.createPlayerWithForcedId('bot3');
+const bot4 = gameRoom.createPlayerWithForcedId('bot4');
+const bot5 = gameRoom.createPlayerWithForcedId('bot5');
+const botCtrl1 = new BotController();
+const botCtrl2 = new BotController();
+const botCtrl3 = new BotController();
+const botCtrl4 = new BotController();
+const botCtrl5 = new BotController();
 
 // When a player connects, do stuff and bind event callbacks
 io.onConnection((channel) => {
@@ -117,6 +129,18 @@ setInterval(() => {
   const delta = now - lastTime;
   lastTime = now;
   gameRoom.update(delta);
+  const allPlayer = gameRoom.getAllPlayers();
+  for (const p of allPlayer) {
+    if (p.isRunning == false) {
+      gameRoom.spawnPlayer(p);
+    }
+  }
+
+  botCtrl1.update(bot1, allPlayer, gameArea);
+  botCtrl2.update(bot2, allPlayer, gameArea);
+  botCtrl3.update(bot3, allPlayer, gameArea);
+  botCtrl4.update(bot4, allPlayer, gameArea);
+  botCtrl5.update(bot5, allPlayer, gameArea);
   //   const p = Array.from(gameRoom.players.values())[0];
   //   if (p && gameClock.tick % 60 === 0)
   //     if (gameClock.tick % 180 === 0) {

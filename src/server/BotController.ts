@@ -2,8 +2,6 @@ import * as Phaser from 'phaser';
 import PlayerState from '../shared/PlayerState';
 
 export default class BotController {
-  player: PlayerState;
-
   // AI Personality
   strategy: 'CUT_OFF' | 'BOX_IN' | 'SPEED_DEMON' | 'TRAPPER' = 'CUT_OFF';
   targetPlayer: PlayerState | null = null;
@@ -12,16 +10,14 @@ export default class BotController {
   sightDistance: number = 100;
 
   // AI Reaction limits
-  lastActionTime: number = 0;
-  actionCooldownMs: number = 130;
+  lastActionTick: number = 0;
+  actionCooldownTicks: number = 8; // roughly 130ms at 60Hz
 
   // State tracking
   isEvading: boolean = false;
   botName: string;
 
-  constructor(player: PlayerState) {
-    this.player = player;
-
+  constructor() {
     // Randomly assign a personality on spawn
     const strategies: ('CUT_OFF' | 'BOX_IN' | 'SPEED_DEMON' | 'TRAPPER')[] = [
       'CUT_OFF',
@@ -58,19 +54,17 @@ export default class BotController {
     console.log(`Bot spawned: ${this.botName} (Strategy: ${this.strategy})`);
   }
 
-  getNearestEnemy(allPlayers: PlayerState[]): PlayerState | null {
+  getNearestEnemy(
+    player: PlayerState,
+    allPlayers: PlayerState[]
+  ): PlayerState | null {
     let nearest: PlayerState | null = null;
     let minDistance = Infinity;
 
     for (const p of allPlayers) {
-      if (p === this.player || !p.isRunning) continue;
+      if (p === player || !p.isRunning) continue;
 
-      const dist = Phaser.Math.Distance.Between(
-        this.player.x,
-        this.player.y,
-        p.x,
-        p.y
-      );
+      const dist = Phaser.Math.Distance.Between(player.x, player.y, p.x, p.y);
       if (dist < minDistance) {
         minDistance = dist;
         nearest = p;
@@ -80,29 +74,32 @@ export default class BotController {
   }
 
   // Determine where the enemy is relative to the bot's current facing direction
-  getRelativePosition(enemy: PlayerState): {
+  getRelativePosition(
+    player: PlayerState,
+    enemy: PlayerState
+  ): {
     distance: number;
     angleDiff: number;
     isAhead: boolean;
     isLeft: boolean;
   } {
     const dist = Phaser.Math.Distance.Between(
-      this.player.x,
-      this.player.y,
+      player.x,
+      player.y,
       enemy.x,
       enemy.y
     );
 
     // Angle from bot to enemy
     const angleToEnemy = Phaser.Math.Angle.Between(
-      this.player.x,
-      this.player.y,
+      player.x,
+      player.y,
       enemy.x,
       enemy.y
     );
 
     // Normalize angles to -PI to PI
-    let normalizedBotDir = Phaser.Math.Angle.Wrap(this.player.direction);
+    let normalizedBotDir = Phaser.Math.Angle.Wrap(player.direction);
     let normalizedAngleToEnemy = Phaser.Math.Angle.Wrap(angleToEnemy);
 
     // Difference in angle
@@ -118,9 +115,10 @@ export default class BotController {
 
   // Determine if the enemy is driving parallel, head-on, or perpendicular
   getRelativeHeading(
+    player: PlayerState,
     enemy: PlayerState
   ): 'PARALLEL' | 'HEAD_ON' | 'PERPENDICULAR' {
-    let normalizedBotDir = Phaser.Math.Angle.Wrap(this.player.direction);
+    let normalizedBotDir = Phaser.Math.Angle.Wrap(player.direction);
     let normalizedEnemyDir = Phaser.Math.Angle.Wrap(enemy.direction);
 
     let headingDiff = Math.abs(
@@ -133,25 +131,26 @@ export default class BotController {
   }
 
   executeAttackPhase(
-    time: number,
+    player: PlayerState,
     enemy: PlayerState,
     leftDist: number,
     rightDist: number
   ) {
-    const relPos = this.getRelativePosition(enemy);
-    const relHeading = this.getRelativeHeading(enemy);
+    const tick = player.currentTick;
+    const relPos = this.getRelativePosition(player, enemy);
+    const relHeading = this.getRelativeHeading(player, enemy);
 
     // General Tracking: Always try to turn towards the enemy if they are behind or to the side
     if (!relPos.isAhead) {
       // Enemy is behind us or to the side, we need to turn towards them
       // Only turn if we have some space to do so
       if (relPos.isLeft && leftDist > 40) {
-        this.player.queueTurn('left');
-        this.lastActionTime = time;
+        player.queueTurn('left');
+        this.lastActionTick = tick;
         return;
       } else if (!relPos.isLeft && rightDist > 40) {
-        this.player.queueTurn('right');
-        this.lastActionTime = time;
+        player.queueTurn('right');
+        this.lastActionTick = tick;
         return;
       }
     }
@@ -166,11 +165,11 @@ export default class BotController {
         ) {
           // Enemy is behind/beside us and going the same way. Cut them off!
           if (relPos.isLeft && leftDist > 50) {
-            this.player.queueTurn('left');
-            this.lastActionTime = time;
+            player.queueTurn('left');
+            this.lastActionTick = tick;
           } else if (!relPos.isLeft && rightDist > 50) {
-            this.player.queueTurn('right');
-            this.lastActionTime = time;
+            player.queueTurn('right');
+            this.lastActionTick = tick;
           }
         } else if (
           relHeading === 'PERPENDICULAR' &&
@@ -179,11 +178,11 @@ export default class BotController {
         ) {
           // Try to intercept if they are ahead and perpendicular
           if (relPos.isLeft && leftDist > 50) {
-            this.player.queueTurn('left');
-            this.lastActionTime = time;
+            player.queueTurn('left');
+            this.lastActionTick = tick;
           } else if (!relPos.isLeft && rightDist > 50) {
-            this.player.queueTurn('right');
-            this.lastActionTime = time;
+            player.queueTurn('right');
+            this.lastActionTick = tick;
           }
         }
         break;
@@ -195,34 +194,34 @@ export default class BotController {
           // If they are drifting away, try to turn towards them but be careful
           if (relPos.distance > 100 && relPos.distance < 150) {
             if (relPos.isLeft && leftDist > 100) {
-              this.player.queueTurn('left');
-              this.lastActionTime = time;
+              player.queueTurn('left');
+              this.lastActionTick = tick;
             } else if (!relPos.isLeft && rightDist > 100) {
-              this.player.queueTurn('right');
-              this.lastActionTime = time;
+              player.queueTurn('right');
+              this.lastActionTick = tick;
             }
           }
         } else if (relHeading === 'PERPENDICULAR' && relPos.distance < 150) {
           // Turn to match their heading
           if (relPos.isLeft && leftDist > 30) {
-            this.player.queueTurn('left');
-            this.lastActionTime = time;
+            player.queueTurn('left');
+            this.lastActionTick = tick;
           } else if (!relPos.isLeft && rightDist > 30) {
-            this.player.queueTurn('right');
-            this.lastActionTime = time;
+            player.queueTurn('right');
+            this.lastActionTick = tick;
           }
         }
         break;
 
       case 'SPEED_DEMON':
         // Drafter: We build up speed by hugging trails, then dive bomb when fast
-        if (this.player.targetSpeed > 1.2 && relPos.distance < 200) {
+        if (player.targetSpeed > 1.2 && relPos.distance < 200) {
           if (relPos.isLeft && leftDist > 20) {
-            this.player.queueTurn('left');
-            this.lastActionTime = time;
+            player.queueTurn('left');
+            this.lastActionTick = tick;
           } else if (!relPos.isLeft && rightDist > 20) {
-            this.player.queueTurn('right');
-            this.lastActionTime = time;
+            player.queueTurn('right');
+            this.lastActionTick = tick;
           }
         }
         break;
@@ -237,21 +236,21 @@ export default class BotController {
           // They are right behind us! Double turn!
           // Check which way is safer to U-turn
           if (leftDist > rightDist && leftDist > 50) {
-            this.player.queueTurn('left');
-            this.player.queueTurn('left'); // Queue second turn
+            player.queueTurn('left');
+            player.queueTurn('left'); // Queue second turn
           } else if (rightDist > 50) {
-            this.player.queueTurn('right');
-            this.player.queueTurn('right');
+            player.queueTurn('right');
+            player.queueTurn('right');
           }
-          this.lastActionTime = time + 500; // wait before doing it again
+          this.lastActionTick = tick + 30; // wait before doing it again (500ms)
         } else if (relPos.isAhead && relPos.distance > 150) {
           // try to get in front of them
           if (relPos.isLeft && leftDist > 50) {
-            this.player.queueTurn('left');
-            this.lastActionTime = time;
+            player.queueTurn('left');
+            this.lastActionTick = tick;
           } else if (!relPos.isLeft && rightDist > 50) {
-            this.player.queueTurn('right');
-            this.lastActionTime = time;
+            player.queueTurn('right');
+            this.lastActionTick = tick;
           }
         }
         break;
@@ -259,73 +258,29 @@ export default class BotController {
   }
 
   update(
-    time: number,
-    _delta: number,
+    player: PlayerState,
     allPlayers: PlayerState[],
-    gameArea: { width: number; height: number },
-    _currentTick: number = 0
+    gameArea: { width: number; height: number }
   ) {
-    if (!this.player.isRunning) {
+    if (!player.isRunning) {
       return;
     }
 
+    const tick = player.currentTick;
+
     // Don't issue new commands if one is already pending
-    if (this.player.turnQueue.length > 0) return;
+    if (player.turnQueue.length > 0) return;
 
     // Limit the number of turns the bot can make in a given timeframe
-    if (time - this.lastActionTime < this.actionCooldownMs) return;
+    if (tick - this.lastActionTick < this.actionCooldownTicks) return;
 
-    let allOtherTrails: Phaser.Geom.Line[] = [];
-    for (const p of allPlayers) {
-      if (p !== this.player) {
-        allOtherTrails = allOtherTrails.concat(p.trailLines);
-        if (p.isRunning) {
-          allOtherTrails.push(p.currentLine);
-        }
-      }
-    }
+    const frontDistance = player.collisionDistanceFront;
+    const leftDistance = player.collisionDistanceLeft;
+    const rightDistance = player.collisionDistanceRight;
 
-    let collisionLines = this.player.getCollidableLines(
-      allOtherTrails,
-      gameArea.width,
-      gameArea.height
-    );
-
-    let pointFront = this.player.getClosestIntersectingPoint(
-      this.player.detectionLine,
-      collisionLines
-    );
-    let pointLeft = this.player.getClosestIntersectingPoint(
-      this.player.detectionLineLeft,
-      collisionLines
-    );
-    let pointRight = this.player.getClosestIntersectingPoint(
-      this.player.detectionLineRight,
-      collisionLines
-    );
-
-    const frontDistance = Phaser.Math.Distance.Between(
-      this.player.x,
-      this.player.y,
-      pointFront.x,
-      pointFront.y
-    );
-    const leftDistance = Phaser.Math.Distance.Between(
-      this.player.x,
-      this.player.y,
-      pointLeft.x,
-      pointLeft.y
-    );
-    const rightDistance = Phaser.Math.Distance.Between(
-      this.player.x,
-      this.player.y,
-      pointRight.x,
-      pointRight.y
-    );
-
-    this.targetPlayer = this.getNearestEnemy(allPlayers);
+    this.targetPlayer = this.getNearestEnemy(player, allPlayers);
     let relPos = this.targetPlayer
-      ? this.getRelativePosition(this.targetPlayer)
+      ? this.getRelativePosition(player, this.targetPlayer)
       : null;
 
     // Determine if we should actively seek trails for momentum
@@ -334,7 +289,7 @@ export default class BotController {
       if (this.strategy === 'SPEED_DEMON' || relPos.distance > 150) {
         // Don't seek speed if we are already very fast
         if (
-          this.player.targetSpeed < 1.8 &&
+          player.targetSpeed < 1.8 &&
           (leftDistance > 15 || rightDistance > 15)
         ) {
           wantsToSlide = true;
@@ -357,20 +312,20 @@ export default class BotController {
       // Decide which way to turn based on which side has more open space
       // Add a small threshold (e.g., 5 units) so it doesn't just jitter between left and right if they are nearly equal
       if (leftDistance > rightDistance + 5) {
-        this.player.queueTurn('left');
+        player.queueTurn('left');
       } else if (rightDistance > leftDistance + 5) {
-        this.player.queueTurn('right');
+        player.queueTurn('right');
       } else {
         // If roughly equal, pick a random direction
         if (Math.random() > 0.5) {
-          this.player.queueTurn('left');
+          player.queueTurn('left');
         } else {
-          this.player.queueTurn('right');
+          player.queueTurn('right');
         }
       }
 
       // Record the time of the action to enforce the cooldown
-      this.lastActionTime = time;
+      this.lastActionTick = tick;
       return; // Important: Evade and don't try to attack
     } else {
       this.isEvading = false;
@@ -383,12 +338,12 @@ export default class BotController {
         // Ensure we have runway ahead so we don't crash immediately after turning toward the wall
         if (frontDistance > 50) {
           if (leftDistance < rightDistance && leftDistance < 400) {
-            this.player.queueTurn('left');
-            this.lastActionTime = time + 300;
+            player.queueTurn('left');
+            this.lastActionTick = tick + 18;
             return; // Execute seek move
           } else if (rightDistance < leftDistance && rightDistance < 400) {
-            this.player.queueTurn('right');
-            this.lastActionTime = time + 300;
+            player.queueTurn('right');
+            this.lastActionTick = tick + 18;
             return; // Execute seek move
           }
         }
@@ -396,7 +351,7 @@ export default class BotController {
 
       // Always track and execute attack strategies
       this.executeAttackPhase(
-        time,
+        player,
         this.targetPlayer,
         leftDistance,
         rightDistance

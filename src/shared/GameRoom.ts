@@ -51,13 +51,6 @@ export default class GameRoom {
     }
   }
 
-  spawnPlayerById(id: string) {
-    const player = this.players.get(id);
-    if (player) {
-      this.spawnPlayerById(id);
-    }
-  }
-
   spawnPlayer(player: PlayerState) {
     console.info('&&& Spawning player', player.id);
     player.spawn(
@@ -78,6 +71,7 @@ export default class GameRoom {
     );
     p.id = id;
     this.registerPlayer(p);
+    return p;
   }
 
   removePlayerById(id: string) {
@@ -99,9 +93,6 @@ export default class GameRoom {
     for (let index = 0; index < ticksToProcess; index++) {
       const currentSimTick = startTick + index;
       for (const p of allPlayers) {
-        if (p.isRunning == false) {
-          this.spawnPlayer(p);
-        }
         p.update(currentSimTick, allPlayers, this.area);
       }
     }

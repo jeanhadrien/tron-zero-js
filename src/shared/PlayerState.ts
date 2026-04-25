@@ -45,6 +45,10 @@ export default class PlayerState {
   detectionLineLeft: Phaser.Geom.Line;
   detectionLineRight: Phaser.Geom.Line;
 
+  collisionDistanceFront: number = Infinity;
+  collisionDistanceLeft: number = Infinity;
+  collisionDistanceRight: number = Infinity;
+
   turnQueue: { tick: number; type: string }[] = [];
 
   lastTurnTick: number = 0;
@@ -100,6 +104,7 @@ export default class PlayerState {
     this.turnQueue = [];
     this._setSpeedAndVelocity(1);
     this.targetSpeed = this.speedMult;
+    this.shouldHandleDeath = true;
     this.trail = PlayerTrail.fromPoint(
       new PlayerPoint(
         new Phaser.Math.Vector2(x, y),
@@ -111,6 +116,7 @@ export default class PlayerState {
     );
     this._updateDetectionLines();
     this.eventBus.emit('player_spawn', this);
+    console.info(this.currentTick, this.id, 'spawn()');
   }
 
   disable() {
@@ -122,6 +128,7 @@ export default class PlayerState {
     this.isRunning = false;
     this.turnQueue = [];
     this.trail = new PlayerTrail();
+    console.info(this.currentTick, this.id, 'disable()');
 
     // to remove
     this.currentLine.setTo(this.x, this.y, this.x, this.y);
@@ -156,6 +163,9 @@ export default class PlayerState {
     this.isRunning = playerDto.isRunning;
     this.color = playerDto.color;
     this.trail.load(playerDto.trail);
+    this.currentLine.setTo(this.x, this.y, this.x, this.y);
+    this.previousLineEnd.set(this.x, this.y);
+    console.debug(this.currentTick, this.id, 'load(dto)');
   }
 
   setDirection(angle: number) {
@@ -310,7 +320,7 @@ export default class PlayerState {
     if (this.isRunning) {
       this.turnQueue.push({ tick, type });
     } else {
-      console.warn('Player is not running, turn was skipped');
+      console.info(this.currentTick, this.id, 'skipped turn, not running');
     }
   }
 
@@ -369,12 +379,17 @@ export default class PlayerState {
   }
 
   update(currentTick: number, allPlayers: PlayerState[], gameArea: GameArea) {
-    if (!this.currentTick) {
+    if (this.currentTick === null || this.currentTick === undefined) {
       throw new Error('Null tick');
     }
-
     if (currentTick > this.currentTick + 1) {
-      console.warn('skipping', currentTick - this.currentTick + 1, 'ticks');
+      console.warn(
+        '???',
+        this.id,
+        'skipping',
+        currentTick - this.currentTick + 1,
+        'ticks'
+      );
       //throw new Error('Updating player in the past or twice');
     }
 
@@ -385,7 +400,6 @@ export default class PlayerState {
       if (this.shouldHandleDeath) {
         this.eventBus.emit('player_death', this);
         this.disable();
-        console.info(currentTick, 'xxx Player died');
         this.shouldHandleDeath = false;
       }
       return;
@@ -416,19 +430,21 @@ export default class PlayerState {
       collisionLines
     );
 
-    const frontDistance = Phaser.Math.Distance.Between(
+    this.collisionDistanceFront = Phaser.Math.Distance.Between(
       this.x,
       this.y,
       pointFront.x,
       pointFront.y
     );
-    const leftDistance = Phaser.Math.Distance.Between(
+
+    this.collisionDistanceLeft = Phaser.Math.Distance.Between(
       this.x,
       this.y,
       pointLeft.x,
       pointLeft.y
     );
-    const rightDistance = Phaser.Math.Distance.Between(
+
+    this.collisionDistanceRight = Phaser.Math.Distance.Between(
       this.x,
       this.y,
       pointRight.x,
@@ -445,13 +461,15 @@ export default class PlayerState {
     // console.debug('maxMovementThisFrame', maxMovementThisFrame);
     // console.debug('slowDownDistance', slowDownDistance);
 
-    if (frontDistance < slowDownDistance) {
+    if (this.collisionDistanceFront < slowDownDistance) {
       isStuck = true;
 
       let speedRatio =
-        (frontDistance * frontDistance) / (slowDownDistance * slowDownDistance);
+        (this.collisionDistanceFront * this.collisionDistanceFront) /
+        (slowDownDistance * slowDownDistance);
       let maxSafeSpeed =
-        (frontDistance * 0.5 * 1000) / (PlayerState.BASE_SPEED * safeDelta);
+        (this.collisionDistanceFront * 0.5 * 1000) /
+        (PlayerState.BASE_SPEED * safeDelta);
 
       this._setSpeedAndVelocity(
         Math.min(this.targetSpeed * speedRatio, maxSafeSpeed)
@@ -459,7 +477,9 @@ export default class PlayerState {
 
       if (!this.isInvincible) {
         this.rubber -=
-          (0.5 * safeDelta) / 16.666 / Math.max(0.1, frontDistance);
+          (0.5 * safeDelta) /
+          16.666 /
+          Math.max(0.1, this.collisionDistanceFront);
       }
     } else {
       if (this.rubber < PlayerState.BASE_RUBBER) {
@@ -475,11 +495,11 @@ export default class PlayerState {
     }
 
     let isSliding = false;
-    if (leftDistance < 10) {
+    if (this.collisionDistanceLeft < 10) {
       this.targetSpeed *= Math.pow(1.001, safeDelta / 16.666);
       isSliding = true;
     }
-    if (rightDistance < 10) {
+    if (this.collisionDistanceRight < 10) {
       this.targetSpeed *= Math.pow(1.001, safeDelta / 16.666);
       isSliding = true;
     }
