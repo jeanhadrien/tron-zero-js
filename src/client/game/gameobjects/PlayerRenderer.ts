@@ -82,6 +82,7 @@ export default class PlayerRenderer extends Phaser.GameObjects.Image {
       this.driverGraphics.setVisible(false);
       this.activeTrailGraphics.clear();
       this.staticTrailGraphics.clear();
+
       this._lastStaticTrailLength = -1;
       return;
     }

@@ -137,27 +137,6 @@ export class GameScene extends Scene {
       .setDepth(1000)
       .setVisible(false);
 
-    EventBus.on('game-over', (winner?: string) => {
-      console.info('game-over');
-      // Server should handle game-over, but for now we keep local UI
-      this.isLocalPlayerAlive = false;
-      if (this.humanPlayer) this.humanPlayer.isRunning = false;
-
-      if (winner === 'human') {
-        this.gameOverText.setText('YOU WIN!');
-        this.gameOverText.setColor('#00ff00');
-      } else if (winner === 'ai') {
-        this.gameOverText.setText('BOT WINS!');
-        this.gameOverText.setColor('#ff0000');
-      } else {
-        this.gameOverText.setText('GAME OVER');
-        this.gameOverText.setColor('#ff0000');
-      }
-
-      this.gameOverText.setVisible(true);
-      this.restartText.setVisible(true);
-    });
-
     EventBus.on('game-start', () => {
       console.info('game-start');
       const audioCtx = (this.sound as any).context as AudioContext;
@@ -194,6 +173,13 @@ export class GameScene extends Scene {
       RIGHT: 'right',
     };
 
+    this.gameRoom.playerEventBus.on('player_turn', (pState, pTurnPoint) => {
+      if (pState.id == this.humanPlayer?.id)
+        this.clientChannel.emit('client_turn', [pTurnPoint.serialize()], {
+          reliable: true,
+        });
+    });
+
     // Bind key down events to controls
     Object.entries(keyMappings).forEach(([key, direction]) => {
       this.input.keyboard?.on(`keydown-${key}`, () => {
@@ -201,12 +187,6 @@ export class GameScene extends Scene {
           this.isKeyDown[key] = true;
           if (this.humanPlayer) {
             this.humanPlayer.queueTurn(direction, this.gameClock.tick);
-
-            this.clientChannel.emit(
-              'client_turn',
-              { direction, tick: this.gameClock.tick },
-              { reliable: true }
-            );
           }
         }
       });
@@ -325,18 +305,18 @@ export class GameScene extends Scene {
       console.debug('<player_turn>', data);
       const [id, turnPointDTO] = data;
 
-      if (id === this.clientChannel.id) return;
+      //if (id === this.clientChannel.id) return;
       const player = this.gameRoom.players.get(id);
       if (!player) throw new Error("can't handle turn");
       const turnPoint = PlayerPoint.fromDto(turnPointDTO);
       player.trail.fillTurn(turnPoint);
 
       // TODO: REMOVE THIS AND USE TURNS?
-      player.direction = turnPoint.direction;
-      player.x = turnPoint.coordinates.x;
-      player.y = turnPoint.coordinates.y;
-      player.velocity = turnPoint.velocity;
-      player.speedMult = turnPoint.speed;
+      //   player.direction = turnPoint.direction;
+      //   player.x = turnPoint.coordinates.x;
+      //   player.y = turnPoint.coordinates.y;
+      //   player.velocity = turnPoint.velocity;
+      //   player.speedMult = turnPoint.speed;
 
       player.currentTick = turnPoint.tick;
       const ticksBehind = this.gameClock.tick - turnPoint.tick;

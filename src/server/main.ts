@@ -10,6 +10,7 @@ import { GameEventBus } from '../shared/GameEventBus';
 import GameArea from '../shared/GameArea';
 import GameClock from '../shared/GameClock';
 import BotController from './BotController';
+import { PlayerPoint } from '../shared/PlayerPoint';
 
 const app = express();
 const httpServer = createServer(app);
@@ -58,7 +59,7 @@ io.onConnection((channel) => {
   const playerId = channel.id!;
   console.log(`Player connected: ${playerId}`);
 
-  gameRoom.createPlayerWithForcedId(playerId);
+  const localPlayer = gameRoom.createPlayerWithForcedId(playerId);
 
   channel.on('ping', (clientTime: any) => {
     channel.emit('pong', clientTime);
@@ -78,8 +79,12 @@ io.onConnection((channel) => {
     { reliable: true }
   );
 
+  // When client sends a turn, update local state
   channel.on('client_turn', (data: any) => {
-    gameRoom.handleTurn(playerId, data.direction, data.sequenceNumber);
+    const [turnPointDTO] = data;
+    const turn = PlayerPoint.fromDto(turnPointDTO);
+    localPlayer.trail.fillTurn(turn);
+    gameRoom.playerEventBus.emit('player_turn', localPlayer, turn);
   });
 
   channel.onDisconnect(() => {

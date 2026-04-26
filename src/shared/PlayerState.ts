@@ -21,10 +21,24 @@ export default class PlayerState {
   public static readonly TURN_DELAY_TICKS = 3;
 
   eventBus: PlayerEventBus;
+
+  // state
+  id: string;
+  currentTick: number;
+  isRunning: boolean = false;
+  rubber: number;
+
+  // position
   x: number;
   y: number;
   direction: number;
-  id: string;
+  velocity: number[] = [0, 0];
+  speedMult: number = 1;
+  targetSpeedMult: number = 1;
+
+  // trail
+  trail: PlayerTrail = new PlayerTrail();
+  turnQueue: { tick: number; type: string }[] = [];
 
   trailWidth = 3;
 
@@ -32,13 +46,6 @@ export default class PlayerState {
   previousLineEnd: Phaser.Math.Vector2;
   currentLine: Phaser.Geom.Line;
 
-  trail: PlayerTrail = new PlayerTrail();
-
-  speedMult: number = 1;
-  targetSpeedMult: number = 1;
-  velocity: number[] = [0, 0];
-  isRunning: boolean = false;
-  rubber: number;
   color: number;
   isInvincible: boolean = false;
 
@@ -50,10 +57,6 @@ export default class PlayerState {
   collisionDistanceLeft: number = Infinity;
   collisionDistanceRight: number = Infinity;
 
-  turnQueue: { tick: number; type: string }[] = [];
-
-  lastTurnTick: number = 0;
-  currentTick: number;
   shouldHandleDeath: boolean;
 
   constructor(
@@ -352,8 +355,6 @@ export default class PlayerState {
       newDirection += Math.PI * 2;
     }
 
-    this.lastTurnTick = this.currentTick;
-
     // if player is still on last point, just update the direction
     const points = this.trail.getPoints();
     if (points.length > 0) {
@@ -406,7 +407,7 @@ export default class PlayerState {
         currentTick - this.currentTick + 1,
         'ticks'
       );
-      //throw new Error('Updating player in the past or twice');
+      throw new Error('Updating player in the past or twice');
     }
 
     this.currentTick = currentTick;

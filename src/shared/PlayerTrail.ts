@@ -38,6 +38,11 @@ export class PlayerTrail {
       return;
     }
 
+    if (turnPoint.tick < this.points[0].tick) {
+      console.warn('Ignoring turn from previous life', turnPoint.tick, this.points[0].tick);
+      return;
+    }
+
     let insertIndex = this.points.length;
     while (
       insertIndex > 0 &&
@@ -46,12 +51,16 @@ export class PlayerTrail {
       insertIndex--;
     }
 
-    if (
-      this.points[insertIndex - 1].coordinates.equals(turnPoint.coordinates)
-    ) {
-      this.points[insertIndex - 1].direction = turnPoint.direction;
-      this.points[insertIndex - 1].velocity = turnPoint.velocity;
-      this.points[insertIndex - 1].speed = turnPoint.speed;
+    if (insertIndex > 0) {
+      const prev = this.points[insertIndex - 1];
+      const dx = turnPoint.coordinates.x - prev.coordinates.x;
+      const dy = turnPoint.coordinates.y - prev.coordinates.y;
+      if (Math.abs(dx) <= EPSILON && Math.abs(dy) <= EPSILON) {
+        prev.direction = turnPoint.direction;
+        prev.velocity = turnPoint.velocity;
+        prev.speed = turnPoint.speed;
+        return;
+      }
     }
     if (insertIndex > 0) {
       this.validate(this.points[insertIndex - 1], turnPoint);
