@@ -1,28 +1,29 @@
 import { describe, it, expect, beforeEach } from 'vitest';
 import 'phaser';
 import PlayerState from '../PlayerState';
+import { PlayerEventBus } from '../PlayerStateEventBus';
 
 describe('Player Long Sensor Issues', () => {
   let state: PlayerState;
 
   beforeEach(() => {
-    state = new PlayerState(1000, 1000, 0, 0xff0000);
+    state = new PlayerState(new PlayerEventBus(), 0, 1000, 1000, 0, 0xff0000);
     state.isRunning = true;
   });
 
   it('closest point logic fails when intersection is further than the 999,999 default point', () => {
-    state.DETECTION_LINE_LENGTH = 2000;
+    // Note: DETECTION_LINE_LENGTH is a static property on PlayerState but the test overrides it locally as if it's an instance property. Let's just rely on the new lookAheadLength logic.
     state.direction = 0; // facing right
     state.speedMult = 1;
-    state._setSpeedAndVelocity(1);
+    state._setSpeedAndVelocity(1, 16.66);
     state._updateDetectionLines();
 
     const wall = new Phaser.Geom.Line(1100, 900, 1100, 1100);
-    state.trailLines = [wall];
+    const lines = [wall];
 
     const closest = state.getClosestIntersectingPoint(
       state.detectionLine,
-      state.trailLines
+      lines
     );
 
     expect(closest.x).toBe(1100);

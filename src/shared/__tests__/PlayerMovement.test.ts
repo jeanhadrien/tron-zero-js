@@ -2,24 +2,28 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import 'phaser';
 import PlayerState from '../PlayerState';
 
+import { PlayerEventBus } from '../PlayerStateEventBus';
+import GameArea from '../GameArea';
+import GameClock from '../GameClock';
+
 describe('Player Logic', () => {
   let state: PlayerState;
 
   beforeEach(() => {
-    state = new PlayerState(100, 100, 0, 0x00ff00);
+    state = new PlayerState(new PlayerEventBus(), 0, 100, 100, 0, 0x00ff00);
     state.isRunning = true;
   });
 
   it('zig zag should not crash', () => {
     state.speedMult = 1;
-    state._setSpeedAndVelocity(state.speedMult);
+    state._setSpeedAndVelocity(state.speedMult, 16.66);
 
-    const dt = 16;
-    let time = 0;
+    let tick = 0;
+    const gameClock = new GameClock();
 
     const updateFrame = () => {
-      state.update(time, dt, [], 1000, 1000, 4);
-      time += dt;
+      tick++;
+      state.update(tick, [], new GameArea(), gameClock);
     };
 
     state.queueTurn('right');
@@ -37,18 +41,21 @@ describe('Player Logic', () => {
     // Set initial direction to 0 (right)
     state.direction = 0;
     state.speedMult = 1;
-    state._setSpeedAndVelocity(state.speedMult);
+    state._setSpeedAndVelocity(state.speedMult, 16.66);
 
     // Velocity should be [BASE_SPEED, 0]
-    expect(state.velocity[0]).toBeCloseTo(state.BASE_SPEED, 4);
+    expect(state.velocity[0]).toBeCloseTo(state.speedMult * PlayerState.BASE_SPEED * 16.66, 4);
     expect(state.velocity[1]).toBeCloseTo(0, 4);
 
     // Turn right (down)
-    state.queueTurn('right');
-    state.update(100, 16, [], 1000, 1000, 4);
+    state.queueTurn('right', 1);
+    const gameClock = new GameClock();
+    // @ts-ignore
+    gameClock.tickTimeMs = 16.66;
+    state.update(1, [], new GameArea(), gameClock);
 
     // Velocity should immediately be updated to [0, BASE_SPEED]
     expect(state.velocity[0]).toBeCloseTo(0, 4);
-    expect(state.velocity[1]).toBeCloseTo(state.BASE_SPEED, 4);
+    expect(state.velocity[1]).toBeCloseTo(state.speedMult * PlayerState.BASE_SPEED * 16.66, 4);
   });
 });

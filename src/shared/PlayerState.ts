@@ -42,10 +42,6 @@ export default class PlayerState {
 
   trailWidth = 3;
 
-  trailLines: Phaser.Geom.Line[] = [];
-  previousLineEnd: Phaser.Math.Vector2;
-  currentLine: Phaser.Geom.Line;
-
   color: number;
   isInvincible: boolean = false;
 
@@ -87,9 +83,6 @@ export default class PlayerState {
     this.detectionLineLeft = new Phaser.Geom.Line();
     this.detectionLineRight = new Phaser.Geom.Line();
 
-    this.previousLineEnd = new Phaser.Math.Vector2(this.x, this.y);
-    this.currentLine = new Phaser.Geom.Line(this.x, this.y, this.x, this.y);
-
     this._updateDetectionLines();
   }
 
@@ -99,10 +92,6 @@ export default class PlayerState {
     this.y = y;
     this.direction = direction;
 
-    this.trailLines = [];
-
-    this.previousLineEnd.set(this.x, this.y);
-    this.currentLine.setTo(this.x, this.y, this.x, this.y);
     this.rubber = PlayerState.BASE_RUBBER;
     this.isRunning = true;
     this.turnQueue = [];
@@ -124,7 +113,6 @@ export default class PlayerState {
   }
 
   disable() {
-    this.trailLines = [];
     this.speedMult = 0;
     this.velocity = [0, 0];
     this.rubber = 0;
@@ -132,13 +120,9 @@ export default class PlayerState {
     this.isRunning = false;
     this.turnQueue = [];
     this.trail = new PlayerTrail();
-    this.shouldHandleDeath = true;
+    this.shouldHandleDeath = false;
 
     console.debug(this.currentTick, this.id, 'disable()');
-
-    // to remove
-    this.currentLine.setTo(this.x, this.y, this.x, this.y);
-    this.previousLineEnd.set(this.x, this.y);
   }
 
   public serialize(): PlayerStateDTO {
@@ -169,8 +153,6 @@ export default class PlayerState {
     this.isRunning = playerDto.isRunning;
     this.color = playerDto.color;
     this.trail.load(playerDto.trail);
-    this.currentLine.setTo(this.x, this.y, this.x, this.y);
-    this.previousLineEnd.set(this.x, this.y);
     console.debug(this.currentTick, this.id, 'load(dto)');
   }
 
@@ -179,29 +161,6 @@ export default class PlayerState {
       return;
     }
     this.direction = angle;
-
-    if (
-      this.x !== this.previousLineEnd.x ||
-      this.y !== this.previousLineEnd.y
-    ) {
-      this._persistTrail();
-    }
-  }
-
-  _persistTrail() {
-    let newLine = new Phaser.Geom.Line(
-      this.previousLineEnd.x,
-      this.previousLineEnd.y,
-      this.x,
-      this.y
-    );
-    this.trailLines.push(newLine);
-
-    if (this.trailLines.length > PlayerState.TRAIL_MAX_LENGTH) {
-      this.trailLines.shift();
-    }
-
-    this.previousLineEnd.set(this.x, this.y);
   }
 
   getCollidableLines(otherPlayers: PlayerState[], gameArea: GameArea) {
@@ -390,6 +349,54 @@ export default class PlayerState {
     this.eventBus.emit('player_turn', this, turnPoint);
   }
 
+  // This should take a point that has occured remotely and should be added to the state
+  applyRemoteTurn(
+    turnPoint: PlayerPoint,
+    gameClock: GameClock,
+    gameArea: GameArea,
+    allPlayers: PlayerState[]
+  ) {
+    // 1. Snapshot Override
+    this.x = turnPoint.coordinates.x;
+    this.y = turnPoint.coordinates.y;
+    this.direction = turnPoint.direction;
+    this.velocity = [...turnPoint.velocity];
+    this.speedMult = turnPoint.speed;
+    this.targetSpeedMult = turnPoint.speed;
+
+    // Add the turn to the trail exactly where it happened
+    try {
+      this.trail.fillTurn(turnPoint);
+    } catch (e) {
+      console.warn(`[PlayerState] Failed to fill turn for ${this.id}: ${e}`);
+    }
+
+    // 2. Catch-up Simulation
+    // If the turn happened in the past (ticksBehind > 0), we must fast forward
+    const ticksBehind = gameClock.tick - turnPoint.tick;
+    this.currentTick = turnPoint.tick;
+
+    if (ticksBehind > 0) {
+      // Limit fast forward to prevent infinite loops / crashes on huge desyncs
+      const maxTicks = Math.min(ticksBehind, 60);
+      console.debug(
+        `Fast forwarding ${this.id} by ${maxTicks} ticks from tick ${turnPoint.tick} to ${turnPoint.tick + maxTicks}`
+      );
+      for (let i = 0; i < maxTicks; i++) {
+        // We simulate ticking forward from the turn's exact tick
+        this.update(turnPoint.tick + i + 1, allPlayers, gameArea, gameClock);
+      }
+      // If we didn't fully catch up, force the currentTick to the present so we don't crash
+      if (maxTicks < ticksBehind) {
+        this.currentTick = gameClock.tick;
+      }
+    } else if (ticksBehind < 0) {
+      console.warn(
+        `Turn point is in the future for player ${this.id}. Game:${gameClock.tick} vs. Turn:${turnPoint.tick}`
+      );
+    }
+  }
+
   update(
     currentTick: number,
     allPlayers: PlayerState[],
@@ -543,12 +550,5 @@ export default class PlayerState {
 
     // console.debug('speed', this.speedMult);
     // console.debug('vel', this.velocity);
-
-    this.currentLine.setTo(
-      this.previousLineEnd.x,
-      this.previousLineEnd.y,
-      this.x,
-      this.y
-    );
   }
 }

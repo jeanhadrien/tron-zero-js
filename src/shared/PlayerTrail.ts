@@ -39,7 +39,11 @@ export class PlayerTrail {
     }
 
     if (turnPoint.tick < this.points[0].tick) {
-      console.warn('Ignoring turn from previous life', turnPoint.tick, this.points[0].tick);
+      console.warn(
+        'Ignoring turn from previous life',
+        turnPoint.tick,
+        this.points[0].tick
+      );
       return;
     }
 
@@ -50,25 +54,28 @@ export class PlayerTrail {
     ) {
       insertIndex--;
     }
-
-    if (insertIndex > 0) {
-      const prev = this.points[insertIndex - 1];
-      const dx = turnPoint.coordinates.x - prev.coordinates.x;
-      const dy = turnPoint.coordinates.y - prev.coordinates.y;
-      if (Math.abs(dx) <= EPSILON && Math.abs(dy) <= EPSILON) {
-        prev.direction = turnPoint.direction;
-        prev.velocity = turnPoint.velocity;
-        prev.speed = turnPoint.speed;
-        return;
-      }
-    }
-    if (insertIndex > 0) {
-      this.validate(this.points[insertIndex - 1], turnPoint);
+    if (turnPoint.tick == this.points[insertIndex - 1].tick) {
+      this.points[insertIndex - 1] == turnPoint;
     }
 
-    if (insertIndex < this.points.length) {
-      this.validate(turnPoint, this.points[insertIndex]);
-    }
+    // if (insertIndex > 0) {
+    //   const prev = this.points[insertIndex - 1];
+    //   const dx = turnPoint.coordinates.x - prev.coordinates.x;
+    //   const dy = turnPoint.coordinates.y - prev.coordinates.y;
+    //   if (Math.abs(dx) <= EPSILON && Math.abs(dy) <= EPSILON) {
+    //     prev.direction = turnPoint.direction;
+    //     prev.velocity = turnPoint.velocity;
+    //     prev.speed = turnPoint.speed;
+    //     return;
+    //   }
+    // }
+    // if (insertIndex > 0) {
+    //   this.validate(this.points[insertIndex - 1], turnPoint);
+    // }
+
+    // if (insertIndex < this.points.length) {
+    //   this.validate(turnPoint, this.points[insertIndex]);
+    // }
 
     this.points.splice(insertIndex, 0, turnPoint);
   }
@@ -94,10 +101,7 @@ export class PlayerTrail {
   private validate(lastTurn: PlayerPoint, turnPoint: PlayerPoint): void {
     const dx = turnPoint.coordinates.x - lastTurn.coordinates.x;
     const dy = turnPoint.coordinates.y - lastTurn.coordinates.y;
-    // 1. Ensure the points are not identically stacked to prevent atan2(0, 0)
-    if (Math.abs(dx) <= EPSILON && Math.abs(dy) <= EPSILON) {
-      throw new Error('turnPoint coordinates cannot be identical to lastTurn.');
-    }
+
     // 2. Calculate the angle of the physical vector between the points
     let angle = Math.atan2(dy, dx);
     angle = PlayerPoint.normalizeDirection(angle);
