@@ -40,7 +40,10 @@ export class NetworkClient {
   }
 
   connect() {
-    this.channel = geckos({ port: 3000 });
+    this.channel = geckos({ 
+      url: window.location.origin,
+      port: window.location.port ? parseInt(window.location.port) : (window.location.protocol === 'https:' ? 443 : 80)
+    });
 
     this.channel.onConnect((error) => {
       if (error) {
