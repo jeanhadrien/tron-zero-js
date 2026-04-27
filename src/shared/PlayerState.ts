@@ -15,7 +15,7 @@ export default class PlayerState {
   public static readonly ROTATION_ANGLE: number = Math.PI / 2;
   public static readonly BASE_SPEED: number = 150;
   public static readonly MAX_SPEED: number = 500;
-  public static readonly DETECTION_LINE_LENGTH: number = 20;
+  public static readonly DETECTION_LINE_LENGTH: number = 30;
   public static readonly TRAIL_MAX_LENGTH = 100;
   public static readonly BASE_RUBBER = 10;
   public static readonly TURN_DELAY_TICKS = 5;

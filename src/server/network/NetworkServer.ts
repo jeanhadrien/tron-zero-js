@@ -59,7 +59,7 @@ export class NetworkServer {
         const turnPointDTOs: any[] = Array.isArray(data) ? data : [data];
         const allManagers = Array.from(this.gameRoom.playerManagers.values());
         const manager = this.gameRoom.playerManagers.get(playerId);
-        
+
         if (!manager) return;
 
         const newTurns: PlayerPoint[] = [];
@@ -74,7 +74,9 @@ export class NetworkServer {
 
           // Clamp future turns to the current server tick to prevent time paradoxes
           if (turn.tick > this.gameClock.tick) {
-            console.warn('Received a turn in the future, clamping to current server tick');
+            console.warn(
+              'Received a turn in the future, clamping to current server tick'
+            );
             turn.tick = this.gameClock.tick;
           }
 
@@ -106,11 +108,7 @@ export class NetworkServer {
 
           // Broadcast the newly processed turn points
           for (const turn of newTurns) {
-            this.gameRoom.playerEventBus.emit(
-              'player_turn',
-              localPlayer,
-              turn
-            );
+            this.gameRoom.playerEventBus.emit('player_turn', localPlayer, turn);
           }
         } catch (e) {
           console.warn(`Failed to apply client turns from ${playerId}: ${e}`);

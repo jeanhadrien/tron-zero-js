@@ -123,12 +123,15 @@ export default class PlayerStateManager {
       this.cursorState.currentTick = firstTurn.tick;
     }
 
-    const targetTick = this.activeState.currentTick;
     let currentTurnIndex = 0;
 
     // - update cursorstate tick by tick, until activestate tick, or until cursorstate dies
     // Apply turns at exactly their specific ticks before advancing
-    for (let simTick = firstTurn.tick; simTick <= targetTick; simTick++) {
+    for (
+      let simTick = firstTurn.tick;
+      simTick <= this.activeState.currentTick;
+      simTick++
+    ) {
       if (!this.cursorState.isRunning || this.cursorState.rubber <= 0) {
         break;
       }
