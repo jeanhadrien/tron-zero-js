@@ -43,7 +43,7 @@ export default class PlayerStateManager {
   }
 
   // Returns PlayerState with data at given tick
-  getHydratedStateAtTick(tick: number): PlayerState {
+  __getHydratedStateAtTick(tick: number): PlayerState {
     const dto = this.history.get(tick);
     if (dto) {
       this.cursorState.load(dto);
@@ -144,7 +144,7 @@ export default class PlayerStateManager {
         .filter((m) => m.id !== this.id)
         .map((m) => {
           try {
-            return m.getHydratedStateAtTick(simTick);
+            return m.__getHydratedStateAtTick(simTick);
           } catch (e) {
             // Fallback to active state if history doesn't exist
             return m.activeState;
@@ -193,7 +193,7 @@ export default class PlayerStateManager {
         .filter((m) => m.id !== this.id)
         .map((m) => {
           try {
-            return m.getHydratedStateAtTick(simTick);
+            return m.__getHydratedStateAtTick(simTick);
           } catch (e) {
             return m.activeState;
           }

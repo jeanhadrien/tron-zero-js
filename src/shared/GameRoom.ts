@@ -46,13 +46,6 @@ export default class GameRoom {
     return player;
   }
 
-  handleTurn(id: string, direction: 'left' | 'right', tick?: number) {
-    const manager = this.playerManagers.get(id);
-    if (manager) {
-      manager.activeState.queueTurn(direction, tick);
-    }
-  }
-
   spawnPlayer(player: PlayerState) {
     console.info('&&& Spawning player', player.id);
     const pm = this.playerManagers.get(player.id);
