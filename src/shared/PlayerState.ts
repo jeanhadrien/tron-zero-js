@@ -37,7 +37,7 @@ export default class PlayerState {
   targetSpeedMult: number = 1;
 
   // trail
-  trail: PlayerTrail = new PlayerTrail();
+  trail: PlayerTrail = new PlayerTrail(this);
   turnQueue: { tick: number; type: string }[] = [];
 
   trailWidth = 3;
@@ -75,7 +75,8 @@ export default class PlayerState {
     this.shouldHandleDeath = true;
     this.rubber = PlayerState.BASE_RUBBER;
     this.currentTick = tick;
-    this.trail = PlayerTrail.fromPoint(
+    this.trail.clear();
+    this.trail.addTurn(
       new PlayerPoint(new Phaser.Math.Vector2(x, y), direction, [0, 0], 0, tick)
     );
 
@@ -98,7 +99,8 @@ export default class PlayerState {
     this._setSpeedAndVelocity(1, tickTimeMs);
     this.targetSpeedMult = this.speedMult;
     this.shouldHandleDeath = true;
-    this.trail = PlayerTrail.fromPoint(
+    this.trail.clear();
+    this.trail.addTurn(
       new PlayerPoint(
         new Phaser.Math.Vector2(x, y),
         direction,
@@ -119,9 +121,8 @@ export default class PlayerState {
     this.targetSpeedMult = 0;
     this.isRunning = false;
     this.turnQueue = [];
-    this.trail = new PlayerTrail();
+    this.trail.clear();
     this.shouldHandleDeath = false;
-
     console.debug(this.currentTick, this.id, 'disable()');
   }
 
@@ -154,7 +155,7 @@ export default class PlayerState {
     this.velocity = playerDto.velocity;
     this.isRunning = playerDto.isRunning;
     this.color = playerDto.color;
-    this.trail.load(playerDto.trail);
+    this.trail.deserialize(playerDto.trail);
     console.debug(this.currentTick, this.id, 'load(dto)');
   }
 

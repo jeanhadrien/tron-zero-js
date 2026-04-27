@@ -77,7 +77,6 @@ export default class PlayerRenderer extends Phaser.GameObjects.Image {
   }
 
   private _draw(player: PlayerState) {
-    // old
     if (!player.isRunning) {
       this.driverGraphics.setVisible(false);
       this.activeTrailGraphics.clear();
@@ -87,8 +86,9 @@ export default class PlayerRenderer extends Phaser.GameObjects.Image {
       return;
     }
 
-    this.driverGraphics.setVisible(true);
+    // Driver
 
+    this.driverGraphics.setVisible(true);
     this.driverGraphics.x = player.x;
     this.driverGraphics.y = player.y;
     this.driverGraphics.rotation = player.direction + Math.PI / 2;
@@ -98,60 +98,52 @@ export default class PlayerRenderer extends Phaser.GameObjects.Image {
 
     const points = player.trail.getPoints();
 
-    // DYNAMIC CURRENT LINE
-    this.activeTrailGraphics.clear();
-    this.activeTrailGraphics.lineStyle(player.trailWidth, player.color, 0.5);
-
-    const lastPoint = points[points.length - 1];
-    if (lastPoint) {
-      this.activeTrailGraphics.beginPath();
-      this.activeTrailGraphics.moveTo(
-        lastPoint.coordinates.x,
-        lastPoint.coordinates.y
-      );
-      this.activeTrailGraphics.lineTo(player.x, player.y);
-      this.activeTrailGraphics.strokePath();
+    if (points.length == 0) {
+      return;
     }
 
-    // STATIC TRAIL
-    const length = points.length;
-    const lastTick = length > 0 ? points[length - 1].tick : -1;
+    // Active trail segment
+    this.activeTrailGraphics.clear();
+    this.activeTrailGraphics.lineStyle(player.trailWidth, player.color, 0.5);
+    this.activeTrailGraphics.beginPath();
+    this.activeTrailGraphics.moveTo(
+      points[points.length - 1].coordinates.x,
+      points[points.length - 1].coordinates.y
+    );
+    this.activeTrailGraphics.lineTo(player.x, player.y);
+    this.activeTrailGraphics.strokePath();
+
+    // Static trail segments
 
     if (
       this._lastTrail === player.trail &&
-      this._lastStaticTrailLength === length &&
-      this._lastStaticTrailTick === lastTick
+      this._lastStaticTrailLength === points.length &&
+      this._lastStaticTrailTick === points[points.length - 1].tick
     ) {
       return; // Nothing changed, skip redrawing the static trail
     }
 
     this._lastTrail = player.trail;
-    this._lastStaticTrailLength = length;
-    this._lastStaticTrailTick = lastTick;
+    this._lastStaticTrailLength = points.length;
+    this._lastStaticTrailTick = points[points.length - 1].tick;
 
     this.staticTrailGraphics.clear();
     this.staticTrailGraphics.lineStyle(player.trailWidth, player.color, 0.5);
+    this.staticTrailGraphics.beginPath();
 
-    if (length >= 1) {
-      this.staticTrailGraphics.beginPath();
+    this.staticTrailGraphics.moveTo(
+      points[0].coordinates.x,
+      points[0].coordinates.y
+    );
 
-      // 2. Move to the very first point
-      this.staticTrailGraphics.moveTo(
-        points[0].coordinates.x,
-        points[0].coordinates.y
+    for (let i = 1; i < points.length; i++) {
+      this.staticTrailGraphics.lineTo(
+        points[i].coordinates.x,
+        points[i].coordinates.y
       );
-
-      // 3. Draw lines to all subsequent points
-      for (let i = 1; i < length; i++) {
-        this.staticTrailGraphics.lineTo(
-          points[i].coordinates.x,
-          points[i].coordinates.y
-        );
-      }
-
-      // 4. Batch the draw call to the GPU
-      this.staticTrailGraphics.strokePath();
     }
+
+    this.staticTrailGraphics.strokePath();
   }
 
   _playTurnSound(player: PlayerState) {

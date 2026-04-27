@@ -124,7 +124,7 @@ export default class PlayerStateManager {
     this.cursorState.targetSpeedMult = turnPoint.speed;
 
     try {
-      this.cursorState.trail.fillTurn(turnPoint);
+      this.cursorState.trail.insertTurn(turnPoint);
     } catch (e) {
       console.warn(
         `[PlayerStateManager] Failed to fill turn for ${this.id}: ${e}`
