@@ -24,6 +24,9 @@ export class NetworkServer {
       const playerId = channel.id!;
       console.log(`Player connected: ${playerId}`);
 
+      // Keep track of which turn ticks we've already processed for this client
+      const processedTurnTicks = new Set<number>();
+
       // Create player in the game room
       const localPlayer = this.gameRoom.createPlayerWithForcedId(playerId);
 
@@ -51,37 +54,66 @@ export class NetworkServer {
         { reliable: true }
       );
 
-      // When client sends a turn, update local state
+      // When client sends a turn (now an array of turns in a sliding window), update local state
       channel.on('client_turn', (data: any) => {
-        const [turnPointDTO] = data;
-        const turn = PlayerPoint.fromDto(turnPointDTO);
+        const turnPointDTOs: any[] = Array.isArray(data) ? data : [data];
+        const allManagers = Array.from(this.gameRoom.playerManagers.values());
+        const manager = this.gameRoom.playerManagers.get(playerId);
+        
+        if (!manager) return;
 
-        // Clamp future turns to the current server tick to prevent time paradoxes
-        if (turn.tick > this.gameClock.tick) {
-          console.warn('Received a turn in the future');
-          turn.tick = this.gameClock.tick;
+        const newTurns: PlayerPoint[] = [];
+
+        for (const turnPointDTO of turnPointDTOs) {
+          const turn = PlayerPoint.fromDto(turnPointDTO);
+
+          // Prevent processing the same turn tick twice
+          if (processedTurnTicks.has(turn.tick)) {
+            continue;
+          }
+
+          // Clamp future turns to the current server tick to prevent time paradoxes
+          if (turn.tick > this.gameClock.tick) {
+            console.warn('Received a turn in the future, clamping to current server tick');
+            turn.tick = this.gameClock.tick;
+          }
+
+          processedTurnTicks.add(turn.tick);
+          newTurns.push(turn);
+        }
+
+        if (newTurns.length === 0) {
+          return; // No new turns to process
+        }
+
+        // Prune old ticks to prevent memory leak
+        const oldestAllowedTick = this.gameClock.tick - 100;
+        for (const tick of processedTurnTicks) {
+          if (tick < oldestAllowedTick) {
+            processedTurnTicks.delete(tick);
+          }
         }
 
         // Server must also simulate the player turning and fast forward them
-        const allManagers = Array.from(this.gameRoom.playerManagers.values());
         try {
-          const manager = this.gameRoom.playerManagers.get(playerId);
-          if (manager) {
-            manager.reconcileTurn(
-              turn,
-              this.gameClock,
-              this.gameRoom.area,
-              allManagers
+          // Send the array of newly discovered turns to be reconciled in a single pass
+          manager.reconcileTurns(
+            newTurns,
+            this.gameClock,
+            this.gameRoom.area,
+            allManagers
+          );
+
+          // Broadcast the newly processed turn points
+          for (const turn of newTurns) {
+            this.gameRoom.playerEventBus.emit(
+              'player_turn',
+              localPlayer,
+              turn
             );
           }
-          // Broadcast the original turn point directly from the client.
-          this.gameRoom.playerEventBus.emit(
-            'player_turn',
-            localPlayer,
-            turn
-          );
         } catch (e) {
-          console.warn(`Failed to apply client turn from ${playerId}: ${e}`);
+          console.warn(`Failed to apply client turns from ${playerId}: ${e}`);
         }
       });
 

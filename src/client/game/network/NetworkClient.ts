@@ -12,6 +12,7 @@ export class NetworkClient {
   gameRoom: GameRoom;
   gameClock: GameClock;
   tickOffset: number = 1;
+  turnBuffer: any[] = [];
 
   // We need to emit some events back to the scene, or just handle gameRoom updates here.
   // For pure separation without logic changes, we'll keep the exact same logic
@@ -109,6 +110,9 @@ export class NetworkClient {
     this.channel.on('sync_state', (data: any) => {
       const [serverTick, playerStateDTOList]: [number, PlayerStateDTO[]] = data;
       this.logSync(serverTick, 'sync_state', data);
+      
+      // Clear acknowledged turns from our sliding window buffer
+      this.turnBuffer = this.turnBuffer.filter((t) => t.tick >= serverTick);
 
       // If we fell significantly behind (e.g. tab was backgrounded/alt-tabbed)
       if (serverTick > this.gameClock.tick + 2) {
@@ -199,14 +203,19 @@ export class NetworkClient {
         data
       );
 
+      // If it's our own turn coming back from the server, we can clear it from our buffer
+      if (id === this.channel.id) {
+        this.turnBuffer = this.turnBuffer.filter((t) => t.tick > turnPointDTO.tick);
+      }
+
       const manager = this.gameRoom.playerManagers.get(id);
       if (!manager) throw new Error("can't handle turn");
       const turnPoint = PlayerPoint.fromDto(turnPointDTO);
 
-      // Use the newly standard reconcileTurn
+      // Use the newly standard reconcileTurns
       const allManagers = Array.from(this.gameRoom.playerManagers.values());
-      manager.reconcileTurn(
-        turnPoint,
+      manager.reconcileTurns(
+        [turnPoint],
         this.gameClock,
         this.gameRoom.area,
         allManagers
@@ -252,13 +261,18 @@ export class NetworkClient {
 
   sendTurn(turnPointDTO: any) {
     if (this.channel) {
+      this.turnBuffer.push(turnPointDTO);
+      if (this.turnBuffer.length > 20) {
+        this.turnBuffer.shift();
+      }
+
       this.logSync(
         turnPointDTO.tick || this.gameClock.tick,
         'client_turn',
-        turnPointDTO
+        this.turnBuffer
       );
-      this.channel.emit('client_turn', [turnPointDTO], {
-        reliable: true,
+      this.channel.emit('client_turn', this.turnBuffer, {
+        reliable: false,
       });
     }
   }
