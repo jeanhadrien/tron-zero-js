@@ -10,6 +10,7 @@ export default class PlayerStateManager {
   cursorState: PlayerState;
   history: Map<number, PlayerStateDTO> = new Map();
   maxHistoryTicks: number = 120; // About 2 seconds of history
+  knownTurns: PlayerPoint[] = [];
 
   constructor(activeState: PlayerState) {
     this.id = activeState.id;
@@ -35,11 +36,15 @@ export default class PlayerStateManager {
         this.history.delete(key);
       }
     }
+    this.knownTurns = this.knownTurns.filter(
+      (t) => t.tick >= oldestAllowedTick
+    );
   }
 
   resetFromPlayerStateDTO(state: PlayerStateDTO) {
     this.activeState.load(state);
     this.history.clear();
+    this.knownTurns = [];
   }
 
   // Returns PlayerState with data at given tick
@@ -86,6 +91,20 @@ export default class PlayerStateManager {
     // For a normal tick, we evaluate against the active states of other players
     const otherActiveStates = allManagers.map((m) => m.activeState);
 
+    const knownTurn = this.knownTurns.find((t) => t.tick === currentTick);
+    if (knownTurn) {
+      this.activeState.x = knownTurn.coordinates.x;
+      this.activeState.y = knownTurn.coordinates.y;
+      this.activeState.direction = knownTurn.direction;
+      this.activeState.velocity = [...knownTurn.velocity];
+      this.activeState.speedMult = knownTurn.speedMult;
+      try {
+        this.activeState.trail.insertTurn(knownTurn);
+      } catch (e) {
+        console.warn(`[PlayerStateManager] Failed to fill turn for ${this.id}: ${e}`);
+      }
+    }
+
     this.activeState.update(
       currentTick,
       otherActiveStates,
@@ -104,31 +123,44 @@ export default class PlayerStateManager {
   ) {
     if (!turnPoints || turnPoints.length === 0) return;
 
-    // Sort turns chronologically
-    const sortedTurns = [...turnPoints].sort((a, b) => a.tick - b.tick);
+    let added = false;
+    let earliestPastTick = Infinity;
 
-    // We rewind to the earliest turn
-    const firstTurn = sortedTurns[0];
-
-    // - set cursorstate : load dto from history at earliest turn point tick
-    const pastDto = this.history.get(firstTurn.tick);
-    if (!pastDto) {
-      console.warn(
-        `[PlayerStateManager] No history found at turn.tick ${firstTurn.tick} for player ${this.id}. Using active state.`
-      );
-      this.cursorState.load(this.activeState.serialize());
-      this.cursorState.currentTick = firstTurn.tick;
-    } else {
-      this.cursorState.load(pastDto);
-      this.cursorState.currentTick = firstTurn.tick;
+    for (const turn of turnPoints) {
+      if (!this.knownTurns.some((t) => t.tick === turn.tick)) {
+        this.knownTurns.push(turn);
+        added = true;
+        if (turn.tick <= this.activeState.currentTick) {
+          earliestPastTick = Math.min(earliestPastTick, turn.tick);
+        }
+      }
     }
 
-    let currentTurnIndex = 0;
+    if (!added || earliestPastTick === Infinity) return;
+
+    // We have at least one new past turn, meaning we need to rewind and replay.
+    this.knownTurns.sort((a, b) => a.tick - b.tick);
+
+    // We rewind to the earliest new past turn
+    const startTick = earliestPastTick;
+
+    // - set cursorstate : load dto from history at earliest turn point tick
+    const pastDto = this.history.get(startTick);
+    if (!pastDto) {
+      console.warn(
+        `[PlayerStateManager] No history found at turn.tick ${startTick} for player ${this.id}. Using active state.`
+      );
+      this.cursorState.load(this.activeState.serialize());
+      this.cursorState.currentTick = startTick;
+    } else {
+      this.cursorState.load(pastDto);
+      this.cursorState.currentTick = startTick;
+    }
 
     // - update cursorstate tick by tick, until activestate tick, or until cursorstate dies
     // Apply turns at exactly their specific ticks before advancing
     for (
-      let simTick = firstTurn.tick;
+      let simTick = startTick;
       simTick <= this.activeState.currentTick;
       simTick++
     ) {
@@ -136,39 +168,25 @@ export default class PlayerStateManager {
         break;
       }
 
-      let appliedTurnThisTick = false;
-
-      // Check if there are any turns to apply exactly at this simTick
-      while (
-        currentTurnIndex < sortedTurns.length &&
-        sortedTurns[currentTurnIndex].tick === simTick
-      ) {
-        const currentTurn = sortedTurns[currentTurnIndex];
-
+      const knownTurn = this.knownTurns.find(t => t.tick === simTick);
+      if (knownTurn) {
         // Apply the turn point data directly to cursorState
-        this.cursorState.x = currentTurn.coordinates.x;
-        this.cursorState.y = currentTurn.coordinates.y;
-        this.cursorState.direction = currentTurn.direction;
-        this.cursorState.velocity = [...currentTurn.velocity];
-        this.cursorState.speedMult = currentTurn.speedMult;
-        this.cursorState.currentTick = simTick;
+        this.cursorState.x = knownTurn.coordinates.x;
+        this.cursorState.y = knownTurn.coordinates.y;
+        this.cursorState.direction = knownTurn.direction;
+        this.cursorState.velocity = [...knownTurn.velocity];
+        this.cursorState.speedMult = knownTurn.speedMult;
 
         try {
-          this.cursorState.trail.insertTurn(currentTurn);
+          this.cursorState.trail.insertTurn(knownTurn);
         } catch (e) {
           console.warn(
             `[PlayerStateManager] Failed to fill turn for ${this.id}: ${e}`
           );
         }
-
-        appliedTurnThisTick = true;
-        currentTurnIndex++;
       }
 
-      // Only step forward simulation if we didn't just forcefully apply a turn's state
-      // (The turn point already contains the result of the simulation for this tick)
-      if (!appliedTurnThisTick) {
-        const otherStates = allManagers
+      const otherStates = allManagers
           .filter((m) => m.id !== this.id)
           .map((m) => {
             try {
@@ -179,13 +197,12 @@ export default class PlayerStateManager {
             }
           });
 
-        try {
-          this.cursorState.update(simTick, otherStates, gameArea, gameClock);
-        } catch (e) {
-          console.warn(
-            `[PlayerStateManager] Error updating cursorState for ${this.id} at tick ${simTick}: ${e}`
-          );
-        }
+      try {
+        this.cursorState.update(simTick, otherStates, gameArea, gameClock);
+      } catch (e) {
+        console.warn(
+          `[PlayerStateManager] Error updating cursorState for ${this.id} at tick ${simTick}: ${e}`
+        );
       }
 
       // Update history inline to ensure subsequent collision checks for this frame are accurate
@@ -218,15 +235,30 @@ export default class PlayerStateManager {
         break;
       }
 
+      const knownTurn = this.knownTurns.find(t => t.tick === simTick);
+      if (knownTurn) {
+        this.cursorState.x = knownTurn.coordinates.x;
+        this.cursorState.y = knownTurn.coordinates.y;
+        this.cursorState.direction = knownTurn.direction;
+        this.cursorState.velocity = [...knownTurn.velocity];
+        this.cursorState.speedMult = knownTurn.speedMult;
+
+        try {
+          this.cursorState.trail.insertTurn(knownTurn);
+        } catch (e) {
+          console.warn(`[PlayerStateManager] Failed to fill turn for ${this.id}: ${e}`);
+        }
+      }
+
       const otherStates = allManagers
-        .filter((m) => m.id !== this.id)
-        .map((m) => {
-          try {
-            return m.__getHydratedStateAtTick(simTick);
-          } catch (e) {
-            return m.activeState;
-          }
-        });
+          .filter((m) => m.id !== this.id)
+          .map((m) => {
+            try {
+              return m.__getHydratedStateAtTick(simTick);
+            } catch (e) {
+              return m.activeState;
+            }
+          });
 
       try {
         this.cursorState.update(simTick, otherStates, gameArea, gameClock);

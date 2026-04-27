@@ -23,7 +23,8 @@ export default defineConfig({
         minify: 'terser',
         terserOptions: {
             compress: {
-                passes: 2
+                passes: 2,
+                drop_console: process.env.DROP_CONSOLE === 'true'
             },
             mangle: true,
             format: {

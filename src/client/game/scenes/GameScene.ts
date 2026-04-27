@@ -202,6 +202,14 @@ export class GameScene extends Scene {
       this.playerRenderers.set(player.id, playerRenderer);
     };
 
+    this.networkClient.onPlayerLeft = (playerId) => {
+      const renderer = this.playerRenderers.get(playerId);
+      if (renderer) {
+        renderer.destroy();
+        this.playerRenderers.delete(playerId);
+      }
+    };
+
     this.networkClient.onPlayerTurn = (player) => {
       const renderer = this.playerRenderers.get(player.id);
       if (renderer) {
@@ -236,7 +244,11 @@ export class GameScene extends Scene {
     }
 
     for (const [id, renderer] of this.playerRenderers) {
-      renderer.render(this.gameRoom.getPlayer(id));
+      try {
+        renderer.render(this.gameRoom.getPlayer(id));
+      } catch (e) {
+        // Player might be missing temporarily before sync catches up
+      }
     }
 
     this.gameRoom.update(delta);

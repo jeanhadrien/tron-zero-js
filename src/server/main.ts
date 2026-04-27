@@ -1,4 +1,3 @@
-import 'jsdom-global/register';
 import express from 'express';
 import { createServer } from 'http';
 import geckos from '@geckos.io/server';

@@ -22,6 +22,7 @@ export class NetworkClient {
     allPlayers: PlayerState[]
   ) => void;
   onPlayerJoined?: (player: PlayerState) => void;
+  onPlayerLeft?: (playerId: string) => void;
   onPlayerTurn?: (player: PlayerState) => void; // for sound
   onPlayerDeath?: (player: PlayerState) => void;
   onPlayerSpawn?: (player: PlayerState) => void;
@@ -135,16 +136,18 @@ export class NetworkClient {
       for (const playerStateDTO of playerStateDTOList) {
         const manager = this.gameRoom.playerManagers.get(playerStateDTO.id);
         if (manager && manager.id !== this.channel.id) {
-          const player = manager.activeState;
+          // Compare against historical state at serverTick, not activeState
+          const historicalState = manager.__getHydratedStateAtTick(serverTick);
+
           // If drift is too large, snap them. Otherwise let them be.
-          const dx = player.x - playerStateDTO.x;
-          const dy = player.y - playerStateDTO.y;
+          const dx = historicalState.x - playerStateDTO.x;
+          const dy = historicalState.y - playerStateDTO.y;
           const distSq = dx * dx + dy * dy;
 
           if (distSq > 50 * 50) {
             // If they drifted by more than 50 units
             console.warn(
-              `[Desync Detected] Snapping player ${player.id} back to server state`
+              `[Desync Detected] Snapping player ${manager.activeState.id} back to server state`
             );
 
             // We load their state exactly, but because they are in the past (serverTick vs localTick)
@@ -193,6 +196,9 @@ export class NetworkClient {
     this.channel.on('player_left', (data: any) => {
       this.logSync(this.gameClock.tick, 'player_left', data.id);
       this.gameRoom.removePlayerById(data.id);
+      if (this.onPlayerLeft) {
+        this.onPlayerLeft(data.id);
+      }
     });
 
     this.channel.on('player_turn', (data: any) => {
@@ -249,7 +255,11 @@ export class NetworkClient {
       const player = this.gameRoom.getPlayer(id);
       if (player) {
         player.load(pState);
-        this.gameRoom.playerManagers.get(id)?.history.clear();
+        const manager = this.gameRoom.playerManagers.get(id);
+        if (manager) {
+          manager.history.clear();
+          manager.knownTurns = [];
+        }
         if (this.onPlayerSpawn) {
           this.onPlayerSpawn(player);
         }

@@ -72,12 +72,15 @@ export class NetworkServer {
             continue;
           }
 
-          // Clamp future turns to the current server tick to prevent time paradoxes
-          if (turn.tick > this.gameClock.tick) {
+          // Clamp extreme future turns to a reasonable future offset to prevent
+          // time paradoxes and memory leaks from malicious clients.
+          // A client shouldn't be more than 20 ticks (333ms) ahead of the server.
+          const MAX_FUTURE_OFFSET = 20;
+          if (turn.tick > this.gameClock.tick + MAX_FUTURE_OFFSET) {
             console.warn(
-              'Received a turn in the future, clamping to current server tick'
+              `Received a turn too far in the future (${turn.tick} vs ${this.gameClock.tick}), clamping to max offset`
             );
-            turn.tick = this.gameClock.tick;
+            turn.tick = this.gameClock.tick + MAX_FUTURE_OFFSET;
           }
 
           processedTurnTicks.add(turn.tick);

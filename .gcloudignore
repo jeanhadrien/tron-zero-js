@@ -1,0 +1,35 @@
+# If you would like to upload your .git directory, .gitignore file or files
+# from your .gitignore file, remove the corresponding line
+# below:
+.git
+.gitignore
+
+# node_modules and build directories
+node_modules/
+dist/
+dist-ssr/
+
+# Logs
+npm-debug.log
+yarn-error.log
+server.log
+logs/
+*.log
+
+# Environment variables
+.env
+.env.*
+*.local
+
+# Editor and OS generated files
+.DS_Store
+.vscode/
+.idea/
+.opencode/
+
+# Documentation and project artifacts
+README.md
+CHANGELOG.md
+PHASER.md
+AGENTS.md
+.github/

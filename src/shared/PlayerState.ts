@@ -17,8 +17,8 @@ export default class PlayerState {
   public static readonly MAX_SPEED: number = 500;
   public static readonly DETECTION_LINE_LENGTH: number = 30;
   public static readonly TRAIL_MAX_LENGTH = 100;
-  public static readonly BASE_RUBBER = 10;
-  public static readonly TURN_DELAY_TICKS = 5;
+  public static readonly BASE_RUBBER = 30;
+  public static readonly TURN_DELAY_TICKS = 10;
 
   eventBus: PlayerEventBus;
 
@@ -40,7 +40,7 @@ export default class PlayerState {
   trail: PlayerTrail = new PlayerTrail(this);
   turnQueue: { tick: number; type: string }[] = [];
 
-  trailWidth = 3;
+  trailWidth = 2;
 
   color: number;
   isInvincible: boolean = false;

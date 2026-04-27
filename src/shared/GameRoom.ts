@@ -83,7 +83,7 @@ export default class GameRoom {
       console.debug('--- Removed player', id);
       return;
     }
-    throw new Error(`Trying to remove player ${id} that doesn't exist`);
+    console.warn(`Trying to remove player ${id} that doesn't exist`);
   }
 
   update(deltaTime: number) {
