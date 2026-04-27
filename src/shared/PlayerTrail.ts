@@ -27,7 +27,7 @@ export class PlayerTrail {
           new Phaser.Math.Vector2(pt.x, pt.y),
           pt.direction,
           pt.velocity,
-          pt.speed,
+          pt.speedMult,
           pt.tick
         )
       );

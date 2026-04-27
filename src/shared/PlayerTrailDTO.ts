@@ -4,7 +4,7 @@ export default interface PlayerTrailDTO {
     y: number;
     direction: number;
     velocity: number[];
-    speed: number;
+    speedMult: number;
     tick: number;
   }[];
 }

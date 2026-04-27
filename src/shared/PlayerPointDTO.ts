@@ -3,6 +3,6 @@ export default interface PlayerPointDTO {
   y: number;
   direction: number;
   velocity: number[];
-  speed: number;
+  speedMult: number;
   tick: number;
 }

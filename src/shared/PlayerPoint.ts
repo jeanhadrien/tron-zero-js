@@ -6,7 +6,7 @@ export class PlayerPoint {
   public coordinates: Phaser.Math.Vector2;
   public direction: number;
   public velocity: number[];
-  public speed: number;
+  public speedMult: number;
   public tick: number;
 
   constructor(
@@ -18,7 +18,7 @@ export class PlayerPoint {
   ) {
     this.coordinates = coordinates;
     this.velocity = velocity;
-    this.speed = speed;
+    this.speedMult = speed;
     this.tick = tick;
 
     this.direction = PlayerPoint.normalizeDirection(direction);
@@ -39,7 +39,7 @@ export class PlayerPoint {
       y: this.coordinates.y,
       direction: this.direction,
       velocity: this.velocity,
-      speed: this.speed,
+      speedMult: this.speedMult,
       tick: this.tick,
     };
   }
@@ -49,7 +49,7 @@ export class PlayerPoint {
       new Phaser.Math.Vector2(pointDto.x, pointDto.y),
       pointDto.direction,
       pointDto.velocity,
-      pointDto.speed,
+      pointDto.speedMult,
       pointDto.tick
     );
   }

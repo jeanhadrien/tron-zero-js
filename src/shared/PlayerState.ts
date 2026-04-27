@@ -18,7 +18,7 @@ export default class PlayerState {
   public static readonly DETECTION_LINE_LENGTH: number = 20;
   public static readonly TRAIL_MAX_LENGTH = 100;
   public static readonly BASE_RUBBER = 10;
-  public static readonly TURN_DELAY_TICKS = 3;
+  public static readonly TURN_DELAY_TICKS = 5;
 
   eventBus: PlayerEventBus;
 
@@ -331,7 +331,7 @@ export default class PlayerState {
 
         lastTurn.direction = newDirection;
         lastTurn.velocity = this.velocity;
-        lastTurn.speed = this.speedMult;
+        lastTurn.speedMult = this.speedMult;
         this.eventBus.emit('player_turn', this, lastTurn);
         return;
       }

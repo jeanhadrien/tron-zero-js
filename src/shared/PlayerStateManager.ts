@@ -106,10 +106,10 @@ export default class PlayerStateManager {
 
     // Sort turns chronologically
     const sortedTurns = [...turnPoints].sort((a, b) => a.tick - b.tick);
-    
+
     // We rewind to the earliest turn
     const firstTurn = sortedTurns[0];
-    
+
     // - set cursorstate : load dto from history at earliest turn point tick
     const pastDto = this.history.get(firstTurn.tick);
     if (!pastDto) {
@@ -136,16 +136,18 @@ export default class PlayerStateManager {
       let appliedTurnThisTick = false;
 
       // Check if there are any turns to apply exactly at this simTick
-      while (currentTurnIndex < sortedTurns.length && sortedTurns[currentTurnIndex].tick === simTick) {
+      while (
+        currentTurnIndex < sortedTurns.length &&
+        sortedTurns[currentTurnIndex].tick === simTick
+      ) {
         const currentTurn = sortedTurns[currentTurnIndex];
-        
+
         // Apply the turn point data directly to cursorState
         this.cursorState.x = currentTurn.coordinates.x;
         this.cursorState.y = currentTurn.coordinates.y;
         this.cursorState.direction = currentTurn.direction;
         this.cursorState.velocity = [...currentTurn.velocity];
-        this.cursorState.speedMult = currentTurn.speed;
-        this.cursorState.targetSpeedMult = currentTurn.speed;
+        this.cursorState.speedMult = currentTurn.speedMult;
         this.cursorState.currentTick = simTick;
 
         try {
@@ -155,7 +157,7 @@ export default class PlayerStateManager {
             `[PlayerStateManager] Failed to fill turn for ${this.id}: ${e}`
           );
         }
-        
+
         appliedTurnThisTick = true;
         currentTurnIndex++;
       }
