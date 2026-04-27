@@ -12,4 +12,5 @@ export default interface PlayerStateDTO {
   color: number;
   velocity: number[];
   trail: PlayerTrailDTO;
+  tick: number;
 }

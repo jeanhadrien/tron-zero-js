@@ -136,6 +136,7 @@ export default class PlayerState {
       rubber: this.rubber,
       velocity: this.velocity,
       isRunning: this.isRunning,
+      tick: this.currentTick,
       color: this.color,
       trail: this.trail.serialize(),
     };
@@ -146,6 +147,7 @@ export default class PlayerState {
     this.x = playerDto.x;
     this.y = playerDto.y;
     this.direction = playerDto.direction;
+    this.currentTick = playerDto.tick;
     this.speedMult = playerDto.speedMult;
     this.targetSpeedMult = playerDto.targetSpeed;
     this.rubber = playerDto.rubber;
@@ -349,53 +351,7 @@ export default class PlayerState {
     this.eventBus.emit('player_turn', this, turnPoint);
   }
 
-  // This should take a point that has occured remotely and should be added to the state
-  applyRemoteTurn(
-    turnPoint: PlayerPoint,
-    gameClock: GameClock,
-    gameArea: GameArea,
-    allPlayers: PlayerState[]
-  ) {
-    // 1. Snapshot Override
-    this.x = turnPoint.coordinates.x;
-    this.y = turnPoint.coordinates.y;
-    this.direction = turnPoint.direction;
-    this.velocity = [...turnPoint.velocity];
-    this.speedMult = turnPoint.speed;
-    this.targetSpeedMult = turnPoint.speed;
-
-    // Add the turn to the trail exactly where it happened
-    try {
-      this.trail.fillTurn(turnPoint);
-    } catch (e) {
-      console.warn(`[PlayerState] Failed to fill turn for ${this.id}: ${e}`);
-    }
-
-    // 2. Catch-up Simulation
-    // If the turn happened in the past (ticksBehind > 0), we must fast forward
-    const ticksBehind = gameClock.tick - turnPoint.tick;
-    this.currentTick = turnPoint.tick;
-
-    if (ticksBehind > 0) {
-      // Limit fast forward to prevent infinite loops / crashes on huge desyncs
-      const maxTicks = Math.min(ticksBehind, 60);
-      console.debug(
-        `Fast forwarding ${this.id} by ${maxTicks} ticks from tick ${turnPoint.tick} to ${turnPoint.tick + maxTicks}`
-      );
-      for (let i = 0; i < maxTicks; i++) {
-        // We simulate ticking forward from the turn's exact tick
-        this.update(turnPoint.tick + i + 1, allPlayers, gameArea, gameClock);
-      }
-      // If we didn't fully catch up, force the currentTick to the present so we don't crash
-      if (maxTicks < ticksBehind) {
-        this.currentTick = gameClock.tick;
-      }
-    } else if (ticksBehind < 0) {
-      console.warn(
-        `Turn point is in the future for player ${this.id}. Game:${gameClock.tick} vs. Turn:${turnPoint.tick}`
-      );
-    }
-  }
+  // applyRemoteTurn has been removed and moved to PlayerStateManager
 
   update(
     currentTick: number,
@@ -414,7 +370,8 @@ export default class PlayerState {
         currentTick - this.currentTick + 1,
         'ticks'
       );
-      throw new Error('Updating player in the past or twice');
+      console.warn('Updating player in the past or twice, returning early');
+      return;
     }
 
     this.currentTick = currentTick;

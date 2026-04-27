@@ -63,14 +63,17 @@ export class NetworkServer {
         }
 
         // Server must also simulate the player turning and fast forward them
-        const allPlayers = this.gameRoom.getAllPlayers();
+        const allManagers = Array.from(this.gameRoom.playerManagers.values());
         try {
-          localPlayer.applyRemoteTurn(
-            turn,
-            this.gameClock,
-            this.gameRoom.area,
-            allPlayers
-          );
+          const manager = this.gameRoom.playerManagers.get(playerId);
+          if (manager) {
+            manager.reconcileTurn(
+              turn,
+              this.gameClock,
+              this.gameRoom.area,
+              allManagers
+            );
+          }
           // Broadcast the original turn point directly from the client.
           this.gameRoom.playerEventBus.emit(
             'player_turn',

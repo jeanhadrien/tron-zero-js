@@ -1,4 +1,5 @@
 import PlayerState from './PlayerState';
+import PlayerStateManager from './PlayerStateManager';
 import { GameEventBus } from './GameEventBus';
 import GameClock from './GameClock';
 import GameArea from './GameArea';
@@ -6,7 +7,7 @@ import { PlayerEventBus } from './PlayerStateEventBus';
 import PlayerStateDTO from './PlayerStateDTO';
 
 export default class GameRoom {
-  players: Map<string, PlayerState>;
+  playerManagers: Map<string, PlayerStateManager>;
   playerEventBus: PlayerEventBus;
   area: GameArea;
   bus: GameEventBus;
@@ -17,42 +18,49 @@ export default class GameRoom {
     this.playerEventBus = new PlayerEventBus();
     this.area = area;
     this.clock = clock;
-    this.players = new Map();
+    this.playerManagers = new Map();
   }
 
   getPlayer(id: string): PlayerState {
-    const p = this.players.get(id);
+    const p = this.playerManagers.get(id);
     if (!p) throw new Error('Player not found');
-    return p;
+    return p.activeState;
   }
 
   getAllPlayers(): PlayerState[] {
-    return Array.from(this.players.values());
+    return Array.from(this.playerManagers.values()).map((m) => m.activeState);
   }
 
   getState(): PlayerStateDTO[] {
     const dtos = [];
-    for (const p of this.players) {
-      dtos.push(p[1].serialize());
+    for (const m of this.playerManagers.values()) {
+      dtos.push(m.activeState.serialize());
     }
     return dtos;
   }
 
   registerPlayer(player: PlayerState): PlayerState {
     console.info('+++ Register player', player.id);
-    this.players.set(player.id, player);
+    const manager = new PlayerStateManager(player);
+    this.playerManagers.set(player.id, manager);
     return player;
   }
 
   handleTurn(id: string, direction: 'left' | 'right', tick?: number) {
-    const player = this.players.get(id);
-    if (player) {
-      player.queueTurn(direction, tick);
+    const manager = this.playerManagers.get(id);
+    if (manager) {
+      manager.activeState.queueTurn(direction, tick);
     }
   }
 
   spawnPlayer(player: PlayerState) {
     console.info('&&& Spawning player', player.id);
+    const pm = this.playerManagers.get(player.id);
+    if (pm?.activeState) {
+      pm.activeState = player;
+      pm.history.clear();
+    }
+
     player.spawn(
       100 + Math.random() * (this.area.width - 200),
       100 + Math.random() * (this.area.height - 200),
@@ -76,10 +84,9 @@ export default class GameRoom {
   }
 
   removePlayerById(id: string) {
-    let p = this.players.get(id);
+    let p = this.playerManagers.get(id);
     if (p) {
-      //p.destroy();
-      this.players.delete(id);
+      this.playerManagers.delete(id);
       console.debug('--- Removed player', id);
       return;
     }
@@ -90,11 +97,11 @@ export default class GameRoom {
     const ticksToProcess = this.clock.update(deltaTime);
     const startTick = this.clock.tick - ticksToProcess + 1;
 
-    const allPlayers = Array.from(this.players.values());
+    const allManagers = Array.from(this.playerManagers.values());
     for (let index = 0; index < ticksToProcess; index++) {
       const currentSimTick = startTick + index;
-      for (const p of allPlayers) {
-        p.update(currentSimTick, allPlayers, this.area, this.clock);
+      for (const m of allManagers) {
+        m.tick(currentSimTick, allManagers, this.area, this.clock);
       }
     }
   }

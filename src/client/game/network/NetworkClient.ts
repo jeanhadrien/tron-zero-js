@@ -75,7 +75,7 @@ export class NetworkClient {
 
       this.gameClock.setTick(_tick + this.tickOffset);
 
-      this.gameRoom.players.clear();
+      this.gameRoom.playerManagers.clear();
 
       let humanPlayer: PlayerState | null = null;
 
@@ -119,18 +119,19 @@ export class NetworkClient {
         this.gameClock.resetAccumulator();
 
         for (const playerStateDTO of playerStateDTOList) {
-          const player = this.gameRoom.players.get(playerStateDTO.id);
-          if (player) {
-            player.load(playerStateDTO);
-            player.currentTick = serverTick; // Ensure they don't try to update from the past
+          const manager = this.gameRoom.playerManagers.get(playerStateDTO.id);
+          if (manager) {
+            manager.activeState.load(playerStateDTO);
+            manager.activeState.currentTick = serverTick; // Ensure they don't try to update from the past
           }
         }
         return; // Complete the sync directly, skip normal interpolation check
       }
 
       for (const playerStateDTO of playerStateDTOList) {
-        const player = this.gameRoom.players.get(playerStateDTO.id);
-        if (player && player.id !== this.channel.id) {
+        const manager = this.gameRoom.playerManagers.get(playerStateDTO.id);
+        if (manager && manager.id !== this.channel.id) {
+          const player = manager.activeState;
           // If drift is too large, snap them. Otherwise let them be.
           const dx = player.x - playerStateDTO.x;
           const dy = player.y - playerStateDTO.y;
@@ -144,20 +145,16 @@ export class NetworkClient {
 
             // We load their state exactly, but because they are in the past (serverTick vs localTick)
             // we must fast forward them to our local present time so they aren't visually dragging behind.
-            player.load(playerStateDTO);
-
-            const ticksBehind = this.gameClock.tick - serverTick;
-            if (ticksBehind > 0) {
-              const allPlayers = this.gameRoom.getAllPlayers();
-              for (let i = 0; i < ticksBehind; i++) {
-                player.update(
-                  serverTick + i + 1,
-                  allPlayers,
-                  this.gameRoom.area,
-                  this.gameClock
-                );
-              }
-            }
+            const allManagers = Array.from(
+              this.gameRoom.playerManagers.values()
+            );
+            manager.fastForwardFromPastState(
+              playerStateDTO,
+              serverTick,
+              this.gameClock,
+              this.gameRoom.area,
+              allManagers
+            );
           }
         }
       }
@@ -165,7 +162,7 @@ export class NetworkClient {
 
     this.channel.on('player_joined', (data: any) => {
       this.logSync(data.tick || this.gameClock.tick, 'player_joined', data);
-      if (!this.gameRoom.players.has(data.id)) {
+      if (!this.gameRoom.playerManagers.has(data.id)) {
         const pData = data.state;
         const pState = new PlayerState(
           this.gameRoom.playerEventBus,
@@ -202,21 +199,21 @@ export class NetworkClient {
         data
       );
 
-      const player = this.gameRoom.players.get(id);
-      if (!player) throw new Error("can't handle turn");
+      const manager = this.gameRoom.playerManagers.get(id);
+      if (!manager) throw new Error("can't handle turn");
       const turnPoint = PlayerPoint.fromDto(turnPointDTO);
 
-      // Use the newly standard applyRemoteTurn
-      const allPlayers = this.gameRoom.getAllPlayers();
-      player.applyRemoteTurn(
+      // Use the newly standard reconcileTurn
+      const allManagers = Array.from(this.gameRoom.playerManagers.values());
+      manager.reconcileTurn(
         turnPoint,
         this.gameClock,
         this.gameRoom.area,
-        allPlayers
+        allManagers
       );
 
       if (this.onPlayerTurn) {
-        this.onPlayerTurn(player);
+        this.onPlayerTurn(manager.activeState);
       }
     });
 
@@ -243,6 +240,7 @@ export class NetworkClient {
       const player = this.gameRoom.getPlayer(id);
       if (player) {
         player.load(pState);
+        this.gameRoom.playerManagers.get(id)?.history.clear();
         if (this.onPlayerSpawn) {
           this.onPlayerSpawn(player);
         }
