@@ -14,6 +14,10 @@ const app = express();
 const httpServer = createServer(app);
 const io = geckos({
   cors: { allowAuthorization: true, origin: '*' },
+  portRange: {
+    min: 10000,
+    max: 20000
+  }
 });
 io.addServer(httpServer);
 
