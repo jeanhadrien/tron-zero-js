@@ -5,6 +5,7 @@ export default class PlayerRenderer extends Phaser.GameObjects.Image {
   driverGraphics: GameObjects.Graphics;
   staticTrailGraphics: GameObjects.Graphics;
   activeTrailGraphics: GameObjects.Graphics;
+  nameText: GameObjects.Text;
 
   oscillator: OscillatorNode | null = null;
   filter: BiquadFilterNode | null = null;
@@ -25,6 +26,12 @@ export default class PlayerRenderer extends Phaser.GameObjects.Image {
     this.staticTrailGraphics = this.scene.add.graphics();
     this.activeTrailGraphics = this.scene.add.graphics();
     this.driverGraphics = this.scene.add.graphics().setDepth(10);
+    
+    this.nameText = this.scene.add.text(0, 0, '', {
+        fontSize: '10px',
+        color: '#ffffff',
+        fontFamily: 'Courier New'
+    }).setOrigin(0.5).setDepth(20).setVisible(false);
 
     this._initEngineSound();
   }
@@ -73,6 +80,7 @@ export default class PlayerRenderer extends Phaser.GameObjects.Image {
     if (this.driverGraphics) this.driverGraphics.destroy();
     if (this.staticTrailGraphics) this.staticTrailGraphics.destroy();
     if (this.activeTrailGraphics) this.activeTrailGraphics.destroy();
+    if (this.nameText) this.nameText.destroy();
     super.destroy(fromScene);
   }
 
@@ -81,10 +89,18 @@ export default class PlayerRenderer extends Phaser.GameObjects.Image {
       this.driverGraphics.setVisible(false);
       this.activeTrailGraphics.clear();
       this.staticTrailGraphics.clear();
+      this.nameText.setVisible(false);
 
       this._lastStaticTrailLength = -1;
       return;
     }
+
+    // Name Text
+    this.nameText.setVisible(true);
+    this.nameText.setText(player.id.substring(0, 16));
+    this.nameText.setPosition(player.x, player.y - 15);
+    this.nameText.setColor('#ffffff');
+    this.nameText.setTint(0xffffff);
 
     // Driver
 
