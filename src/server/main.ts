@@ -14,6 +14,10 @@ const app = express();
 const httpServer = createServer(app);
 const io = geckos({
   cors: { allowAuthorization: true, origin: '*' },
+  iceServers: [
+    { urls: 'stun:stun1.l.google.com:19302' },
+    { urls: 'stun:stun2.l.google.com:19302' }
+  ],
   portRange: {
     min: 10000,
     max: 20000

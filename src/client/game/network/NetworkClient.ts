@@ -42,6 +42,10 @@ export class NetworkClient {
   connect() {
     this.channel = geckos({ 
       url: `${window.location.protocol}//${window.location.hostname}`,
+      iceServers: [
+        { urls: 'stun:stun1.l.google.com:19302' },
+        { urls: 'stun:stun2.l.google.com:19302' }
+      ],
       port: window.location.port ? parseInt(window.location.port) : (window.location.protocol === 'https:' ? 443 : 80)
     });
 
