@@ -27,6 +27,12 @@ export default class GameRoom {
     return p.activeState;
   }
 
+  getRenderPosition(id: string, alpha: number): { x: number; y: number } | null {
+    const m = this.playerManagers.get(id);
+    if (!m) return null;
+    return m.getRenderPosition(alpha);
+  }
+
   getAllPlayers(): PlayerState[] {
     return Array.from(this.playerManagers.values()).map((m) => m.activeState);
   }

@@ -11,10 +11,13 @@ export default class PlayerStateManager {
   history: Map<number, PlayerStateDTO> = new Map();
   maxHistoryTicks: number = 120; // About 2 seconds of history
   knownTurns: PlayerPoint[] = [];
+  previousState: PlayerStateDTO | null = null;
+  correctionTarget: { x: number; y: number } | null = null;
 
   constructor(activeState: PlayerState) {
     this.id = activeState.id;
     this.activeState = activeState;
+    this.previousState = activeState.serialize();
     // Ghost state is used to hydrate past states for collision checks without allocating new objects
     this.cursorState = new PlayerState(
       activeState.eventBus,
@@ -43,8 +46,39 @@ export default class PlayerStateManager {
 
   resetFromPlayerStateDTO(state: PlayerStateDTO) {
     this.activeState.load(state);
+    this.previousState = state;
     this.history.clear();
     this.knownTurns = [];
+    this.correctionTarget = null;
+  }
+
+  applyServerCorrection(correctedState: PlayerStateDTO) {
+    this.activeState.x = correctedState.x;
+    this.activeState.y = correctedState.y;
+    this.correctionTarget = { x: correctedState.x, y: correctedState.y };
+  }
+
+  getRenderPosition(alpha: number): { x: number; y: number } {
+    if (!this.previousState) {
+      return { x: this.activeState.x, y: this.activeState.y };
+    }
+
+    let x = this.previousState.x + (this.activeState.x - this.previousState.x) * alpha;
+    let y = this.previousState.y + (this.activeState.y - this.previousState.y) * alpha;
+
+    if (this.correctionTarget) {
+      const lerpFactor = 0.15;
+      x = x + (this.correctionTarget.x - x) * lerpFactor;
+      y = y + (this.correctionTarget.y - y) * lerpFactor;
+
+      const dx = Math.abs(this.correctionTarget.x - x);
+      const dy = Math.abs(this.correctionTarget.y - y);
+      if (dx < 0.5 && dy < 0.5) {
+        this.correctionTarget = null;
+      }
+    }
+
+    return { x, y };
   }
 
   // Returns PlayerState with data at given tick
@@ -88,6 +122,8 @@ export default class PlayerStateManager {
       // We force-snap the internal tracker to allow progression.
       this.activeState.currentTick = currentTick - 1;
     }
+    this.previousState = this.activeState.serialize();
+
     // For a normal tick, we evaluate against the active states of other players
     const otherActiveStates = allManagers.map((m) => m.activeState);
 
@@ -212,6 +248,8 @@ export default class PlayerStateManager {
     // - make activestate match cursorstate and saveState
     this.activeState.load(this.cursorState.serialize());
     this.activeState.currentTick = this.cursorState.currentTick;
+    this.previousState = this.activeState.serialize();
+    this.correctionTarget = null;
     this.saveState(this.activeState.currentTick);
   }
 
@@ -274,6 +312,8 @@ export default class PlayerStateManager {
     // - make activestate match cursorstate and saveState
     this.activeState.load(this.cursorState.serialize());
     this.activeState.currentTick = this.cursorState.currentTick;
+    this.previousState = this.activeState.serialize();
+    this.correctionTarget = null;
     this.saveState(this.activeState.currentTick);
   }
 }

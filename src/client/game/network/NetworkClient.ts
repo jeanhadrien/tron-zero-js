@@ -152,23 +152,10 @@ export class NetworkClient {
           const distSq = dx * dx + dy * dy;
 
           if (distSq > 50 * 50) {
-            // If they drifted by more than 50 units
             console.warn(
-              `[Desync Detected] Snapping player ${manager.activeState.id} back to server state`
+              `[Desync Detected] Smooth-correcting player ${manager.activeState.id} toward server state`
             );
-
-            // We load their state exactly, but because they are in the past (serverTick vs localTick)
-            // we must fast forward them to our local present time so they aren't visually dragging behind.
-            const allManagers = Array.from(
-              this.gameRoom.playerManagers.values()
-            );
-            manager.fastForwardFromPastState(
-              playerStateDTO,
-              serverTick,
-              this.gameClock,
-              this.gameRoom.area,
-              allManagers
-            );
+            manager.applyServerCorrection(playerStateDTO);
           }
         }
       }

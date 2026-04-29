@@ -243,20 +243,31 @@ export class GameScene extends Scene {
       }
     }
 
+    this.gameRoom.update(delta);
+
+    const alpha = this.gameClock.getAlpha();
+
     for (const [id, renderer] of this.playerRenderers) {
       try {
-        renderer.render(this.gameRoom.getPlayer(id));
+        const pos = this.gameRoom.getRenderPosition(id, alpha);
+        const player = this.gameRoom.getPlayer(id);
+        if (pos && player) {
+          renderer.renderInterpolated(player, pos.x, pos.y);
+        }
       } catch (e) {
         // Player might be missing temporarily before sync catches up
       }
     }
 
-    this.gameRoom.update(delta);
-
     // Debug HUD is throttled internally (~12 Hz) to avoid SolidJS reactivity spam
     this.debugHud.update(_time);
     
-    this.gameCamera.update();
+    if (this.humanPlayer) {
+      const humanPos = this.gameRoom.getRenderPosition(this.humanPlayer.id, alpha);
+      if (humanPos) {
+        this.gameCamera.update(humanPos.x, humanPos.y);
+      }
+    }
 
     // Handle death
     if (

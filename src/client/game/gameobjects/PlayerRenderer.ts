@@ -84,7 +84,7 @@ export default class PlayerRenderer extends Phaser.GameObjects.Image {
     super.destroy(fromScene);
   }
 
-  private _draw(player: PlayerState) {
+  private _drawAt(player: PlayerState, renderX: number, renderY: number) {
     if (!player.isRunning) {
       this.driverGraphics.setVisible(false);
       this.activeTrailGraphics.clear();
@@ -98,15 +98,15 @@ export default class PlayerRenderer extends Phaser.GameObjects.Image {
     // Name Text
     this.nameText.setVisible(true);
     this.nameText.setText(player.id.substring(0, 16));
-    this.nameText.setPosition(player.x, player.y - 15);
+    this.nameText.setPosition(renderX, renderY - 15);
     this.nameText.setColor('#ffffff');
     this.nameText.setTint(0xffffff);
 
     // Driver
 
     this.driverGraphics.setVisible(true);
-    this.driverGraphics.x = player.x;
-    this.driverGraphics.y = player.y;
+    this.driverGraphics.x = renderX;
+    this.driverGraphics.y = renderY;
     this.driverGraphics.rotation = player.direction + Math.PI / 2;
     this.driverGraphics.clear();
     this.driverGraphics.fillStyle(player.color);
@@ -126,7 +126,7 @@ export default class PlayerRenderer extends Phaser.GameObjects.Image {
       points[points.length - 1].coordinates.x,
       points[points.length - 1].coordinates.y
     );
-    this.activeTrailGraphics.lineTo(player.x, player.y);
+    this.activeTrailGraphics.lineTo(renderX, renderY);
     this.activeTrailGraphics.strokePath();
 
     // Static trail segments
@@ -204,27 +204,27 @@ export default class PlayerRenderer extends Phaser.GameObjects.Image {
     osc.stop(time + 0.06);
   }
 
-  private _updateEngineSound(player: PlayerState) {
+  private _updateEngineSound(x: number, y: number, speedMult: number) {
     const audioCtx = this.scene.sound
       ? ((this.scene.sound as any).context as AudioContext | undefined)
       : undefined;
     if (!audioCtx || !this.oscillator || !this.panner) return;
 
     const baseFreq = 80;
-    const targetFreq = baseFreq + player.speedMult * 40;
+    const targetFreq = baseFreq + speedMult * 40;
     this.oscillator.frequency.value = targetFreq;
 
     if (this.panner.positionX) {
-      this.panner.positionX.value = player.x;
-      this.panner.positionY.value = player.y;
+      this.panner.positionX.value = x;
+      this.panner.positionY.value = y;
       this.panner.positionZ.value = 0;
     } else {
-      this.panner.setPosition(player.x, player.y, 0);
+      this.panner.setPosition(x, y, 0);
     }
   }
 
-  render(player: PlayerState) {
-    this._draw(player);
-    this._updateEngineSound(player);
+  renderInterpolated(player: PlayerState, renderX: number, renderY: number) {
+    this._drawAt(player, renderX, renderY);
+    this._updateEngineSound(renderX, renderY, player.speedMult);
   }
 }
