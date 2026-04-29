@@ -41,7 +41,7 @@ export class NetworkClient {
 
   connect() {
     this.channel = geckos({ 
-      url: window.location.origin,
+      url: `${window.location.protocol}//${window.location.hostname}`,
       port: window.location.port ? parseInt(window.location.port) : (window.location.protocol === 'https:' ? 443 : 80)
     });
 
