@@ -174,19 +174,19 @@ export class NetworkClient {
       }
     });
 
-    this.channel.on('player_joined', (data: any) => {
-      this.logSync(data.tick || this.gameClock.tick, 'player_joined', data);
-      if (!this.gameRoom.playerManagers.has(data.id)) {
-        const pData = data.state;
+    this.channel.on('game_add_player', (data: any) => {
+      const [id, pStateDTO] = data;
+      this.logSync(this.gameClock.tick, 'game_add_player', data);
+      if (!this.gameRoom.playerManagers.has(id)) {
         const pState = new PlayerState(
           this.gameRoom.playerEventBus,
-          data.tick,
-          pData.x,
-          pData.y,
-          pData.direction,
-          pData.color
+          this.gameClock.tick,
+          pStateDTO.x,
+          pStateDTO.y,
+          pStateDTO.direction,
+          pStateDTO.color
         );
-        pState.load(pData);
+        pState.load(pStateDTO);
 
         const player = this.gameRoom.registerPlayer(pState);
         if (this.onPlayerJoined) {
@@ -195,11 +195,12 @@ export class NetworkClient {
       }
     });
 
-    this.channel.on('player_left', (data: any) => {
-      this.logSync(this.gameClock.tick, 'player_left', data.id);
-      this.gameRoom.removePlayerById(data.id);
+    this.channel.on('game_remove_player', (data: any) => {
+      const [id] = data;
+      this.logSync(this.gameClock.tick, 'game_remove_player', id);
+      this.gameRoom.removePlayerById(id);
       if (this.onPlayerLeft) {
-        this.onPlayerLeft(data.id);
+        this.onPlayerLeft(id);
       }
     });
 

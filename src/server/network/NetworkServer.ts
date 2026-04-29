@@ -43,17 +43,6 @@ export class NetworkServer {
         }
       );
 
-      // Send new player to other clients
-      this.io.emit(
-        'player_joined',
-        {
-          tick: this.gameClock.tick,
-          id: playerId,
-          state: this.gameRoom.getPlayer(playerId).serialize(),
-        },
-        { reliable: true }
-      );
-
       // When client sends a turn (now an array of turns in a sliding window), update local state
       channel.on('client_turn', (data: any) => {
         const turnPointDTOs: any[] = Array.isArray(data) ? data : [data];
@@ -128,7 +117,6 @@ export class NetworkServer {
       channel.onDisconnect(() => {
         console.log(`Player disconnected: ${playerId}`);
         this.gameRoom.removePlayerById(playerId);
-        this.io.emit('player_left', { id: playerId }, { reliable: true });
       });
     });
 

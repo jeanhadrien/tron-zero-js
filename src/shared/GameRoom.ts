@@ -43,6 +43,7 @@ export default class GameRoom {
     console.info('+++ Register player', player.id);
     const manager = new PlayerStateManager(player);
     this.playerManagers.set(player.id, manager);
+    this.bus.emit('game_add_player', player);
     return player;
   }
 
@@ -80,6 +81,7 @@ export default class GameRoom {
     let p = this.playerManagers.get(id);
     if (p) {
       this.playerManagers.delete(id);
+      this.bus.emit('game_remove_player', p.activeState);
       console.debug('--- Removed player', id);
       return;
     }
