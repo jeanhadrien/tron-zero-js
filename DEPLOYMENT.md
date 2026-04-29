@@ -105,3 +105,12 @@ gcloud compute instances start tron-zero-server
 ```
 
 *Note: Because we installed `pm2`, the game server will automatically start itself up a few seconds after the VM boots!*
+
+## 6. Architecture Note: WebRTC and NAT Traversal
+Because Google Compute Engine VMs sit behind a Google Cloud NAT router, the Node server natively only knows its **Internal IP** (`10.x.x.x`) and does not realize it has a public-facing **External IP**.
+
+When `Geckos.io` tries to establish a WebRTC connection, the server must be explicitly told to use a STUN server (like Google's public STUN servers) to dynamically discover its true external IP address and inject it into the ICE candidates. 
+
+Without this, the server attempts to tell the player's browser to send the UDP game data to `10.x.x.x`, causing the connection to silently fail and drop.
+
+This has already been handled in the codebase by explicitly passing an array of `iceServers` into both the Geckos server initialization (`src/server/main.ts`) and the Geckos client initialization (`src/client/game/network/NetworkClient.ts`). If you change cloud providers in the future or deploy to a server that has a direct network interface (no NAT), you may not strictly need these STUN servers, but leaving them in provides a robust fallback.
