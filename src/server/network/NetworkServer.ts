@@ -44,7 +44,7 @@ export class NetworkServer {
       );
 
       // Send new player to other clients
-      channel.broadcast.emit(
+      this.io.emit(
         'player_joined',
         {
           tick: this.gameClock.tick,

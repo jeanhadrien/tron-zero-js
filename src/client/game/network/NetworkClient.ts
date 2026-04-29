@@ -186,12 +186,7 @@ export class NetworkClient {
           pData.direction,
           pData.color
         );
-        pState.id = data.id;
-        pState.rubber = pData.rubber;
-        pState.isRunning = pData.isRunning;
-        pState.speedMult = pData.speed;
-        pState.targetSpeedMult = pData.targetSpeed;
-        pState.velocity = pData.velocity;
+        pState.load(pData);
 
         const player = this.gameRoom.registerPlayer(pState);
         if (this.onPlayerJoined) {
