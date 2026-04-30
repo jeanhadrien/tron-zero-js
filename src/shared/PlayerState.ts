@@ -1,10 +1,10 @@
-import * as Phaser from 'phaser';
 import PlayerStateDTO from './PlayerStateDTO';
 import { PlayerTrail } from './PlayerTrail';
 import { PlayerPoint } from './PlayerPoint';
 import { PlayerEventBus } from './PlayerStateEventBus';
 import GameArea from './GameArea';
 import GameClock from './GameClock';
+import { SharedLine, lineToLineIntersection, distanceBetween, clamp } from './math';
 
 export const ROTATION_ANGLE = Math.PI / 2;
 export const BASE_SPEED = 100;
@@ -45,9 +45,9 @@ export default class PlayerState {
   color: number;
   isInvincible: boolean = false;
 
-  detectionLine: Phaser.Geom.Line;
-  detectionLineLeft: Phaser.Geom.Line;
-  detectionLineRight: Phaser.Geom.Line;
+  detectionLine: SharedLine;
+  detectionLineLeft: SharedLine;
+  detectionLineRight: SharedLine;
 
   collisionDistanceFront: number = Infinity;
   collisionDistanceLeft: number = Infinity;
@@ -77,12 +77,12 @@ export default class PlayerState {
     this.currentTick = tick;
     this.trail.clear();
     this.trail.addTurn(
-      new PlayerPoint(new Phaser.Math.Vector2(x, y), direction, [0, 0], 0, tick)
+      new PlayerPoint({ x, y }, direction, [0, 0], 0, tick)
     );
 
-    this.detectionLine = new Phaser.Geom.Line();
-    this.detectionLineLeft = new Phaser.Geom.Line();
-    this.detectionLineRight = new Phaser.Geom.Line();
+    this.detectionLine = new SharedLine();
+    this.detectionLineLeft = new SharedLine();
+    this.detectionLineRight = new SharedLine();
 
     this._updateDetectionLines();
   }
@@ -102,7 +102,7 @@ export default class PlayerState {
     this.trail.clear();
     this.trail.addTurn(
       new PlayerPoint(
-        new Phaser.Math.Vector2(x, y),
+        { x, y },
         direction,
         this.velocity,
         this.speedMult,
@@ -168,10 +168,10 @@ export default class PlayerState {
 
   getCollidableLines(otherPlayers: PlayerState[], gameArea: GameArea) {
     const wallLines = [
-      new Phaser.Geom.Line(0, 0, gameArea.width, 0),
-      new Phaser.Geom.Line(gameArea.width, 0, gameArea.width, gameArea.height),
-      new Phaser.Geom.Line(gameArea.width, gameArea.height, 0, gameArea.height),
-      new Phaser.Geom.Line(0, gameArea.height, 0, 0),
+      new SharedLine(0, 0, gameArea.width, 0),
+      new SharedLine(gameArea.width, 0, gameArea.width, gameArea.height),
+      new SharedLine(gameArea.width, gameArea.height, 0, gameArea.height),
+      new SharedLine(0, gameArea.height, 0, 0),
     ];
 
     const allLines = [...wallLines];
@@ -183,13 +183,13 @@ export default class PlayerState {
       for (let i = 0; i < points.length - 1; i++) {
         const p1 = points[i].coordinates;
         const p2 = points[i + 1].coordinates;
-        allLines.push(new Phaser.Geom.Line(p1.x, p1.y, p2.x, p2.y));
+        allLines.push(new SharedLine(p1.x, p1.y, p2.x, p2.y));
       }
 
       if (points.length > 0) {
         const lastPoint = points[points.length - 1].coordinates;
         allLines.push(
-          new Phaser.Geom.Line(lastPoint.x, lastPoint.y, player.x, player.y)
+          new SharedLine(lastPoint.x, lastPoint.y, player.x, player.y)
         );
       }
     }
@@ -198,18 +198,18 @@ export default class PlayerState {
   }
 
   getClosestIntersectingPoint(
-    sensorLine: Phaser.Geom.Line,
-    obstacleLines: Phaser.Geom.Line[]
+    sensorLine: SharedLine,
+    obstacleLines: SharedLine[]
   ) {
-    let point;
+    let point: { x: number; y: number };
     let closestPoint = { x: Infinity, y: Infinity };
     let pointDistance;
 
     for (const line of obstacleLines) {
       point = { x: -1, y: -1 };
 
-      if (Phaser.Geom.Intersects.LineToLine(sensorLine, line, point)) {
-        pointDistance = Phaser.Math.Distance.Between(
+      if (lineToLineIntersection(sensorLine, line, point)) {
+        pointDistance = distanceBetween(
           point.x,
           point.y,
           this.x,
@@ -223,7 +223,7 @@ export default class PlayerState {
 
         if (
           pointDistance <
-          Phaser.Math.Distance.Between(
+          distanceBetween(
             this.x,
             this.y,
             closestPoint.x,
@@ -244,24 +244,21 @@ export default class PlayerState {
       PlayerState.BASE_SPEED * currentSpeed * 0.5
     );
 
-    this.detectionLine = Phaser.Geom.Line.SetToAngle(
-      this.detectionLine,
+    this.detectionLine.setToAngle(
       this.x,
       this.y,
       this.direction,
       lookAheadLength
     );
 
-    this.detectionLineLeft = Phaser.Geom.Line.SetToAngle(
-      this.detectionLineLeft,
+    this.detectionLineLeft.setToAngle(
       this.x,
       this.y,
       this.direction - Math.PI / 2,
       lookAheadLength
     );
 
-    this.detectionLineRight = Phaser.Geom.Line.SetToAngle(
-      this.detectionLineRight,
+    this.detectionLineRight.setToAngle(
       this.x,
       this.y,
       this.direction + Math.PI / 2,
@@ -338,7 +335,7 @@ export default class PlayerState {
     }
 
     const turnPoint = new PlayerPoint(
-      new Phaser.Math.Vector2(this.x, this.y),
+      { x: this.x, y: this.y },
       newDirection,
       this.velocity,
       this.speedMult,
@@ -411,21 +408,21 @@ export default class PlayerState {
       collisionLines
     );
 
-    this.collisionDistanceFront = Phaser.Math.Distance.Between(
+    this.collisionDistanceFront = distanceBetween(
       this.x,
       this.y,
       pointFront.x,
       pointFront.y
     );
 
-    this.collisionDistanceLeft = Phaser.Math.Distance.Between(
+    this.collisionDistanceLeft = distanceBetween(
       this.x,
       this.y,
       pointLeft.x,
       pointLeft.y
     );
 
-    this.collisionDistanceRight = Phaser.Math.Distance.Between(
+    this.collisionDistanceRight = distanceBetween(
       this.x,
       this.y,
       pointRight.x,
@@ -501,10 +498,10 @@ export default class PlayerState {
     this.y += this.velocity[1] / 1000;
 
     // Simple wall boundaries (which we were colliding against but this acts as hard limit)
-    this.x = Phaser.Math.Clamp(this.x, 0, gameArea.width);
-    this.y = Phaser.Math.Clamp(this.y, 0, gameArea.height);
+    this.x = clamp(this.x, 0, gameArea.width);
+    this.y = clamp(this.y, 0, gameArea.height);
 
-    this.rubber = Phaser.Math.Clamp(this.rubber, 0, PlayerState.BASE_RUBBER);
+    this.rubber = clamp(this.rubber, 0, PlayerState.BASE_RUBBER);
 
     // console.debug('speed', this.speedMult);
     // console.debug('vel', this.velocity);

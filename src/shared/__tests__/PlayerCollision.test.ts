@@ -1,5 +1,4 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import 'phaser';
 import PlayerState from '../PlayerState';
 import { PlayerEventBus } from '../PlayerStateEventBus';
 import { PlayerPoint } from '../PlayerPoint';
@@ -37,7 +36,7 @@ describe('Player Collision', () => {
     // Overwrite the first initial turn added by constructor
     fakeOpponent.trail.getPoints()[0].coordinates.x = 51;
     fakeOpponent.trail.getPoints()[0].coordinates.y = -10;
-    fakeOpponent.trail.addTurn(new PlayerPoint(new Phaser.Math.Vector2(51, 10), Math.PI / 2, [0, 0], 1, 1));
+    fakeOpponent.trail.addTurn(new PlayerPoint({ x: 51, y: 10 }, Math.PI / 2, [0, 0], 1, 1));
     fakeOpponent.x = 51;
     fakeOpponent.y = 10;
 

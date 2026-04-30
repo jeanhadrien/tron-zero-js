@@ -1,4 +1,3 @@
-import * as Phaser from 'phaser';
 import PlayerState, { EPSILON } from './PlayerState';
 import { PlayerPoint } from './PlayerPoint';
 import PlayerTrailDTO from './PlayerTrailDTO';
@@ -24,7 +23,7 @@ export class PlayerTrail {
     for (const pt of trailDto.points) {
       this.addTurn(
         new PlayerPoint(
-          new Phaser.Math.Vector2(pt.x, pt.y),
+          { x: pt.x, y: pt.y },
           pt.direction,
           pt.velocity,
           pt.speedMult,

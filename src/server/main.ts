@@ -1,7 +1,6 @@
 import express from 'express';
 import { createServer } from 'http';
 import geckos from '@geckos.io/server';
-import * as Phaser from 'phaser';
 import path from 'path';
 import GameRoom from '../shared/GameRoom';
 import { GameEventBus } from '../shared/GameEventBus';
@@ -30,17 +29,6 @@ app.use(express.static(path.join(process.cwd(), 'dist')));
 
 app.get(/^.*$/, (_req, res) => {
   res.sendFile(path.join(process.cwd(), 'dist', 'index.html'));
-});
-
-// Initialize Headless Phaser (forces Phaser's math/geometry to work)
-new Phaser.Game({
-  type: Phaser.HEADLESS,
-  width: 800,
-  height: 600,
-  banner: false,
-  audio: {
-    noAudio: true,
-  },
 });
 
 const gameBus = new GameEventBus();

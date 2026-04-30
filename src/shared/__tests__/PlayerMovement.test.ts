@@ -1,5 +1,4 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import 'phaser';
 import PlayerState from '../PlayerState';
 
 import { PlayerEventBus } from '../PlayerStateEventBus';

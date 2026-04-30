@@ -1,5 +1,5 @@
-import * as Phaser from 'phaser';
 import PlayerState from '../shared/PlayerState';
+import { distanceBetween, angleBetween, wrapAngle } from '../shared/math';
 
 export default class BotController {
   // AI Personality
@@ -64,7 +64,7 @@ export default class BotController {
     for (const p of allPlayers) {
       if (p === player || !p.isRunning) continue;
 
-      const dist = Phaser.Math.Distance.Between(player.x, player.y, p.x, p.y);
+      const dist = distanceBetween(player.x, player.y, p.x, p.y);
       if (dist < minDistance) {
         minDistance = dist;
         nearest = p;
@@ -83,7 +83,7 @@ export default class BotController {
     isAhead: boolean;
     isLeft: boolean;
   } {
-    const dist = Phaser.Math.Distance.Between(
+    const dist = distanceBetween(
       player.x,
       player.y,
       enemy.x,
@@ -91,7 +91,7 @@ export default class BotController {
     );
 
     // Angle from bot to enemy
-    const angleToEnemy = Phaser.Math.Angle.Between(
+    const angleToEnemy = angleBetween(
       player.x,
       player.y,
       enemy.x,
@@ -99,11 +99,11 @@ export default class BotController {
     );
 
     // Normalize angles to -PI to PI
-    let normalizedBotDir = Phaser.Math.Angle.Wrap(player.direction);
-    let normalizedAngleToEnemy = Phaser.Math.Angle.Wrap(angleToEnemy);
+    let normalizedBotDir = wrapAngle(player.direction);
+    let normalizedAngleToEnemy = wrapAngle(angleToEnemy);
 
     // Difference in angle
-    let angleDiff = Phaser.Math.Angle.Wrap(
+    let angleDiff = wrapAngle(
       normalizedAngleToEnemy - normalizedBotDir
     );
 
@@ -118,11 +118,11 @@ export default class BotController {
     player: PlayerState,
     enemy: PlayerState
   ): 'PARALLEL' | 'HEAD_ON' | 'PERPENDICULAR' {
-    let normalizedBotDir = Phaser.Math.Angle.Wrap(player.direction);
-    let normalizedEnemyDir = Phaser.Math.Angle.Wrap(enemy.direction);
+    let normalizedBotDir = wrapAngle(player.direction);
+    let normalizedEnemyDir = wrapAngle(enemy.direction);
 
     let headingDiff = Math.abs(
-      Phaser.Math.Angle.Wrap(normalizedEnemyDir - normalizedBotDir)
+      wrapAngle(normalizedEnemyDir - normalizedBotDir)
     );
 
     if (headingDiff < 0.5) return 'PARALLEL'; // roughly facing same way

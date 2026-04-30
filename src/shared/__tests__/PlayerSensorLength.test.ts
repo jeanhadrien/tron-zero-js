@@ -1,7 +1,7 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import 'phaser';
 import PlayerState from '../PlayerState';
 import { PlayerEventBus } from '../PlayerStateEventBus';
+import { SharedLine } from '../math';
 
 describe('Player Long Sensor Issues', () => {
   let state: PlayerState;
@@ -18,7 +18,7 @@ describe('Player Long Sensor Issues', () => {
     state._setSpeedAndVelocity(1, 16.66);
     state._updateDetectionLines();
 
-    const wall = new Phaser.Geom.Line(1100, 900, 1100, 1100);
+    const wall = new SharedLine(1100, 900, 1100, 1100);
     const lines = [wall];
 
     const closest = state.getClosestIntersectingPoint(

@@ -1,16 +1,15 @@
-import * as Phaser from 'phaser';
 import { ROTATION_ANGLE, EPSILON } from './PlayerState';
 import PlayerPointDTO from './PlayerPointDTO';
 
 export class PlayerPoint {
-  public coordinates: Phaser.Math.Vector2;
+  public coordinates: { x: number; y: number };
   public direction: number;
   public velocity: number[];
   public speedMult: number;
   public tick: number;
 
   constructor(
-    coordinates: Phaser.Math.Vector2,
+    coordinates: { x: number; y: number },
     direction: number,
     velocity: number[],
     speed: number,
@@ -46,7 +45,7 @@ export class PlayerPoint {
 
   public static fromDto(pointDto: PlayerPointDTO): PlayerPoint {
     return new PlayerPoint(
-      new Phaser.Math.Vector2(pointDto.x, pointDto.y),
+      { x: pointDto.x, y: pointDto.y },
       pointDto.direction,
       pointDto.velocity,
       pointDto.speedMult,

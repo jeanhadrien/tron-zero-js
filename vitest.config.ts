@@ -6,12 +6,7 @@ export default defineConfig({
         solid(),
     ],
     test: {
-        environment: 'jsdom',
+        environment: 'node',
         globals: true,
-        setupFiles: ['./vitest.setup.ts'],
-        alias: {
-            // Force phaser to use the pre-built browser version instead of Node source files
-            phaser: 'phaser/dist/phaser.js'
-        }
     }
 });

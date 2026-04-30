@@ -1,5 +1,4 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import 'phaser';
 import PlayerState from '../PlayerState';
 import { PlayerPoint } from '../PlayerPoint';
 import { PlayerEventBus } from '../PlayerStateEventBus';
@@ -30,7 +29,7 @@ describe('Player Spawn and Load', () => {
 
     // Now simulate player_turn
     const turnPoint = new PlayerPoint(
-      new Phaser.Math.Vector2(100, 150),
+      { x: 100, y: 150 },
       Math.PI,
       [0, 100],
       1,
