@@ -1,6 +1,6 @@
 ---
 name: core-game-mechanics
-description: Understand core game mechanics
+description: Game mechanics design document. Use when touching gameplay, collisions, trails.
 license: MIT
 compatibility: opencode
 ---

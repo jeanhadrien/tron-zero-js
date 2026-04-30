@@ -1,6 +1,6 @@
 ---
 name: netcode-design
-description: Netcode reference document
+description: Netcode reference document. Use when touching the netcode.
 license: MIT
 compatibility: opencode
 ---
