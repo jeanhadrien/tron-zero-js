@@ -27,10 +27,13 @@ export default class GameRoom {
     return p.activeState;
   }
 
-  getRenderPosition(id: string, alpha: number): { x: number; y: number } | null {
+  getRenderPosition(
+    id: string,
+    alpha: number
+  ): { x: number; y: number } | null {
     const m = this.playerManagers.get(id);
     if (!m) return null;
-    return m.getRenderPosition(alpha);
+    return m.getInterpolatedRenderPosition(alpha);
   }
 
   getAllPlayers(): PlayerState[] {

@@ -58,13 +58,17 @@ export default class PlayerStateManager {
     this.correctionTarget = { x: correctedState.x, y: correctedState.y };
   }
 
-  getRenderPosition(alpha: number): { x: number; y: number } {
+  getInterpolatedRenderPosition(alpha: number): { x: number; y: number } {
     if (!this.previousState) {
       return { x: this.activeState.x, y: this.activeState.y };
     }
 
-    let x = this.previousState.x + (this.activeState.x - this.previousState.x) * alpha;
-    let y = this.previousState.y + (this.activeState.y - this.previousState.y) * alpha;
+    let x =
+      this.previousState.x +
+      (this.activeState.x - this.previousState.x) * alpha;
+    let y =
+      this.previousState.y +
+      (this.activeState.y - this.previousState.y) * alpha;
 
     if (this.correctionTarget) {
       const lerpFactor = 0.15;
@@ -82,7 +86,7 @@ export default class PlayerStateManager {
   }
 
   // Returns PlayerState with data at given tick
-  __getHydratedStateAtTick(tick: number): PlayerState {
+  __getHistoryStateAtTick(tick: number): PlayerState {
     const dto = this.history.get(tick);
     if (dto) {
       this.cursorState.load(dto);
@@ -137,7 +141,9 @@ export default class PlayerStateManager {
       try {
         this.activeState.trail.insertTurn(knownTurn);
       } catch (e) {
-        console.warn(`[PlayerStateManager] Failed to fill turn for ${this.id}: ${e}`);
+        console.warn(
+          `[PlayerStateManager] Failed to fill turn for ${this.id}: ${e}`
+        );
       }
     }
 
@@ -204,7 +210,7 @@ export default class PlayerStateManager {
         break;
       }
 
-      const knownTurn = this.knownTurns.find(t => t.tick === simTick);
+      const knownTurn = this.knownTurns.find((t) => t.tick === simTick);
       if (knownTurn) {
         // Apply the turn point data directly to cursorState
         this.cursorState.x = knownTurn.coordinates.x;
@@ -223,15 +229,15 @@ export default class PlayerStateManager {
       }
 
       const otherStates = allManagers
-          .filter((m) => m.id !== this.id)
-          .map((m) => {
-            try {
-              return m.__getHydratedStateAtTick(simTick);
-            } catch (e) {
-              // Fallback to active state if history doesn't exist
-              return m.activeState;
-            }
-          });
+        .filter((m) => m.id !== this.id)
+        .map((m) => {
+          try {
+            return m.__getHistoryStateAtTick(simTick);
+          } catch (e) {
+            // Fallback to active state if history doesn't exist
+            return m.activeState;
+          }
+        });
 
       try {
         this.cursorState.update(simTick, otherStates, gameArea, gameClock);
@@ -273,7 +279,7 @@ export default class PlayerStateManager {
         break;
       }
 
-      const knownTurn = this.knownTurns.find(t => t.tick === simTick);
+      const knownTurn = this.knownTurns.find((t) => t.tick === simTick);
       if (knownTurn) {
         this.cursorState.x = knownTurn.coordinates.x;
         this.cursorState.y = knownTurn.coordinates.y;
@@ -284,19 +290,21 @@ export default class PlayerStateManager {
         try {
           this.cursorState.trail.insertTurn(knownTurn);
         } catch (e) {
-          console.warn(`[PlayerStateManager] Failed to fill turn for ${this.id}: ${e}`);
+          console.warn(
+            `[PlayerStateManager] Failed to fill turn for ${this.id}: ${e}`
+          );
         }
       }
 
       const otherStates = allManagers
-          .filter((m) => m.id !== this.id)
-          .map((m) => {
-            try {
-              return m.__getHydratedStateAtTick(simTick);
-            } catch (e) {
-              return m.activeState;
-            }
-          });
+        .filter((m) => m.id !== this.id)
+        .map((m) => {
+          try {
+            return m.__getHistoryStateAtTick(simTick);
+          } catch (e) {
+            return m.activeState;
+          }
+        });
 
       try {
         this.cursorState.update(simTick, otherStates, gameArea, gameClock);

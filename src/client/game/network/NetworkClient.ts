@@ -40,13 +40,13 @@ export class NetworkClient {
   }
 
   connect() {
-    this.channel = geckos({ 
+    this.channel = geckos({
       url: `${window.location.protocol}//${window.location.hostname}`,
       iceServers: [
         { urls: 'stun:stun1.l.google.com:19302' },
-        { urls: 'stun:stun2.l.google.com:19302' }
+        { urls: 'stun:stun2.l.google.com:19302' },
       ],
-      port: 3000
+      port: 3000,
     });
 
     this.channel.onConnect((error) => {
@@ -118,46 +118,37 @@ export class NetworkClient {
     this.channel.on('sync_state', (data: any) => {
       const [serverTick, playerStateDTOList]: [number, PlayerStateDTO[]] = data;
       this.logSync(serverTick, 'sync_state', data);
-      
+
       // Clear acknowledged turns from our sliding window buffer
       this.turnBuffer = this.turnBuffer.filter((t) => t.tick >= serverTick);
 
       // If we fell significantly behind (e.g. tab was backgrounded/alt-tabbed)
-      if (serverTick > this.gameClock.tick + 2) {
+      const expectedClientTick = serverTick + this.tickOffset;
+      const drift = expectedClientTick - this.gameClock.tick;
+
+      if (drift >= 1 || drift <= -2) {
         console.warn(
-          `[Desync] Local clock fell behind. Snapping to server tick.`
+          `[Desync] Local clock drifted by ${drift} ticks. Snapping to expected tick.`
         );
-        this.gameClock.setTick(serverTick + this.tickOffset);
+        this.gameClock.setTick(expectedClientTick);
         this.gameClock.resetAccumulator();
 
+        const allManagers = Array.from(this.gameRoom.playerManagers.values());
         for (const playerStateDTO of playerStateDTOList) {
           const manager = this.gameRoom.playerManagers.get(playerStateDTO.id);
           if (manager) {
-            manager.activeState.load(playerStateDTO);
-            manager.activeState.currentTick = serverTick; // Ensure they don't try to update from the past
+            manager.activeState.currentTick = this.gameClock.tick;
+
+            manager.fastForwardFromPastState(
+              playerStateDTO,
+              serverTick,
+              this.gameClock,
+              this.gameRoom.area,
+              allManagers
+            );
           }
         }
         return; // Complete the sync directly, skip normal interpolation check
-      }
-
-      for (const playerStateDTO of playerStateDTOList) {
-        const manager = this.gameRoom.playerManagers.get(playerStateDTO.id);
-        if (manager && manager.id !== this.channel.id) {
-          // Compare against historical state at serverTick, not activeState
-          const historicalState = manager.__getHydratedStateAtTick(serverTick);
-
-          // If drift is too large, snap them. Otherwise let them be.
-          const dx = historicalState.x - playerStateDTO.x;
-          const dy = historicalState.y - playerStateDTO.y;
-          const distSq = dx * dx + dy * dy;
-
-          if (distSq > 50 * 50) {
-            console.warn(
-              `[Desync Detected] Smooth-correcting player ${manager.activeState.id} toward server state`
-            );
-            manager.applyServerCorrection(playerStateDTO);
-          }
-        }
       }
     });
 
@@ -201,7 +192,9 @@ export class NetworkClient {
 
       // If it's our own turn coming back from the server, we can clear it from our buffer
       if (id === this.channel.id) {
-        this.turnBuffer = this.turnBuffer.filter((t) => t.tick > turnPointDTO.tick);
+        this.turnBuffer = this.turnBuffer.filter(
+          (t) => t.tick > turnPointDTO.tick
+        );
       }
 
       const manager = this.gameRoom.playerManagers.get(id);
