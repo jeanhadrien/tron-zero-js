@@ -7,13 +7,12 @@ const appVersion = pkg.version;
 
 // https://vitejs.dev/config/
 export default defineConfig({
-    define: {
-        "__APP_VERSION__": JSON.stringify(appVersion),
-    },
-    plugins: [
-        solid(),
-    ],
-    server: {
-        port: 8080
-    }
-})
+  define: {
+    __APP_VERSION__: JSON.stringify(appVersion),
+  },
+  plugins: [solid()],
+  server: {
+    port: 8080,
+  },
+});
+

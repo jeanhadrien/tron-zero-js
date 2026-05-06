@@ -4,7 +4,12 @@ import { PlayerPoint } from './PlayerPoint';
 import { PlayerEventBus } from './PlayerStateEventBus';
 import GameArea from './GameArea';
 import GameClock from './GameClock';
-import { SharedLine, lineToLineIntersection, distanceBetween, clamp } from './math';
+import {
+  SharedLine,
+  lineToLineIntersection,
+  distanceBetween,
+  clamp,
+} from './math';
 
 export const ROTATION_ANGLE = Math.PI / 2;
 export const BASE_SPEED = 100;
@@ -76,9 +81,7 @@ export default class PlayerState {
     this.rubber = PlayerState.BASE_RUBBER;
     this.currentTick = tick;
     this.trail.clear();
-    this.trail.addTurn(
-      new PlayerPoint({ x, y }, direction, [0, 0], 0, tick)
-    );
+    this.trail.addTurn(new PlayerPoint({ x, y }, direction, [0, 0], 0, tick));
 
     this.detectionLine = new SharedLine();
     this.detectionLineLeft = new SharedLine();
@@ -123,7 +126,6 @@ export default class PlayerState {
     this.turnQueue = [];
     this.trail.clear();
     this.shouldHandleDeath = false;
-    console.debug(this.currentTick, this.id, 'disable()');
   }
 
   public serialize(): PlayerStateDTO {
@@ -156,7 +158,6 @@ export default class PlayerState {
     this.isRunning = playerDto.isRunning;
     this.color = playerDto.color;
     this.trail.deserialize(playerDto.trail);
-    console.debug(this.currentTick, this.id, 'load(dto)');
   }
 
   setDirection(angle: number) {
@@ -209,12 +210,7 @@ export default class PlayerState {
       point = { x: -1, y: -1 };
 
       if (lineToLineIntersection(sensorLine, line, point)) {
-        pointDistance = distanceBetween(
-          point.x,
-          point.y,
-          this.x,
-          this.y
-        );
+        pointDistance = distanceBetween(point.x, point.y, this.x, this.y);
 
         // Don't consider points very close due to potential rounding errors
         if (pointDistance < EPSILON) {
@@ -223,12 +219,7 @@ export default class PlayerState {
 
         if (
           pointDistance <
-          distanceBetween(
-            this.x,
-            this.y,
-            closestPoint.x,
-            closestPoint.y
-          )
+          distanceBetween(this.x, this.y, closestPoint.x, closestPoint.y)
         ) {
           closestPoint = point;
         }
@@ -352,7 +343,7 @@ export default class PlayerState {
   // applyRemoteTurn has been removed and moved to PlayerStateManager
 
   update(
-    currentTick: number,
+    targetTick: number,
     allPlayers: PlayerState[],
     gameArea: GameArea,
     gameClock: GameClock
@@ -360,19 +351,19 @@ export default class PlayerState {
     if (this.currentTick === null || this.currentTick === undefined) {
       throw new Error('Null tick');
     }
-    if (currentTick > this.currentTick + 1) {
+    if (targetTick > this.currentTick + 1) {
       console.warn(
         '???',
         this.id,
         'skipping',
-        currentTick - this.currentTick + 1,
+        targetTick - this.currentTick + 1,
         'ticks'
       );
       console.warn('Updating player in the past or twice, returning early');
       return;
     }
 
-    this.currentTick = currentTick;
+    this.currentTick = targetTick;
 
     // Check for death
     if (!this.isRunning || this.rubber <= 0) {
@@ -433,9 +424,6 @@ export default class PlayerState {
 
     const deltaStuff = 12;
     const slowDownDistance = 10;
-
-    // console.debug('maxMovementThisFrame', maxMovementThisFrame);
-    // console.debug('slowDownDistance', slowDownDistance);
 
     if (this.collisionDistanceFront < slowDownDistance) {
       // Case 1: Running in a wall

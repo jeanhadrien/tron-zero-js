@@ -10,7 +10,7 @@ export default class PlayerStateManager {
   cursorState: PlayerState;
   history: Map<number, PlayerStateDTO> = new Map();
   maxHistoryTicks: number = 120; // About 2 seconds of history
-  knownTurns: PlayerPoint[] = [];
+  knownPlayerPoints: PlayerPoint[] = [];
   previousState: PlayerStateDTO | null = null;
   correctionTarget: { x: number; y: number } | null = null;
 
@@ -31,6 +31,7 @@ export default class PlayerStateManager {
 
   saveState(tick: number) {
     this.history.set(tick, this.activeState.serialize());
+    this.previousState = this.history.get(tick - 1)!;
 
     // Prune old history
     const oldestAllowedTick = tick - this.maxHistoryTicks;
@@ -39,7 +40,7 @@ export default class PlayerStateManager {
         this.history.delete(key);
       }
     }
-    this.knownTurns = this.knownTurns.filter(
+    this.knownPlayerPoints = this.knownPlayerPoints.filter(
       (t) => t.tick >= oldestAllowedTick
     );
   }
@@ -48,7 +49,7 @@ export default class PlayerStateManager {
     this.activeState.load(state);
     this.previousState = state;
     this.history.clear();
-    this.knownTurns = [];
+    this.knownPlayerPoints = [];
     this.correctionTarget = null;
   }
 
@@ -86,77 +87,112 @@ export default class PlayerStateManager {
   }
 
   // Returns PlayerState with data at given tick
-  __getHistoryStateAtTick(tick: number): PlayerState {
+  getHistoryStateAtTick(tick: number): PlayerState {
+    const dto = this.history.get(tick);
+    if (dto) {
+      this.cursorState.load(dto);
+      if (this.cursorState.currentTick !== tick) {
+        throw new Error('invalid tick');
+      }
+      this.cursorState.currentTick = tick;
+      return this.cursorState;
+    }
+    throw new Error('missing tick');
+  }
+
+  getHistoryStateAtLowerBoundTick(tick: number): PlayerState {
+    // Try exact match first
     const dto = this.history.get(tick);
     if (dto) {
       this.cursorState.load(dto);
       this.cursorState.currentTick = tick;
       return this.cursorState;
     }
-
-    // Fallback: if we don't have the exact tick, try to find the closest past tick
-    let closestTick = -1;
-    for (const key of this.history.keys()) {
-      if (key <= tick && key > closestTick) {
-        closestTick = key;
+    // Walk down to closest lower tick
+    let bestDto = null;
+    let bestTick = -1;
+    for (const entry of this.history.values()) {
+      if (entry.tick < tick && entry.tick > bestTick) {
+        bestTick = entry.tick;
+        bestDto = entry;
       }
     }
-
-    if (closestTick !== -1) {
-      this.cursorState.load(this.history.get(closestTick)!);
-      this.cursorState.currentTick = closestTick;
+    if (bestDto) {
+      this.cursorState.load(bestDto);
+      this.cursorState.currentTick = bestTick;
       return this.cursorState;
     }
-
-    // Ultimate fallback: return active state
-    return this.activeState;
+    throw new Error('no history at or below tick');
   }
 
-  tick(
-    currentTick: number,
-    allManagers: PlayerStateManager[],
+  // Receive a target tick to update our active player state to
+  update(
+    targetTick: number,
+    allPlayerStateManagers: PlayerStateManager[],
     gameArea: GameArea,
     gameClock: GameClock
   ) {
-    if (currentTick != this.activeState.currentTick + 1) {
+    if (targetTick < this.activeState.currentTick) {
       console.warn(
-        `[PlayerStateManager] Tick mismatch for ${this.id}: Expected ${this.activeState.currentTick + 1}, got ${currentTick}`
+        `[PlayerStateManager] Loading a past tick for ${targetTick} for ${this.id}`
       );
-      // Usually happens on initial load / desync snap before clock correctly aligns.
-      // We force-snap the internal tracker to allow progression.
-      this.activeState.currentTick = currentTick - 1;
+      const targetState = this.getHistoryStateAtTick(targetTick);
+      if (!targetState) throw new Error('wtf');
+      this.activeState = targetState;
+      this.saveState(targetTick);
+      return;
     }
-    this.previousState = this.activeState.serialize();
 
-    // For a normal tick, we evaluate against the active states of other players
-    const otherActiveStates = allManagers.map((m) => m.activeState);
+    if (targetTick == this.activeState.currentTick) {
+      console.warn(
+        `[PlayerStateManager] Nothing to do for ${this.id} at tick ${targetTick}`
+      );
+      this.saveState(targetTick);
+      return;
+    }
 
-    const knownTurn = this.knownTurns.find((t) => t.tick === currentTick);
-    if (knownTurn) {
-      this.activeState.x = knownTurn.coordinates.x;
-      this.activeState.y = knownTurn.coordinates.y;
-      this.activeState.direction = knownTurn.direction;
-      this.activeState.velocity = [...knownTurn.velocity];
-      this.activeState.speedMult = knownTurn.speedMult;
-      try {
-        this.activeState.trail.insertTurn(knownTurn);
-      } catch (e) {
-        console.warn(
-          `[PlayerStateManager] Failed to fill turn for ${this.id}: ${e}`
-        );
+    if (targetTick > this.activeState.currentTick + 1) {
+      console.warn(
+        `[PlayerStateManager] fast forwarding to ${targetTick} from ${this.activeState.currentTick}`
+      );
+    }
+
+    const otherActiveStates = allPlayerStateManagers.map((m) => m.activeState);
+
+    for (
+      let _catchupTick = this.activeState.currentTick + 1;
+      _catchupTick <= targetTick;
+      _catchupTick++
+    ) {
+      // For a normal tick, we evaluate against the active states of other players
+      const knownPlayerPoint = this.knownPlayerPoints.find(
+        (point) => point.tick === _catchupTick
+      );
+      if (knownPlayerPoint) {
+        this.activeState.x = knownPlayerPoint.coordinates.x;
+        this.activeState.y = knownPlayerPoint.coordinates.y;
+        this.activeState.direction = knownPlayerPoint.direction;
+        this.activeState.velocity = [...knownPlayerPoint.velocity];
+        this.activeState.speedMult = knownPlayerPoint.speedMult;
+        try {
+          this.activeState.trail.insertTurn(knownPlayerPoint);
+        } catch (e) {
+          console.warn(
+            `[PlayerStateManager] Failed to fill turn for ${this.id}: ${e}`
+          );
+        }
       }
+      this.activeState.update(
+        _catchupTick,
+        otherActiveStates,
+        gameArea,
+        gameClock
+      );
+      this.saveState(_catchupTick);
     }
-
-    this.activeState.update(
-      currentTick,
-      otherActiveStates,
-      gameArea,
-      gameClock
-    );
-
-    this.saveState(currentTick);
   }
 
+  // Take a list of potentially new turn points to include in our state
   reconcileTurns(
     turnPoints: PlayerPoint[],
     gameClock: GameClock,
@@ -169,33 +205,36 @@ export default class PlayerStateManager {
     let earliestPastTick = Infinity;
 
     for (const turn of turnPoints) {
-      if (!this.knownTurns.some((t) => t.tick === turn.tick)) {
-        this.knownTurns.push(turn);
-        added = true;
-        if (turn.tick <= this.activeState.currentTick) {
-          earliestPastTick = Math.min(earliestPastTick, turn.tick);
-        }
+      if (this.knownPlayerPoints.some((point) => point.tick === turn.tick))
+        // Skip already seen point
+        continue;
+
+      this.knownPlayerPoints.push(turn);
+      added = true;
+      if (turn.tick <= this.activeState.currentTick) {
+        // Keep track of the earliest tick we're handling and have not seen before
+        earliestPastTick = Math.min(earliestPastTick, turn.tick);
       }
     }
 
     if (!added || earliestPastTick === Infinity) return;
 
-    // We have at least one new past turn, meaning we need to rewind and replay.
-    this.knownTurns.sort((a, b) => a.tick - b.tick);
+    // Add this point we've added a new turn to our list, we need to resimulate state
+
+    this.knownPlayerPoints.sort((a, b) => a.tick - b.tick);
 
     // We rewind to the earliest new past turn
     const startTick = earliestPastTick;
 
     // - set cursorstate : load dto from history at earliest turn point tick
-    const pastDto = this.history.get(startTick);
-    if (!pastDto) {
+    const cursorState = this.getHistoryStateAtLowerBoundTick(startTick);
+    if (!cursorState) {
       console.warn(
         `[PlayerStateManager] No history found at turn.tick ${startTick} for player ${this.id}. Using active state.`
       );
       this.cursorState.load(this.activeState.serialize());
       this.cursorState.currentTick = startTick;
     } else {
-      this.cursorState.load(pastDto);
       this.cursorState.currentTick = startTick;
     }
 
@@ -210,7 +249,7 @@ export default class PlayerStateManager {
         break;
       }
 
-      const knownTurn = this.knownTurns.find((t) => t.tick === simTick);
+      const knownTurn = this.knownPlayerPoints.find((t) => t.tick === simTick);
       if (knownTurn) {
         // Apply the turn point data directly to cursorState
         this.cursorState.x = knownTurn.coordinates.x;
@@ -231,13 +270,11 @@ export default class PlayerStateManager {
       const otherStates = allManagers
         .filter((m) => m.id !== this.id)
         .map((m) => {
-          try {
-            return m.__getHistoryStateAtTick(simTick);
-          } catch (e) {
-            // Fallback to active state if history doesn't exist
-            return m.activeState;
-          }
+          const playerState = m.getHistoryStateAtTick(simTick)!;
+          return playerState;
         });
+
+      if (!otherStates) throw new Error();
 
       try {
         this.cursorState.update(simTick, otherStates, gameArea, gameClock);
@@ -279,7 +316,7 @@ export default class PlayerStateManager {
         break;
       }
 
-      const knownTurn = this.knownTurns.find((t) => t.tick === simTick);
+      const knownTurn = this.knownPlayerPoints.find((t) => t.tick === simTick);
       if (knownTurn) {
         this.cursorState.x = knownTurn.coordinates.x;
         this.cursorState.y = knownTurn.coordinates.y;
@@ -300,7 +337,7 @@ export default class PlayerStateManager {
         .filter((m) => m.id !== this.id)
         .map((m) => {
           try {
-            return m.__getHistoryStateAtTick(simTick);
+            return m.getHistoryStateAtTick(simTick);
           } catch (e) {
             return m.activeState;
           }

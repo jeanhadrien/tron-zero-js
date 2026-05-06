@@ -180,6 +180,14 @@ export class GameScene extends Scene {
         this.isKeyDown[key] = false;
       });
     });
+
+    // let uhhh = performance.now();
+    // setInterval(() => {
+    //   const now = performance.now();
+    //   const delta = now - uhhh;
+    //   uhhh = now;
+    //   this.gameRoom.update(delta);
+    // }, this.gameClock.tickTimeMs);
   }
 
   setupSocket() {
@@ -259,11 +267,11 @@ export class GameScene extends Scene {
       }
     }
 
-    // Debug HUD is throttled internally (~12 Hz) to avoid SolidJS reactivity spam
-    this.debugHud.update(_time);
-    
     if (this.humanPlayer) {
-      const humanPos = this.gameRoom.getRenderPosition(this.humanPlayer.id, alpha);
+      const humanPos = this.gameRoom.getRenderPosition(
+        this.humanPlayer.id,
+        alpha
+      );
       if (humanPos) {
         this.gameCamera.update(humanPos.x, humanPos.y);
       }
@@ -284,6 +292,8 @@ export class GameScene extends Scene {
       this.lastFpsEmitTime = _time;
       EventBus.emit('fps-update', this.game.loop.actualFps);
     }
+    // Debug HUD is throttled internally (~12 Hz) to avoid SolidJS reactivity spam
+    this.debugHud.update(_time);
   }
 
   releaseKey(key: string) {

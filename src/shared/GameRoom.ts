@@ -105,7 +105,7 @@ export default class GameRoom {
     for (let index = 0; index < ticksToProcess; index++) {
       const currentSimTick = startTick + index;
       for (const m of allManagers) {
-        m.tick(currentSimTick, allManagers, this.area, this.clock);
+        m.update(currentSimTick, allManagers, this.area, this.clock);
       }
     }
   }

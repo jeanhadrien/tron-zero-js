@@ -11,7 +11,8 @@ export class NetworkClient {
   bus: GameEventBus;
   gameRoom: GameRoom;
   gameClock: GameClock;
-  tickOffset: number = 1;
+  tickOffsetToCatchServer: number = 1;
+  aheadTickCount: number = 5;
   turnBuffer: any[] = [];
 
   // We need to emit some events back to the scene, or just handle gameRoom updates here.
@@ -70,19 +71,25 @@ export class NetworkClient {
       const pingDifferenceTime = performance.now() - oldTime;
       // We only care about one-way trip time to figure out what tick the server is actually on
       const oneWayTime = pingDifferenceTime / 2;
-      this.tickOffset = Math.ceil(oneWayTime / this.gameClock.tickTimeMs);
+      this.tickOffsetToCatchServer = Math.ceil(
+        oneWayTime / this.gameClock.tickTimeMs
+      );
       this.logSync(
         this.gameClock.tick,
         'pong',
-        `RTT: ${pingDifferenceTime.toFixed(2)}ms, One-way: ${oneWayTime.toFixed(2)}ms, Tick Offset: ${this.tickOffset}`
+        `RTT: ${pingDifferenceTime.toFixed(2)}ms, One-way: ${oneWayTime.toFixed(2)}ms, Tick Offset: ${this.tickOffsetToCatchServer}`
       );
     });
 
     this.channel.on('init_state', (data: any) => {
-      const [_tick, _playerStateDTOList]: [number, PlayerStateDTO[]] = data;
-      this.logSync(_tick, 'init_state', data);
+      const [_serverTick, _playerStateDTOList]: [number, PlayerStateDTO[]] =
+        data;
+      this.logSync(_serverTick, 'init_state', data);
 
-      this.gameClock.setTick(_tick + this.tickOffset);
+      const expectedClientTick =
+        _serverTick + this.tickOffsetToCatchServer + this.aheadTickCount;
+
+      this.gameClock.setTick(expectedClientTick);
 
       this.gameRoom.playerManagers.clear();
 
@@ -92,7 +99,7 @@ export class NetworkClient {
 
       // Recreate from state
       for (const _playerStateDTO of _playerStateDTOList) {
-        const myP = new PlayerState(
+        const p = new PlayerState(
           this.gameRoom.playerEventBus,
           this.gameClock.tick,
           0,
@@ -100,13 +107,13 @@ export class NetworkClient {
           0,
           0
         );
-        myP.load(_playerStateDTO);
+        p.load(_playerStateDTO);
 
-        this.gameRoom.registerPlayer(myP);
-        allPlayers.push(myP);
+        this.gameRoom.registerPlayer(p);
+        allPlayers.push(p);
 
         if (_playerStateDTO.id === this.channel.id) {
-          humanPlayer = myP;
+          humanPlayer = p;
         }
       }
 
@@ -116,32 +123,33 @@ export class NetworkClient {
     });
 
     this.channel.on('sync_state', (data: any) => {
-      const [serverTick, playerStateDTOList]: [number, PlayerStateDTO[]] = data;
-      this.logSync(serverTick, 'sync_state', data);
+      const [_serverTick, _playerStateDTOList]: [number, PlayerStateDTO[]] =
+        data;
+      this.logSync(_serverTick, 'sync_state', data);
 
       // Clear acknowledged turns from our sliding window buffer
-      this.turnBuffer = this.turnBuffer.filter((t) => t.tick >= serverTick);
+      this.turnBuffer = this.turnBuffer.filter((t) => t.tick >= _serverTick);
 
-      // If we fell significantly behind (e.g. tab was backgrounded/alt-tabbed)
-      const expectedClientTick = serverTick + this.tickOffset;
+      const expectedClientTick =
+        _serverTick + this.tickOffsetToCatchServer + this.aheadTickCount;
       const drift = expectedClientTick - this.gameClock.tick;
 
-      if (drift >= 1 || drift <= -2) {
+      if (drift !== 0) {
         console.warn(
-          `[Desync] Local clock drifted by ${drift} ticks. Snapping to expected tick.`
+          `[Desync] Local clock late by ${drift} ticks. Snapping to expected tick.`
         );
         this.gameClock.setTick(expectedClientTick);
         this.gameClock.resetAccumulator();
 
         const allManagers = Array.from(this.gameRoom.playerManagers.values());
-        for (const playerStateDTO of playerStateDTOList) {
+        for (const playerStateDTO of _playerStateDTOList) {
           const manager = this.gameRoom.playerManagers.get(playerStateDTO.id);
           if (manager) {
             manager.activeState.currentTick = this.gameClock.tick;
 
             manager.fastForwardFromPastState(
               playerStateDTO,
-              serverTick,
+              _serverTick,
               this.gameClock,
               this.gameRoom.area,
               allManagers
@@ -241,7 +249,9 @@ export class NetworkClient {
         const manager = this.gameRoom.playerManagers.get(id);
         if (manager) {
           manager.history.clear();
-          manager.knownTurns = [];
+          manager.knownPlayerPoints = [];
+          manager.previousState = null;
+          manager.correctionTarget = null;
         }
         if (this.onPlayerSpawn) {
           this.onPlayerSpawn(player);
