@@ -1,5 +1,6 @@
 import { GameObjects } from 'phaser';
 import PlayerState from '../../../shared/PlayerState';
+import AudioManager, { EngineSound } from './AudioManager';
 
 export default class PlayerRenderer extends Phaser.GameObjects.Image {
   driverGraphics: GameObjects.Graphics;
@@ -7,18 +8,17 @@ export default class PlayerRenderer extends Phaser.GameObjects.Image {
   activeTrailGraphics: GameObjects.Graphics;
   nameText: GameObjects.Text;
 
-  oscillator: OscillatorNode | null = null;
-  filter: BiquadFilterNode | null = null;
-  panner: PannerNode | null = null;
-  amp: GainNode | null = null;
+  private audioManager: AudioManager;
+  private engineSound: EngineSound | null = null;
 
   private _lastTrail: any = null;
   private _lastStaticTrailLength: number = -1;
   private _lastStaticTrailTick: number = -1;
 
-  constructor(scene: Phaser.Scene) {
+  constructor(scene: Phaser.Scene, audioManager?: AudioManager) {
     super(scene, 0, 0, '_playerRenderer');
     this.scene = scene;
+    this.audioManager = audioManager ?? new AudioManager(scene);
 
     this.scene.add.existing(this);
     this.setVisible(false);
@@ -26,56 +26,21 @@ export default class PlayerRenderer extends Phaser.GameObjects.Image {
     this.staticTrailGraphics = this.scene.add.graphics();
     this.activeTrailGraphics = this.scene.add.graphics();
     this.driverGraphics = this.scene.add.graphics().setDepth(10);
-    
+
     this.nameText = this.scene.add.text(0, 0, '', {
         fontSize: '10px',
         color: '#ffffff',
         fontFamily: 'Courier New'
     }).setOrigin(0.5).setDepth(20).setVisible(false);
 
-    this._initEngineSound();
-  }
-
-  private _initEngineSound() {
-    const audioCtx = this.scene.sound
-      ? ((this.scene.sound as any).context as AudioContext | undefined)
-      : undefined;
-    if (!audioCtx) return;
-
-    this.oscillator = audioCtx.createOscillator();
-    this.oscillator.type = 'triangle';
-    this.oscillator.frequency.value = 60; // Deep bass
-
-    this.filter = audioCtx.createBiquadFilter();
-    this.filter.type = 'lowpass';
-    this.filter.frequency.value = 250; // Keep strictly in low-end
-
-    this.panner = audioCtx.createPanner();
-    this.panner.panningModel = 'HRTF';
-    this.panner.distanceModel = 'exponential';
-    this.panner.refDistance = 300; // Match the listener's Z height
-    this.panner.maxDistance = 10000;
-    this.panner.rolloffFactor = 2;
-
-    this.amp = audioCtx.createGain();
-    this.amp.gain.value = 0.1;
-
-    this.oscillator.connect(this.filter);
-    this.filter.connect(this.panner);
-    this.panner.connect(this.amp);
-    this.amp.connect(audioCtx.destination);
-
-    this.oscillator.start();
+    this.engineSound = this.audioManager.createEngineSound();
   }
 
   destroy(fromScene?: boolean) {
-    if (this.oscillator) {
-      this.oscillator.stop();
-      this.oscillator.disconnect();
+    if (this.engineSound) {
+      this.engineSound.destroy();
+      this.engineSound = null;
     }
-    if (this.filter) this.filter.disconnect();
-    if (this.panner) this.panner.disconnect();
-    if (this.amp) this.amp.disconnect();
 
     if (this.driverGraphics) this.driverGraphics.destroy();
     if (this.staticTrailGraphics) this.staticTrailGraphics.destroy();
@@ -162,69 +127,8 @@ export default class PlayerRenderer extends Phaser.GameObjects.Image {
     this.staticTrailGraphics.strokePath();
   }
 
-  _playTurnSound(player: PlayerState) {
-    const audioCtx = this.scene.sound
-      ? ((this.scene.sound as any).context as AudioContext | undefined)
-      : undefined;
-    if (!audioCtx) return;
-
-    const time = audioCtx.currentTime;
-
-    const osc = audioCtx.createOscillator();
-    osc.type = 'square';
-
-    osc.frequency.setValueAtTime(1200, time);
-    osc.frequency.exponentialRampToValueAtTime(150, time + 0.05);
-
-    const gain = audioCtx.createGain();
-    gain.gain.setValueAtTime(0, time);
-    gain.gain.linearRampToValueAtTime(0.05, time + 0.01);
-    gain.gain.exponentialRampToValueAtTime(0.001, time + 0.05);
-
-    const panner = audioCtx.createPanner();
-    panner.panningModel = 'HRTF';
-    panner.distanceModel = 'exponential';
-    panner.refDistance = 300;
-    panner.maxDistance = 10000;
-    panner.rolloffFactor = 2;
-
-    if (panner.positionX) {
-      panner.positionX.setValueAtTime(player.x, time);
-      panner.positionY.setValueAtTime(player.y, time);
-      panner.positionZ.setValueAtTime(0, time);
-    } else {
-      panner.setPosition(player.x, player.y, 0);
-    }
-
-    osc.connect(gain);
-    gain.connect(panner);
-    panner.connect(audioCtx.destination);
-
-    osc.start(time);
-    osc.stop(time + 0.06);
-  }
-
-  private _updateEngineSound(x: number, y: number, speedMult: number) {
-    const audioCtx = this.scene.sound
-      ? ((this.scene.sound as any).context as AudioContext | undefined)
-      : undefined;
-    if (!audioCtx || !this.oscillator || !this.panner) return;
-
-    const baseFreq = 80;
-    const targetFreq = baseFreq + speedMult * 40;
-    this.oscillator.frequency.value = targetFreq;
-
-    if (this.panner.positionX) {
-      this.panner.positionX.value = x;
-      this.panner.positionY.value = y;
-      this.panner.positionZ.value = 0;
-    } else {
-      this.panner.setPosition(x, y, 0);
-    }
-  }
-
   renderInterpolated(player: PlayerState, renderX: number, renderY: number) {
     this._drawAt(player, renderX, renderY);
-    this._updateEngineSound(renderX, renderY, player.speedMult);
+    this.engineSound?.update(renderX, renderY, player.speedMult);
   }
 }

@@ -8,6 +8,7 @@ import { GameEventBus } from '../../../shared/GameEventBus';
 import GameArea from '../../../shared/GameArea';
 import GameClock from '../../../shared/GameClock';
 import GameAreaRenderer from '../gameobjects/GameAreaRenderer';
+import AudioManager from '../gameobjects/AudioManager';
 
 import { NetworkClient } from '../network/NetworkClient';
 import GameCamera from '../gameobjects/GameCamera';
@@ -38,6 +39,7 @@ export class GameScene extends Scene {
   lastFpsEmitTime: number = 0;
   gameAreaRenderer: GameAreaRenderer;
   gameCamera: GameCamera;
+  audioManager: AudioManager;
 
   constructor() {
     super('Game');
@@ -51,10 +53,11 @@ export class GameScene extends Scene {
     this.gameClock = new GameClock();
     this.gameRoom = new GameRoom(bus, this.gameArea, this.gameClock);
     this.debugHud = new DebugHud(this);
+    this.audioManager = new AudioManager(this);
 
     this.gameAreaRenderer = new GameAreaRenderer(this, this.gameArea);
     this.networkClient = new NetworkClient(bus, this.gameRoom, this.gameClock);
-    this.gameCamera = new GameCamera(this, this.gameArea);
+    this.gameCamera = new GameCamera(this, this.gameArea, this.audioManager);
   }
 
   preload() {
@@ -66,28 +69,7 @@ export class GameScene extends Scene {
     this.setupSocket();
 
     // Initialize AudioContext listener
-    const audioCtx = (this.sound as any).context as AudioContext;
-    if (audioCtx) {
-      const listener = audioCtx.listener;
-      if (listener.positionX) {
-        listener.positionX.value = this.CANVAS_WIDTH / 2;
-        listener.positionY.value = this.CANVAS_HEIGHT / 2;
-        listener.positionZ.value = 300;
-        listener.forwardX.value = 0;
-        listener.forwardY.value = 0;
-        listener.forwardZ.value = -1;
-        listener.upX.value = 0;
-        listener.upY.value = 1;
-        listener.upZ.value = 0;
-      } else {
-        listener.setPosition(
-          this.CANVAS_WIDTH / 2,
-          this.CANVAS_HEIGHT / 2,
-          300
-        );
-        listener.setOrientation(0, 0, -1, 0, 1, 0);
-      }
-    }
+    this.audioManager.initListener(this.CANVAS_WIDTH, this.CANVAS_HEIGHT);
 
     EventBus.on('toggle-invincibility', (invincibleState: boolean) => {
       if (this.humanPlayer) {
@@ -129,10 +111,7 @@ export class GameScene extends Scene {
 
     EventBus.on('game-start', () => {
       console.info('game-start');
-      const audioCtx = (this.sound as any).context as AudioContext;
-      if (audioCtx && audioCtx.state === 'suspended') {
-        audioCtx.resume();
-      }
+      this.audioManager.resume();
 
       // In multiplayer, restart should probably re-join or tell server to respawn
       this.isLocalPlayerAlive = true;
@@ -180,21 +159,15 @@ export class GameScene extends Scene {
         this.isKeyDown[key] = false;
       });
     });
-
-    // let uhhh = performance.now();
-    // setInterval(() => {
-    //   const now = performance.now();
-    //   const delta = now - uhhh;
-    //   uhhh = now;
-    //   this.gameRoom.update(delta);
-    // }, this.gameClock.tickTimeMs);
   }
 
   setupSocket() {
     this.networkClient.onInitState = (humanPlayer, allPlayers) => {
-      // Recreate renderers for all players
       for (const player of allPlayers) {
-        this.playerRenderers.set(player.id, new PlayerRenderer(this));
+        this.playerRenderers.set(
+          player.id,
+          new PlayerRenderer(this, this.audioManager)
+        );
       }
 
       if (humanPlayer) {
@@ -206,7 +179,7 @@ export class GameScene extends Scene {
     };
 
     this.networkClient.onPlayerJoined = (player) => {
-      const playerRenderer = new PlayerRenderer(this);
+      const playerRenderer = new PlayerRenderer(this, this.audioManager);
       this.playerRenderers.set(player.id, playerRenderer);
     };
 
@@ -219,10 +192,7 @@ export class GameScene extends Scene {
     };
 
     this.networkClient.onPlayerTurn = (player) => {
-      const renderer = this.playerRenderers.get(player.id);
-      if (renderer) {
-        renderer._playTurnSound(player);
-      }
+      this.audioManager.playTurnSound(player.x, player.y);
     };
 
     this.networkClient.connect();

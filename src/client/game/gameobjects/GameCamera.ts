@@ -2,10 +2,12 @@ import { Scene } from 'phaser';
 import PlayerState from '../../../shared/PlayerState';
 import GameArea from '../../../shared/GameArea';
 import { EventBus } from '../EventBus';
+import AudioManager from './AudioManager';
 
 export default class GameCamera {
   private scene: Scene;
   private gameArea: GameArea;
+  private audioManager: AudioManager;
   
   public PLAYER_VIEW_WIDTH: number = 800;
   public isCameraFollowing: boolean = true;
@@ -13,9 +15,10 @@ export default class GameCamera {
   private lastX: number = 0;
   private lastY: number = 0;
   
-  constructor(scene: Scene, gameArea: GameArea) {
+  constructor(scene: Scene, gameArea: GameArea, audioManager: AudioManager) {
     this.scene = scene;
     this.gameArea = gameArea;
+    this.audioManager = audioManager;
     
     EventBus.on('toggle-camera-follow', (followState: boolean) => {
       this.isCameraFollowing = followState;
@@ -60,25 +63,15 @@ export default class GameCamera {
   }
 
   update(interpolatedX: number, interpolatedY: number) {
+    const cam = this.scene.cameras.main;
+    const camMidX = cam.scrollX + cam.width / 2;
+    const camMidY = cam.scrollY + cam.height / 2;
+    this.audioManager.updateListener(camMidX, camMidY);
+
     if (this.isCameraFollowing) {
       this.lastX = Phaser.Math.Linear(this.lastX, interpolatedX, 0.1);
       this.lastY = Phaser.Math.Linear(this.lastY, interpolatedY, 0.1);
       this.scene.cameras.main.centerOn(this.lastX, this.lastY);
-    }
-
-    const audioCtx = (this.scene.sound as any).context as AudioContext;
-    if (audioCtx) {
-      const listener = audioCtx.listener;
-      const cam = this.scene.cameras.main;
-      const camMidX = cam.scrollX + cam.width / 2;
-      const camMidY = cam.scrollY + cam.height / 2;
-
-      if (listener.positionX) {
-        listener.positionX.setTargetAtTime(camMidX, audioCtx.currentTime, 0.05);
-        listener.positionY.setTargetAtTime(camMidY, audioCtx.currentTime, 0.05);
-      } else {
-        listener.setPosition(camMidX, camMidY, 300);
-      }
     }
   }
 }
