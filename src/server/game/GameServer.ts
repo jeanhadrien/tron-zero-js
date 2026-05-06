@@ -7,7 +7,7 @@ export class GameServer {
   gameRoom: GameRoom;
   gameArea: GameArea;
   gameClock: GameClock;
-  
+
   bots: any[] = [];
   botControllers: BotController[] = [];
 
@@ -20,17 +20,11 @@ export class GameServer {
   }
 
   setupBots() {
-    this.bots.push(this.gameRoom.createPlayerWithForcedId('bot1'));
-    this.bots.push(this.gameRoom.createPlayerWithForcedId('bot2'));
-    this.bots.push(this.gameRoom.createPlayerWithForcedId('bot3'));
-    this.bots.push(this.gameRoom.createPlayerWithForcedId('bot4'));
-    this.bots.push(this.gameRoom.createPlayerWithForcedId('bot5'));
-
-    this.botControllers.push(new BotController());
-    this.botControllers.push(new BotController());
-    this.botControllers.push(new BotController());
-    this.botControllers.push(new BotController());
-    this.botControllers.push(new BotController());
+    const BOT_COUNT = 10;
+    for (let i = 1; i <= BOT_COUNT; i++) {
+      this.bots.push(this.gameRoom.createPlayerWithForcedId(`bot${i}`));
+      this.botControllers.push(new BotController());
+    }
   }
 
   start() {
@@ -43,15 +37,12 @@ export class GameServer {
       const delta = now - lastTime;
       lastTime = now;
       this.gameRoom.update(delta);
-      
+
       const allPlayers = this.gameRoom.getAllPlayers();
       for (let i = 0; i < this.bots.length; i++) {
         if (this.bots[i].isRunning == false) {
           this.gameRoom.spawnPlayer(this.bots[i]);
         }
-      }
-
-      for (let i = 0; i < this.bots.length; i++) {
         this.botControllers[i].update(this.bots[i], allPlayers, this.gameArea);
       }
     }, TICK_RATE);

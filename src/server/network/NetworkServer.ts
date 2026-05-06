@@ -157,6 +157,6 @@ export class NetworkServer {
         [this.gameClock.tick, this.gameRoom.getState()],
         { reliable: false }
       );
-    }, 1000);
+    }, 10000);
   }
 }

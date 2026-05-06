@@ -157,14 +157,11 @@ export default class PlayerStateManager {
       );
     }
 
-    const otherActiveStates = allPlayerStateManagers.map((m) => m.activeState);
-
     for (
       let _catchupTick = this.activeState.currentTick + 1;
       _catchupTick <= targetTick;
       _catchupTick++
     ) {
-      // For a normal tick, we evaluate against the active states of other players
       const knownPlayerPoint = this.knownPlayerPoints.find(
         (point) => point.tick === _catchupTick
       );
@@ -182,9 +179,20 @@ export default class PlayerStateManager {
           );
         }
       }
+
+      const otherStates = allPlayerStateManagers
+        .filter((m) => m.id !== this.id)
+        .map((m) => {
+          try {
+            return m.getHistoryStateAtTick(_catchupTick);
+          } catch {
+            return m.activeState;
+          }
+        });
+
       this.activeState.update(
         _catchupTick,
-        otherActiveStates,
+        otherStates,
         gameArea,
         gameClock
       );
