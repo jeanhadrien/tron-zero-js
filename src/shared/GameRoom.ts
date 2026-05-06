@@ -6,6 +6,15 @@ import GameArea from './GameArea';
 import { PlayerEventBus } from './PlayerStateEventBus';
 import PlayerStateDTO from './PlayerStateDTO';
 
+const MIN_COLOR_COMPONENT = 0x66;
+
+function generatePlayerColor(): number {
+  const r = MIN_COLOR_COMPONENT + Math.floor(Math.random() * (0x100 - MIN_COLOR_COMPONENT));
+  const g = MIN_COLOR_COMPONENT + Math.floor(Math.random() * (0x100 - MIN_COLOR_COMPONENT));
+  const b = MIN_COLOR_COMPONENT + Math.floor(Math.random() * (0x100 - MIN_COLOR_COMPONENT));
+  return (r << 16) | (g << 8) | b;
+}
+
 export default class GameRoom {
   playerManagers: Map<string, PlayerStateManager>;
   playerEventBus: PlayerEventBus;
@@ -79,7 +88,7 @@ export default class GameRoom {
       0,
       0,
       Math.floor(Math.random() * 4) * (Math.PI / 2),
-      Math.random() * 0xffffff
+      generatePlayerColor()
     );
     p.id = id;
     this.registerPlayer(p);

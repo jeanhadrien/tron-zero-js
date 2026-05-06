@@ -11,8 +11,8 @@ export class NetworkClient {
   bus: GameEventBus;
   gameRoom: GameRoom;
   gameClock: GameClock;
-  tickOffsetToCatchServer: number = 1;
-  aheadTickCount: number = 5;
+  tickOffsetToCatchServer: number = 0;
+  aheadTickCount: number = 1;
   turnBuffer: any[] = [];
 
   // We need to emit some events back to the scene, or just handle gameRoom updates here.
