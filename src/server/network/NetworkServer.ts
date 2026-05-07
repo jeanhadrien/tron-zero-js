@@ -122,7 +122,7 @@ export class NetworkServer {
 
     this.gameRoom.playerEventBus.on('player_turn', (player, turnPoint) => {
       this.io.emit('player_turn', [player.id, turnPoint.serialize()], {
-        reliable: true,
+        reliable: false,
       });
     });
 

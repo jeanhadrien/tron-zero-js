@@ -60,6 +60,8 @@ export default class PlayerState {
   collisionDistanceRight: number = Infinity;
 
   shouldHandleDeath: boolean;
+  isSliding: boolean;
+  isColliding: boolean;
 
   constructor(
     bus: PlayerEventBus,
@@ -211,9 +213,7 @@ export default class PlayerState {
 
     if (points.length > 0) {
       const lastPoint = points[points.length - 1].coordinates;
-      lines.push(
-        new SharedLine(lastPoint.x, lastPoint.y, this.x, this.y)
-      );
+      lines.push(new SharedLine(lastPoint.x, lastPoint.y, this.x, this.y));
     }
 
     return lines;
@@ -441,78 +441,54 @@ export default class PlayerState {
       pointRight.y
     );
 
-    let isStuck = false;
-
     const deltaStuff = 12;
     const slowDownDistance = 10;
 
+    // Are we running into an existing trail ?
+    // If yes, slow down to an exponentially slower speed.
+    // The goal is to never reach the actual intersection point.
+    // This is a core game mechanic.
+    this.isColliding = false;
     if (this.collisionDistanceFront < slowDownDistance) {
-      // Case 1: Running in a wall
-      isStuck = true;
+      this.isColliding = true;
 
-      // speed ratio never reaches 0 (player never reaches the tail)
       let speedRatio =
         (this.collisionDistanceFront * this.collisionDistanceFront) /
         (slowDownDistance * slowDownDistance);
 
-      let maxSafeSpeed =
-        (this.collisionDistanceFront * 0.5 * 1000) /
-        (PlayerState.BASE_SPEED * deltaStuff);
-
       this._setSpeedAndVelocity(
-        Math.min(this.targetSpeedMult * speedRatio, maxSafeSpeed),
+        Math.min(this.targetSpeedMult * speedRatio),
         gameClock.tickTimeMs
       );
 
       if (!this.isInvincible) {
-        this.rubber -=
-          (0.5 * deltaStuff) /
-          16.666 /
-          Math.max(0.1, this.collisionDistanceFront);
+        this.rubber -= deltaStuff * 0.03 * ((2 + this.targetSpeedMult) ^ 2);
       }
     } else {
+      // If we are not colliding into a wall (because we turned away)
+      // Recover rubber
       if (this.rubber < PlayerState.BASE_RUBBER) {
         this.rubber += 0.006 * deltaStuff;
       }
-      if (this.speedMult < this.targetSpeedMult) {
-        this._setSpeedAndVelocity(
-          Math.min(this.targetSpeedMult, this.speedMult + 0.03 * deltaStuff),
-          gameClock.tickTimeMs
-        );
-      } else if (this.speedMult > this.targetSpeedMult) {
-        this._setSpeedAndVelocity(this.targetSpeedMult, gameClock.tickTimeMs);
-      }
+      // Recover our regular speed.
+      this._setSpeedAndVelocity(this.targetSpeedMult, gameClock.tickTimeMs);
     }
 
-    let isSliding = false;
-    if (this.collisionDistanceLeft < 10) {
-      this.targetSpeedMult *= Math.pow(1.001, deltaStuff / 16.666);
-      isSliding = true;
-    }
-    if (this.collisionDistanceRight < 10) {
-      this.targetSpeedMult *= Math.pow(1.001, deltaStuff / 16.666);
-      isSliding = true;
-    }
-
-    if (!isSliding && !isStuck && this.targetSpeedMult > 1) {
+    this.isSliding = false;
+    if (this.collisionDistanceLeft < 10 || this.collisionDistanceRight < 10) {
+      this.targetSpeedMult *= Math.pow(1.003, deltaStuff / 16.666);
+      this.isSliding = true;
+    } else if (!this.isColliding && this.targetSpeedMult > 1) {
       this.targetSpeedMult = Math.max(
         1,
-        this.targetSpeedMult - 0.00015 * deltaStuff
+        this.targetSpeedMult - 0.0003 * deltaStuff
       );
     }
-    this._setSpeedAndVelocity(this.speedMult, gameClock.tickTimeMs);
 
     // This actually moves the player
     this.x += this.velocity[0] / 1000;
     this.y += this.velocity[1] / 1000;
 
-    // Simple wall boundaries (which we were colliding against but this acts as hard limit)
-    this.x = clamp(this.x, 0, gameArea.width);
-    this.y = clamp(this.y, 0, gameArea.height);
-
     this.rubber = clamp(this.rubber, 0, PlayerState.BASE_RUBBER);
-
-    // console.debug('speed', this.speedMult);
-    // console.debug('vel', this.velocity);
   }
 }
