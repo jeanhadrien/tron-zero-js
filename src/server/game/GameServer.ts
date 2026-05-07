@@ -20,7 +20,7 @@ export class GameServer {
   }
 
   setupBots() {
-    const BOT_COUNT = 10;
+    const BOT_COUNT = 20;
     for (let i = 1; i <= BOT_COUNT; i++) {
       this.bots.push(this.gameRoom.createPlayerWithForcedId(`bot${i}`));
       this.botControllers.push(new BotController());

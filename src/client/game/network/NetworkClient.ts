@@ -14,6 +14,9 @@ export class NetworkClient {
   tickOffsetToCatchServer: number = 0;
   aheadTickCount: number = 1;
   turnBuffer: any[] = [];
+  private smoothedOneWayTime: number = 0;
+  private hasRttMeasurement: boolean = false;
+  private static readonly RTT_SMOOTHING_ALPHA = 0.2;
 
   // We need to emit some events back to the scene, or just handle gameRoom updates here.
   // For pure separation without logic changes, we'll keep the exact same logic
@@ -69,15 +72,24 @@ export class NetworkClient {
     this.channel.on('pong', (data: any) => {
       const oldTime = data;
       const pingDifferenceTime = performance.now() - oldTime;
-      // We only care about one-way trip time to figure out what tick the server is actually on
       const oneWayTime = pingDifferenceTime / 2;
+
+      if (!this.hasRttMeasurement) {
+        this.smoothedOneWayTime = oneWayTime;
+        this.hasRttMeasurement = true;
+      } else {
+        this.smoothedOneWayTime =
+          NetworkClient.RTT_SMOOTHING_ALPHA * oneWayTime +
+          (1 - NetworkClient.RTT_SMOOTHING_ALPHA) * this.smoothedOneWayTime;
+      }
+
       this.tickOffsetToCatchServer = Math.ceil(
-        oneWayTime / this.gameClock.tickTimeMs
+        this.smoothedOneWayTime / this.gameClock.tickTimeMs
       );
       this.logSync(
         this.gameClock.tick,
         'pong',
-        `RTT: ${pingDifferenceTime.toFixed(2)}ms, One-way: ${oneWayTime.toFixed(2)}ms, Tick Offset: ${this.tickOffsetToCatchServer}`
+        `RTT: ${pingDifferenceTime.toFixed(2)}ms, One-way: ${oneWayTime.toFixed(2)}ms, Smooth OW: ${this.smoothedOneWayTime.toFixed(2)}ms, Tick Offset: ${this.tickOffsetToCatchServer}`
       );
     });
 
