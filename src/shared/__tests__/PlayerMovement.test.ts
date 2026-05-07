@@ -22,7 +22,7 @@ describe('Player Logic', () => {
 
     const updateFrame = () => {
       tick++;
-      state.update(tick, [], new GameArea(), gameClock);
+      state.update(tick, new GameArea(), gameClock, PlayerState.buildSharedCollidableLines([], new GameArea()));
     };
 
     state.queueTurn('right');
@@ -51,7 +51,7 @@ describe('Player Logic', () => {
     const gameClock = new GameClock();
     // @ts-ignore
     gameClock.tickTimeMs = 16.66;
-    state.update(1, [], new GameArea(), gameClock);
+    state.update(1, new GameArea(), gameClock, PlayerState.buildSharedCollidableLines([], new GameArea()));
 
     // Velocity should immediately be updated to [0, BASE_SPEED]
     expect(state.velocity[0]).toBeCloseTo(0, 4);

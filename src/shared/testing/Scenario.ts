@@ -144,7 +144,9 @@ export default class Scenario {
         const prevX = rs.player.x;
         const prevY = rs.player.y;
 
-        rs.player.update(tick, allPlayers, this.gameArea, this.gameClock);
+        const otherPlayers = allPlayers.filter(p => p.id !== rs.player.id);
+        const sharedObstacles = PlayerState.buildSharedCollidableLines(otherPlayers, this.gameArea);
+        rs.player.update(tick, this.gameArea, this.gameClock, sharedObstacles);
 
         if (action.type === 'move') {
           if (!rs.moveStart) {

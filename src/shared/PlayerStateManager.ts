@@ -190,11 +190,16 @@ export default class PlayerStateManager {
           }
         });
 
+      const sharedObstacles = PlayerState.buildSharedCollidableLines(
+        otherStates,
+        gameArea
+      );
+
       this.activeState.update(
         _catchupTick,
-        otherStates,
         gameArea,
-        gameClock
+        gameClock,
+        sharedObstacles
       );
       this.saveState(_catchupTick);
     }
@@ -285,7 +290,16 @@ export default class PlayerStateManager {
       if (!otherStates) throw new Error();
 
       try {
-        this.cursorState.update(simTick, otherStates, gameArea, gameClock);
+        const sharedObstacles = PlayerState.buildSharedCollidableLines(
+          otherStates,
+          gameArea
+        );
+        this.cursorState.update(
+          simTick,
+          gameArea,
+          gameClock,
+          sharedObstacles
+        );
       } catch (e) {
         console.warn(
           `[PlayerStateManager] Error updating cursorState for ${this.id} at tick ${simTick}: ${e}`
@@ -352,7 +366,16 @@ export default class PlayerStateManager {
         });
 
       try {
-        this.cursorState.update(simTick, otherStates, gameArea, gameClock);
+        const sharedObstacles = PlayerState.buildSharedCollidableLines(
+          otherStates,
+          gameArea
+        );
+        this.cursorState.update(
+          simTick,
+          gameArea,
+          gameClock,
+          sharedObstacles
+        );
       } catch (e) {
         console.warn(
           `[PlayerStateManager] Error updating cursorState for ${this.id} at tick ${simTick}: ${e}`

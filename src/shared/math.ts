@@ -54,6 +54,31 @@ export function distanceBetween(
   return Math.sqrt(dx * dx + dy * dy);
 }
 
+/**
+ * Cheap pre-filter to reject obstacle segments whose bounding box does not
+ * overlap with the sensor ray's bounding box, before doing the expensive
+ * line-to-line intersection test.
+ */
+export function aabbOverlapsRay(
+  ray: SharedLine,
+  segment: SharedLine
+): boolean {
+  const rayMinX = Math.min(ray.x1, ray.x2);
+  const rayMaxX = Math.max(ray.x1, ray.x2);
+  const rayMinY = Math.min(ray.y1, ray.y2);
+  const rayMaxY = Math.max(ray.y1, ray.y2);
+  const segMinX = Math.min(segment.x1, segment.x2);
+  const segMaxX = Math.max(segment.x1, segment.x2);
+  const segMinY = Math.min(segment.y1, segment.y2);
+  const segMaxY = Math.max(segment.y1, segment.y2);
+  return (
+    segMaxX >= rayMinX &&
+    segMinX <= rayMaxX &&
+    segMaxY >= rayMinY &&
+    segMinY <= rayMaxY
+  );
+}
+
 export function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value));
 }

@@ -9,6 +9,7 @@ import {
   lineToLineIntersection,
   distanceBetween,
   clamp,
+  aabbOverlapsRay,
 } from './math';
 
 export const ROTATION_ANGLE = Math.PI / 2;
@@ -167,35 +168,55 @@ export default class PlayerState {
     this.direction = angle;
   }
 
-  getCollidableLines(otherPlayers: PlayerState[], gameArea: GameArea) {
-    const wallLines = [
+  static buildSharedCollidableLines(
+    players: PlayerState[],
+    gameArea: GameArea
+  ): SharedLine[] {
+    const lines: SharedLine[] = [
       new SharedLine(0, 0, gameArea.width, 0),
       new SharedLine(gameArea.width, 0, gameArea.width, gameArea.height),
       new SharedLine(gameArea.width, gameArea.height, 0, gameArea.height),
       new SharedLine(0, gameArea.height, 0, 0),
     ];
 
-    const allLines = [...wallLines];
-    const allPlayers = [...otherPlayers, this];
-
-    for (const player of allPlayers) {
+    for (const player of players) {
       const points = player.trail.getPoints();
 
       for (let i = 0; i < points.length - 1; i++) {
         const p1 = points[i].coordinates;
         const p2 = points[i + 1].coordinates;
-        allLines.push(new SharedLine(p1.x, p1.y, p2.x, p2.y));
+        lines.push(new SharedLine(p1.x, p1.y, p2.x, p2.y));
       }
 
       if (points.length > 0) {
         const lastPoint = points[points.length - 1].coordinates;
-        allLines.push(
+        lines.push(
           new SharedLine(lastPoint.x, lastPoint.y, player.x, player.y)
         );
       }
     }
 
-    return allLines;
+    return lines;
+  }
+
+  getSelfLines(): SharedLine[] {
+    const lines: SharedLine[] = [];
+    const points = this.trail.getPoints();
+
+    for (let i = 0; i < points.length - 1; i++) {
+      const p1 = points[i].coordinates;
+      const p2 = points[i + 1].coordinates;
+      lines.push(new SharedLine(p1.x, p1.y, p2.x, p2.y));
+    }
+
+    if (points.length > 0) {
+      const lastPoint = points[points.length - 1].coordinates;
+      lines.push(
+        new SharedLine(lastPoint.x, lastPoint.y, this.x, this.y)
+      );
+    }
+
+    return lines;
   }
 
   getClosestIntersectingPoint(
@@ -207,6 +228,8 @@ export default class PlayerState {
     let pointDistance;
 
     for (const line of obstacleLines) {
+      if (!aabbOverlapsRay(sensorLine, line)) continue;
+
       point = { x: -1, y: -1 };
 
       if (lineToLineIntersection(sensorLine, line, point)) {
@@ -344,9 +367,9 @@ export default class PlayerState {
 
   update(
     targetTick: number,
-    allPlayers: PlayerState[],
     gameArea: GameArea,
-    gameClock: GameClock
+    gameClock: GameClock,
+    sharedObstacles: SharedLine[]
   ) {
     if (this.currentTick === null || this.currentTick === undefined) {
       throw new Error('Null tick');
@@ -380,11 +403,9 @@ export default class PlayerState {
       this._executeTurn(nextTurn.type, gameClock.tickTimeMs);
     }
 
-    const otherPlayers = allPlayers.filter((player) => player.id !== this.id);
-
     this._updateDetectionLines();
 
-    let collisionLines = this.getCollidableLines(otherPlayers, gameArea);
+    let collisionLines = [...sharedObstacles, ...this.getSelfLines()];
 
     let pointFront = this.getClosestIntersectingPoint(
       this.detectionLine,
