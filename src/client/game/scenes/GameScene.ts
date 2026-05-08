@@ -193,7 +193,7 @@ export class GameScene extends Scene {
   }
 
   update(_time: any, delta: number) {
-    if (this.humanPlayer && !this.humanPlayer.isRunning) {
+    if (this.humanPlayer && !this.humanPlayer.isAlive) {
       // Keep game over text centered and correctly sized relative to camera
       const cx = this.cameras.main.worldView.centerX;
       const cy = this.cameras.main.worldView.centerY;
@@ -245,7 +245,7 @@ export class GameScene extends Scene {
     if (
       this.humanPlayer &&
       this.humanPlayer.rubber <= 0 &&
-      this.humanPlayer.isRunning
+      this.humanPlayer.isAlive
     ) {
       EventBus.emit('game-over', 'ai');
     }

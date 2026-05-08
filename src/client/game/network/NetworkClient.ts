@@ -160,7 +160,7 @@ export class NetworkClient {
             _playerStateDTO,
             _serverTick,
             this.gameClock,
-            this.gameRoom.area,
+            this.gameRoom.gameArea,
             allManagers
           );
         }
@@ -219,12 +219,7 @@ export class NetworkClient {
 
       // Use the newly standard reconcileTurns
       const allManagers = Array.from(this.gameRoom.playerManagers.values());
-      manager.reconcileTurns(
-        [turnPoint],
-        this.gameClock,
-        this.gameRoom.area,
-        allManagers
-      );
+      manager.reconcileTurns([turnPoint], allManagers);
 
       if (this.onPlayerTurn) {
         this.onPlayerTurn(manager.activeState);

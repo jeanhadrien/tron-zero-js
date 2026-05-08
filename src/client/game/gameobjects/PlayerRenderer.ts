@@ -55,7 +55,7 @@ export default class PlayerRenderer extends Phaser.GameObjects.Image {
   }
 
   private _drawAt(player: Player, renderX: number, renderY: number) {
-    if (!player.isRunning) {
+    if (!player.isAlive) {
       this.driverGraphics.setVisible(false);
       this.activeTrailGraphics.clear();
       this.staticTrailGraphics.clear();

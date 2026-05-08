@@ -10,7 +10,7 @@ describe('Player Logic', () => {
 
   beforeEach(() => {
     state = new Player(new PlayerEventBus(), 0, 100, 100, 0, 0x00ff00);
-    state.isRunning = true;
+    state.isAlive = true;
   });
 
   it('zig zag should not crash', () => {

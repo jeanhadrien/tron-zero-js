@@ -160,7 +160,7 @@ export default class Scenario {
           rs.moveDistance += Math.sqrt(dx * dx + dy * dy);
         }
 
-        if (!rs.player.isRunning || rs.player.rubber <= 0) {
+        if (!rs.player.isAlive || rs.player.rubber <= 0) {
           rs.dead = true;
           rs.done = true;
           anyDead = true;
@@ -207,8 +207,8 @@ export default class Scenario {
     for (const rs of runStates) {
       snapshots.set(rs.name, {
         name: rs.name,
-        dead: rs.dead || !rs.player.isRunning,
-        alive: !rs.dead && rs.player.isRunning,
+        dead: rs.dead || !rs.player.isAlive,
+        alive: !rs.dead && rs.player.isAlive,
         x: rs.player.x,
         y: rs.player.y,
         direction: rs.player.direction,

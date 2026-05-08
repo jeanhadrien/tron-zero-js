@@ -51,7 +51,7 @@ export default class BotController {
     };
 
     this.botName = `${firstNames[Math.floor(Math.random() * firstNames.length)]} ${titles[this.strategy]}`;
-    console.log(`Bot spawned: ${this.botName} (Strategy: ${this.strategy})`);
+    console.log(`Bot created: ${this.botName} (Strategy: ${this.strategy})`);
   }
 
   getNearestEnemy(player: Player, allPlayers: Player[]): Player | null {
@@ -59,7 +59,7 @@ export default class BotController {
     let minDistance = Infinity;
 
     for (const p of allPlayers) {
-      if (p === player || !p.isRunning) continue;
+      if (p === player || !p.isAlive) continue;
 
       const dist = distanceBetween(player.x, player.y, p.x, p.y);
       if (dist < minDistance) {
@@ -247,7 +247,7 @@ export default class BotController {
     allPlayers: Player[],
     gameArea: { width: number; height: number }
   ) {
-    if (!player.isRunning) {
+    if (!player.isAlive) {
       return;
     }
 

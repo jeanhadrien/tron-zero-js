@@ -9,7 +9,7 @@ describe('Player Spawn and Load', () => {
     const bus = new PlayerEventBus();
     const serverPlayer = new Player(bus, 100, 50, 50, 0, 0xffffff);
     serverPlayer.id = 'test-id';
-    serverPlayer.isRunning = true;
+    serverPlayer.isAlive = true;
 
     // Server spawns player
     serverPlayer.spawn(100, 100, Math.PI / 2, 16);

@@ -95,12 +95,7 @@ export class NetworkServer {
         // Server must also simulate the player turning and fast forward them
         try {
           // Send the array of newly discovered turns to be reconciled in a single pass
-          manager.reconcileTurns(
-            newTurns,
-            this.gameClock,
-            this.gameRoom.area,
-            allManagers
-          );
+          manager.reconcileTurns(newTurns, allManagers);
 
           // Broadcast the newly processed turn points
           for (const turn of newTurns) {
@@ -113,7 +108,7 @@ export class NetworkServer {
 
       // Handle manual respawn requests from clients
       channel.on('respawn', () => {
-        if (!localPlayer.isRunning) {
+        if (!localPlayer.isAlive) {
           this.gameRoom.spawnPlayer(localPlayer);
         }
       });
@@ -142,14 +137,14 @@ export class NetworkServer {
       });
     });
 
-    this.gameRoom.bus.on('game_add_player', (player: Player) => {
+    this.gameRoom.gameEventBus.on('game_add_player', (player: Player) => {
       this.io.emit('game_add_player', [player.id, player.serialize()], {
         reliable: true,
       });
       this.manageSyncCycle();
     });
 
-    this.gameRoom.bus.on('game_remove_player', (player: Player) => {
+    this.gameRoom.gameEventBus.on('game_remove_player', (player: Player) => {
       this.io.emit('game_remove_player', [player.id], {
         reliable: true,
       });

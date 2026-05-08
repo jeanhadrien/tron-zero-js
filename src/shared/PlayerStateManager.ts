@@ -13,9 +13,13 @@ export default class PlayerStateManager {
   knownPlayerPoints: PlayerPoint[] = [];
   previousState: PlayerDTO | null = null;
   correctionTarget: { x: number; y: number } | null = null;
+  readonly gameClock: GameClock;
+  readonly gameArea: GameArea;
 
-  constructor(activeState: Player) {
+  constructor(activeState: Player, gameClock: GameClock, gameArea: GameArea) {
     this.id = activeState.id;
+    this.gameClock = gameClock;
+    this.gameArea = gameArea;
     this.activeState = activeState;
     this.previousState = activeState.serialize();
     // Ghost state is used to hydrate past states for collision checks without allocating new objects
@@ -100,7 +104,7 @@ export default class PlayerStateManager {
     throw new Error('missing tick');
   }
 
-  getHistoryStateAtLowerBoundTick(tick: number): Player {
+  getHistoryStateAtLowerBoundTick(tick: number): Player | null {
     // Try exact match first
     const dto = this.history.get(tick);
     if (dto) {
@@ -122,16 +126,11 @@ export default class PlayerStateManager {
       this.cursorState.currentTick = bestTick;
       return this.cursorState;
     }
-    throw new Error('no history at or below tick');
+    return null;
   }
 
   // Receive a target tick to update our active player state to
-  update(
-    targetTick: number,
-    allPlayerStateManagers: PlayerStateManager[],
-    gameArea: GameArea,
-    gameClock: GameClock
-  ) {
+  update(targetTick: number, allPlayerStateManagers: PlayerStateManager[]) {
     if (targetTick < this.activeState.currentTick) {
       console.warn(
         `[PlayerStateManager] Loading a past tick for ${targetTick} for ${this.id}`
@@ -188,30 +187,21 @@ export default class PlayerStateManager {
           } catch {
             return m.activeState;
           }
-        });
+        })
+        .filter((s): s is Player => s !== null);
 
-      const sharedObstacles = Player.buildSharedCollidableLines(
+      const otherObstacles = Player.buildSharedCollidableLines(
         otherStates,
-        gameArea
+        this.gameArea
       );
 
-      this.activeState.update(
-        _catchupTick,
-        gameArea,
-        gameClock,
-        sharedObstacles
-      );
+      this.activeState.update(_catchupTick, this.gameClock, otherObstacles);
       this.saveState(_catchupTick);
     }
   }
 
   // Take a list of potentially new turn points to include in our state
-  reconcileTurns(
-    turnPoints: PlayerPoint[],
-    gameClock: GameClock,
-    gameArea: GameArea,
-    allManagers: PlayerStateManager[]
-  ) {
+  reconcileTurns(turnPoints: PlayerPoint[], allManagers: PlayerStateManager[]) {
     if (!turnPoints || turnPoints.length === 0) return;
 
     let added = false;
@@ -260,7 +250,7 @@ export default class PlayerStateManager {
       simTick <= this.activeState.currentTick;
       simTick++
     ) {
-      if (!this.cursorState.isRunning || this.cursorState.rubber <= 0) {
+      if (!this.cursorState.isAlive || this.cursorState.rubber <= 0) {
         break;
       }
 
@@ -285,18 +275,23 @@ export default class PlayerStateManager {
       const otherStates = allManagers
         .filter((m) => m.id !== this.id)
         .map((m) => {
-          const playerState = m.getHistoryStateAtTick(simTick)!;
-          return playerState;
-        });
+          try {
+            const playerState = m.getHistoryStateAtTick(simTick)!;
+            return playerState;
+          } catch (e) {
+            return null;
+          }
+        })
+        .filter((s): s is Player => s !== null);
 
       if (!otherStates) throw new Error();
 
       try {
         const sharedObstacles = Player.buildSharedCollidableLines(
           otherStates,
-          gameArea
+          this.gameArea
         );
-        this.cursorState.update(simTick, gameArea, gameClock, sharedObstacles);
+        this.cursorState.update(simTick, this.gameClock, sharedObstacles);
       } catch (e) {
         console.warn(
           `[PlayerStateManager] Error updating cursorState for ${this.id} at tick ${simTick}: ${e}`
@@ -332,7 +327,7 @@ export default class PlayerStateManager {
     // - update cursorstate tick by tick, until activestate tick, or until cursorstate dies
     // (by passing all states of at tick we're simulating)
     for (let simTick = serverTick + 1; simTick <= targetTick; simTick++) {
-      if (!this.cursorState.isRunning || this.cursorState.rubber <= 0) {
+      if (!this.cursorState.isAlive || this.cursorState.rubber <= 0) {
         break;
       }
 
@@ -368,7 +363,7 @@ export default class PlayerStateManager {
           otherStates,
           gameArea
         );
-        this.cursorState.update(simTick, gameArea, gameClock, sharedObstacles);
+        this.cursorState.update(simTick, gameClock, sharedObstacles);
       } catch (e) {
         console.warn(
           `[PlayerStateManager] Error updating cursorState for ${this.id} at tick ${simTick}: ${e}`

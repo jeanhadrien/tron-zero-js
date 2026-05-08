@@ -40,7 +40,7 @@ export class GameServer {
 
       const allPlayers = this.gameRoom.getAllPlayers();
       for (let i = 0; i < this.bots.length; i++) {
-        if (this.bots[i].isRunning == false) {
+        if (this.bots[i].isAlive == false) {
           this.gameRoom.spawnPlayer(this.bots[i]);
         }
         this.botControllers[i].update(this.bots[i], allPlayers, this.gameArea);

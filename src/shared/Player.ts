@@ -25,7 +25,7 @@ export interface PlayerDTO {
   speedMult: number;
   targetSpeedMult: number;
   rubber: number;
-  isRunning: boolean;
+  isAlive: boolean;
   color: number;
   velocity: number[];
   trail: PlayerTrailDTO;
@@ -46,8 +46,11 @@ export default class Player {
   // state
   id: string;
   currentTick: number;
-  isRunning: boolean = false;
   rubber: number;
+  private shouldHandleDeath: boolean;
+  isAlive: boolean = false;
+  isSliding: boolean;
+  isColliding: boolean;
 
   // position
   x: number;
@@ -71,10 +74,6 @@ export default class Player {
   collisionDistanceLeft: number = Infinity;
   collisionDistanceRight: number = Infinity;
 
-  shouldHandleDeath: boolean;
-  isSliding: boolean;
-  isColliding: boolean;
-
   constructor(
     bus: PlayerEventBus,
     tick: number,
@@ -91,7 +90,7 @@ export default class Player {
     this.color = color;
     this.velocity = [0, 0];
     this.speedMult = 1;
-    this.isRunning = false;
+    this.isAlive = false;
     this.shouldHandleDeath = true;
     this.rubber = Player.BASE_RUBBER;
     this.currentTick = tick;
@@ -112,7 +111,7 @@ export default class Player {
     this.direction = direction;
 
     this.rubber = Player.BASE_RUBBER;
-    this.isRunning = true;
+    this.isAlive = true;
     this.turnQueue = [];
     this._setSpeedAndVelocity(1, tickTimeMs);
     this.targetSpeedMult = this.speedMult;
@@ -137,7 +136,7 @@ export default class Player {
     this.velocity = [0, 0];
     this.rubber = 0;
     this.targetSpeedMult = 0;
-    this.isRunning = false;
+    this.isAlive = false;
     this.turnQueue = [];
     this.trail.clear();
     this.shouldHandleDeath = false;
@@ -153,7 +152,7 @@ export default class Player {
       targetSpeedMult: this.targetSpeedMult,
       rubber: this.rubber,
       velocity: this.velocity,
-      isRunning: this.isRunning,
+      isAlive: this.isAlive,
       tick: this.currentTick,
       color: this.color,
       trail: this.trail.serialize(),
@@ -170,7 +169,7 @@ export default class Player {
     this.targetSpeedMult = playerDto.targetSpeedMult;
     this.rubber = playerDto.rubber;
     this.velocity = playerDto.velocity;
-    this.isRunning = playerDto.isRunning;
+    this.isAlive = playerDto.isAlive;
     this.color = playerDto.color;
     this.trail.deserialize(playerDto.trail);
   }
@@ -194,6 +193,7 @@ export default class Player {
     ];
 
     for (const player of players) {
+      if (!player) continue;
       const points = player.trail.getPoints();
 
       for (let i = 0; i < points.length - 1; i++) {
@@ -310,7 +310,7 @@ export default class Player {
   }
 
   queueTurn(type: string, tick: number = 0) {
-    if (this.isRunning) {
+    if (this.isAlive) {
       this.turnQueue.push({ tick, type });
     } else {
       console.debug(this.currentTick, this.id, 'skipped turn, not running');
@@ -371,9 +371,8 @@ export default class Player {
 
   update(
     targetTick: number,
-    gameArea: GameArea,
     gameClock: GameClock,
-    sharedObstacles: SharedLine[]
+    otherObstacles: SharedLine[]
   ) {
     if (this.currentTick === null || this.currentTick === undefined) {
       throw new Error('Null tick');
@@ -393,7 +392,7 @@ export default class Player {
     this.currentTick = targetTick;
 
     // Check for death
-    if (!this.isRunning || this.rubber <= 0) {
+    if (!this.isAlive || this.rubber <= 0) {
       if (this.shouldHandleDeath) {
         this.eventBus.emit('player_death', this);
         this.disable();
@@ -409,7 +408,7 @@ export default class Player {
 
     this._updateDetectionLines();
 
-    let collisionLines = [...sharedObstacles, ...this.getSelfLines()];
+    let collisionLines = [...otherObstacles, ...this.getSelfLines()];
 
     let pointFront = this.getClosestIntersectingPoint(
       this.detectionLine,

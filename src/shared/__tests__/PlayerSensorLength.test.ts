@@ -8,7 +8,7 @@ describe('Player Long Sensor Issues', () => {
 
   beforeEach(() => {
     state = new Player(new PlayerEventBus(), 0, 1000, 1000, 0, 0xff0000);
-    state.isRunning = true;
+    state.isAlive = true;
   });
 
   it('closest point logic fails when intersection is further than the 999,999 default point', () => {

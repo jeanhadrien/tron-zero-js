@@ -24,15 +24,15 @@ function generatePlayerColor(): number {
 export default class GameRoom {
   playerManagers: Map<string, PlayerStateManager>;
   playerEventBus: PlayerEventBus;
-  area: GameArea;
-  bus: GameEventBus;
-  clock: GameClock;
+  gameArea: GameArea;
+  gameEventBus: GameEventBus;
+  gameClock: GameClock;
 
   constructor(bus: GameEventBus, area: GameArea, clock: GameClock) {
-    this.bus = bus;
+    this.gameEventBus = bus;
     this.playerEventBus = new PlayerEventBus();
-    this.area = area;
-    this.clock = clock;
+    this.gameArea = area;
+    this.gameClock = clock;
     this.playerManagers = new Map();
   }
 
@@ -65,9 +65,13 @@ export default class GameRoom {
 
   registerPlayer(player: Player): Player {
     console.info('+++ Register player', player.id);
-    const manager = new PlayerStateManager(player);
+    const manager = new PlayerStateManager(
+      player,
+      this.gameClock,
+      this.gameArea
+    );
     this.playerManagers.set(player.id, manager);
-    this.bus.emit('game_add_player', player);
+    this.gameEventBus.emit('game_add_player', player);
     return player;
   }
 
@@ -80,17 +84,17 @@ export default class GameRoom {
     }
 
     player.spawn(
-      100 + Math.random() * (this.area.width - 200),
-      100 + Math.random() * (this.area.height - 200),
+      100 + Math.random() * (this.gameArea.width - 200),
+      100 + Math.random() * (this.gameArea.height - 200),
       Math.floor(Math.random() * 4) * (Math.PI / 2),
-      this.clock.tickTimeMs
+      this.gameClock.tickTimeMs
     );
   }
 
   createPlayerWithForcedId(id: string) {
     const p = new Player(
       this.playerEventBus,
-      this.clock.tick,
+      this.gameClock.tick,
       0,
       0,
       Math.floor(Math.random() * 4) * (Math.PI / 2),
@@ -105,7 +109,7 @@ export default class GameRoom {
     let p = this.playerManagers.get(id);
     if (p) {
       this.playerManagers.delete(id);
-      this.bus.emit('game_remove_player', p.activeState);
+      this.gameEventBus.emit('game_remove_player', p.activeState);
       console.debug('--- Removed player', id);
       return;
     }
@@ -113,14 +117,14 @@ export default class GameRoom {
   }
 
   update(deltaTime: number) {
-    const ticksToProcess = this.clock.update(deltaTime);
-    const startTick = this.clock.tick - ticksToProcess + 1;
+    const ticksToProcess = this.gameClock.update(deltaTime);
+    const startTick = this.gameClock.tick - ticksToProcess + 1;
 
     const allManagers = Array.from(this.playerManagers.values());
     for (let index = 0; index < ticksToProcess; index++) {
       const currentSimTick = startTick + index;
       for (const m of allManagers) {
-        m.update(currentSimTick, allManagers, this.area, this.clock);
+        m.update(currentSimTick, allManagers);
       }
     }
   }
