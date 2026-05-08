@@ -251,6 +251,8 @@ export default class PlayerStateManager {
       this.cursorState.currentTick = startTick;
     }
 
+    this.cursorState.turnQueue = [];
+
     // - update cursorstate tick by tick, until activestate tick, or until cursorstate dies
     // Apply turns at exactly their specific ticks before advancing
     for (
@@ -328,6 +330,7 @@ export default class PlayerStateManager {
     // - set cursorstate : load dto from history at pastDto tick
     this.cursorState.load(pastDto);
     this.cursorState.currentTick = serverTick;
+    this.cursorState.turnQueue = [];
 
     const targetTick = this.activeState.currentTick;
 
