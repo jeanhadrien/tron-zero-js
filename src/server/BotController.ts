@@ -1,10 +1,10 @@
-import PlayerState from '../shared/PlayerState';
+import Player from '../shared/Player';
 import { distanceBetween, angleBetween, wrapAngle } from '../shared/math';
 
 export default class BotController {
   // AI Personality
   strategy: 'CUT_OFF' | 'BOX_IN' | 'SPEED_DEMON' | 'TRAPPER' = 'CUT_OFF';
-  targetPlayer: PlayerState | null = null;
+  targetPlayer: Player | null = null;
 
   // How far the bot looks ahead to avoid obstacles
   sightDistance: number = 100;
@@ -54,11 +54,8 @@ export default class BotController {
     console.log(`Bot spawned: ${this.botName} (Strategy: ${this.strategy})`);
   }
 
-  getNearestEnemy(
-    player: PlayerState,
-    allPlayers: PlayerState[]
-  ): PlayerState | null {
-    let nearest: PlayerState | null = null;
+  getNearestEnemy(player: Player, allPlayers: Player[]): Player | null {
+    let nearest: Player | null = null;
     let minDistance = Infinity;
 
     for (const p of allPlayers) {
@@ -75,37 +72,25 @@ export default class BotController {
 
   // Determine where the enemy is relative to the bot's current facing direction
   getRelativePosition(
-    player: PlayerState,
-    enemy: PlayerState
+    player: Player,
+    enemy: Player
   ): {
     distance: number;
     angleDiff: number;
     isAhead: boolean;
     isLeft: boolean;
   } {
-    const dist = distanceBetween(
-      player.x,
-      player.y,
-      enemy.x,
-      enemy.y
-    );
+    const dist = distanceBetween(player.x, player.y, enemy.x, enemy.y);
 
     // Angle from bot to enemy
-    const angleToEnemy = angleBetween(
-      player.x,
-      player.y,
-      enemy.x,
-      enemy.y
-    );
+    const angleToEnemy = angleBetween(player.x, player.y, enemy.x, enemy.y);
 
     // Normalize angles to -PI to PI
     let normalizedBotDir = wrapAngle(player.direction);
     let normalizedAngleToEnemy = wrapAngle(angleToEnemy);
 
     // Difference in angle
-    let angleDiff = wrapAngle(
-      normalizedAngleToEnemy - normalizedBotDir
-    );
+    let angleDiff = wrapAngle(normalizedAngleToEnemy - normalizedBotDir);
 
     const isAhead = Math.abs(angleDiff) < Math.PI / 2;
     const isLeft = angleDiff < 0;
@@ -115,8 +100,8 @@ export default class BotController {
 
   // Determine if the enemy is driving parallel, head-on, or perpendicular
   getRelativeHeading(
-    player: PlayerState,
-    enemy: PlayerState
+    player: Player,
+    enemy: Player
   ): 'PARALLEL' | 'HEAD_ON' | 'PERPENDICULAR' {
     let normalizedBotDir = wrapAngle(player.direction);
     let normalizedEnemyDir = wrapAngle(enemy.direction);
@@ -131,8 +116,8 @@ export default class BotController {
   }
 
   executeAttackPhase(
-    player: PlayerState,
-    enemy: PlayerState,
+    player: Player,
+    enemy: Player,
     leftDist: number,
     rightDist: number
   ) {
@@ -258,8 +243,8 @@ export default class BotController {
   }
 
   update(
-    player: PlayerState,
-    allPlayers: PlayerState[],
+    player: Player,
+    allPlayers: Player[],
     gameArea: { width: number; height: number }
   ) {
     if (!player.isRunning) {

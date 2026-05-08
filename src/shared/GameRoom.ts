@@ -1,17 +1,23 @@
-import PlayerState from './PlayerState';
+import Player from './Player';
 import PlayerStateManager from './PlayerStateManager';
 import { GameEventBus } from './GameEventBus';
 import GameClock from './GameClock';
 import GameArea from './GameArea';
 import { PlayerEventBus } from './PlayerStateEventBus';
-import PlayerStateDTO from './PlayerStateDTO';
+import { PlayerDTO } from './Player';
 
 const MIN_COLOR_COMPONENT = 0x66;
 
 function generatePlayerColor(): number {
-  const r = MIN_COLOR_COMPONENT + Math.floor(Math.random() * (0x100 - MIN_COLOR_COMPONENT));
-  const g = MIN_COLOR_COMPONENT + Math.floor(Math.random() * (0x100 - MIN_COLOR_COMPONENT));
-  const b = MIN_COLOR_COMPONENT + Math.floor(Math.random() * (0x100 - MIN_COLOR_COMPONENT));
+  const r =
+    MIN_COLOR_COMPONENT +
+    Math.floor(Math.random() * (0x100 - MIN_COLOR_COMPONENT));
+  const g =
+    MIN_COLOR_COMPONENT +
+    Math.floor(Math.random() * (0x100 - MIN_COLOR_COMPONENT));
+  const b =
+    MIN_COLOR_COMPONENT +
+    Math.floor(Math.random() * (0x100 - MIN_COLOR_COMPONENT));
   return (r << 16) | (g << 8) | b;
 }
 
@@ -30,7 +36,7 @@ export default class GameRoom {
     this.playerManagers = new Map();
   }
 
-  getPlayer(id: string): PlayerState {
+  getPlayer(id: string): Player {
     const p = this.playerManagers.get(id);
     if (!p) throw new Error('Player not found');
     return p.activeState;
@@ -45,11 +51,11 @@ export default class GameRoom {
     return m.getInterpolatedRenderPosition(alpha);
   }
 
-  getAllPlayers(): PlayerState[] {
+  getAllPlayers(): Player[] {
     return Array.from(this.playerManagers.values()).map((m) => m.activeState);
   }
 
-  getState(): PlayerStateDTO[] {
+  getState(): PlayerDTO[] {
     const dtos = [];
     for (const m of this.playerManagers.values()) {
       dtos.push(m.activeState.serialize());
@@ -57,7 +63,7 @@ export default class GameRoom {
     return dtos;
   }
 
-  registerPlayer(player: PlayerState): PlayerState {
+  registerPlayer(player: Player): Player {
     console.info('+++ Register player', player.id);
     const manager = new PlayerStateManager(player);
     this.playerManagers.set(player.id, manager);
@@ -65,7 +71,7 @@ export default class GameRoom {
     return player;
   }
 
-  spawnPlayer(player: PlayerState) {
+  spawnPlayer(player: Player) {
     console.info('&&& Spawning player', player.id);
     const pm = this.playerManagers.get(player.id);
     if (pm?.activeState) {
@@ -82,7 +88,7 @@ export default class GameRoom {
   }
 
   createPlayerWithForcedId(id: string) {
-    const p = new PlayerState(
+    const p = new Player(
       this.playerEventBus,
       this.clock.tick,
       0,

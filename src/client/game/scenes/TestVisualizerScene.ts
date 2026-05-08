@@ -1,8 +1,8 @@
 import 'phaser';
 import { EventBus } from '../EventBus';
-import type PlayerStateDTO from '../../../shared/PlayerStateDTO';
+import type { PlayerDTO } from '../../../shared/Player';
 import PlayerRenderer from '../gameobjects/PlayerRenderer';
-import PlayerState from '../../../shared/PlayerState';
+import Player from '../../../shared/Player';
 import { PlayerEventBus } from '../../../shared/PlayerStateEventBus';
 
 const GRID_SIZE = 40;
@@ -10,16 +10,16 @@ const GRID_COLOR = 0x333333;
 const ARENA_SIZE = 1000;
 
 export default class TestVisualizerScene extends Phaser.Scene {
-  static pendingTicks: PlayerStateDTO[][] | null = null;
+  static pendingTicks: PlayerDTO[][] | null = null;
 
-  private ticks: PlayerStateDTO[][] = [];
+  private ticks: PlayerDTO[][] = [];
   private tickIndex = 0;
   private isPlaying = false;
   private tickTime = 0;
   private msPerTick = 100;
 
   private playerRenderers = new Map<string, PlayerRenderer>();
-  private playerStates = new Map<string, PlayerState>();
+  private playerStates = new Map<string, Player>();
   private dummyBus = new PlayerEventBus();
   private tickText!: Phaser.GameObjects.Text;
   private hintText!: Phaser.GameObjects.Text;
@@ -61,7 +61,9 @@ export default class TestVisualizerScene extends Phaser.Scene {
     this.createHUD();
 
     this.cursorKeys = this.input.keyboard!.createCursorKeys();
-    this.spaceKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+    this.spaceKey = this.input.keyboard!.addKey(
+      Phaser.Input.Keyboard.KeyCodes.SPACE
+    );
 
     this.listenToEventBus();
 
@@ -116,9 +118,18 @@ export default class TestVisualizerScene extends Phaser.Scene {
     });
   }
 
-  private onPlay = () => { this.isPlaying = true; this.emitStatus(); };
-  private onPause = () => { this.isPlaying = false; this.emitStatus(); };
-  private onToggle = () => { this.isPlaying = !this.isPlaying; this.emitStatus(); };
+  private onPlay = () => {
+    this.isPlaying = true;
+    this.emitStatus();
+  };
+  private onPause = () => {
+    this.isPlaying = false;
+    this.emitStatus();
+  };
+  private onToggle = () => {
+    this.isPlaying = !this.isPlaying;
+    this.emitStatus();
+  };
 
   private onStepFwd = () => {
     this.isPlaying = false;
@@ -202,7 +213,7 @@ export default class TestVisualizerScene extends Phaser.Scene {
     let state = this.playerStates.get(id);
 
     if (!state) {
-      state = new PlayerState(this.dummyBus, 0, 0, 0, 0, 0xffffff);
+      state = new Player(this.dummyBus, 0, 0, 0, 0, 0xffffff);
       this.playerStates.set(id, state);
     }
 
@@ -259,8 +270,6 @@ export default class TestVisualizerScene extends Phaser.Scene {
     this.tickText.setText(
       `Tick: ${this.tickIndex + 1} / ${this.ticks.length}  [${this.isPlaying ? '▶' : '⏸'}]  ${speed}x`
     );
-    this.hintText.setText(
-      'Space: play/pause | ←→: step | ↑↓: speed'
-    );
+    this.hintText.setText('Space: play/pause | ←→: step | ↑↓: speed');
   }
 }

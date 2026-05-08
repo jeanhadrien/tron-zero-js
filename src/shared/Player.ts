@@ -1,4 +1,3 @@
-import PlayerStateDTO from './PlayerStateDTO';
 import { PlayerTrail } from './PlayerTrail';
 import { PlayerPoint } from './PlayerPoint';
 import { PlayerEventBus } from './PlayerStateEventBus';
@@ -11,13 +10,29 @@ import {
   clamp,
   aabbOverlapsRay,
 } from './math';
+import PlayerTrailDTO from './PlayerTrailDTO';
 
 export const ROTATION_ANGLE = Math.PI / 2;
 export const BASE_SPEED = 100;
 export const MAX_RUBBER = 10;
 export const EPSILON = 1e-12;
 
-export default class PlayerState {
+export interface PlayerDTO {
+  id: string;
+  x: number;
+  y: number;
+  direction: number;
+  speedMult: number;
+  targetSpeedMult: number;
+  rubber: number;
+  isRunning: boolean;
+  color: number;
+  velocity: number[];
+  trail: PlayerTrailDTO;
+  tick: number;
+}
+
+export default class Player {
   public static readonly ROTATION_ANGLE: number = Math.PI / 2;
   public static readonly BASE_SPEED: number = 150;
   public static readonly MAX_SPEED: number = 500;
@@ -46,10 +61,7 @@ export default class PlayerState {
   trail: PlayerTrail = new PlayerTrail(this);
   turnQueue: { tick: number; type: string }[] = [];
 
-  trailWidth = 2;
-
   color: number;
-  isInvincible: boolean = false;
 
   detectionLine: SharedLine;
   detectionLineLeft: SharedLine;
@@ -81,7 +93,7 @@ export default class PlayerState {
     this.speedMult = 1;
     this.isRunning = false;
     this.shouldHandleDeath = true;
-    this.rubber = PlayerState.BASE_RUBBER;
+    this.rubber = Player.BASE_RUBBER;
     this.currentTick = tick;
     this.trail.clear();
     this.trail.addTurn(new PlayerPoint({ x, y }, direction, [0, 0], 0, tick));
@@ -99,7 +111,7 @@ export default class PlayerState {
     this.y = y;
     this.direction = direction;
 
-    this.rubber = PlayerState.BASE_RUBBER;
+    this.rubber = Player.BASE_RUBBER;
     this.isRunning = true;
     this.turnQueue = [];
     this._setSpeedAndVelocity(1, tickTimeMs);
@@ -131,7 +143,7 @@ export default class PlayerState {
     this.shouldHandleDeath = false;
   }
 
-  public serialize(): PlayerStateDTO {
+  public serialize(): PlayerDTO {
     return {
       id: this.id,
       x: this.x,
@@ -148,7 +160,7 @@ export default class PlayerState {
     };
   }
 
-  public load(playerDto: PlayerStateDTO) {
+  public load(playerDto: PlayerDTO) {
     this.id = playerDto.id;
     this.x = playerDto.x;
     this.y = playerDto.y;
@@ -171,7 +183,7 @@ export default class PlayerState {
   }
 
   static buildSharedCollidableLines(
-    players: PlayerState[],
+    players: Player[],
     gameArea: GameArea
   ): SharedLine[] {
     const lines: SharedLine[] = [
@@ -255,7 +267,7 @@ export default class PlayerState {
     const currentSpeed = this.speedMult || 0;
     const lookAheadLength = Math.max(
       2000,
-      PlayerState.BASE_SPEED * currentSpeed * 0.5
+      Player.BASE_SPEED * currentSpeed * 0.5
     );
 
     this.detectionLine.setToAngle(
@@ -282,15 +294,9 @@ export default class PlayerState {
 
   _setSpeedAndVelocity(speedMult: number, tickTimeMs: number) {
     let vx =
-      Math.cos(this.direction) *
-      PlayerState.BASE_SPEED *
-      speedMult *
-      tickTimeMs;
+      Math.cos(this.direction) * Player.BASE_SPEED * speedMult * tickTimeMs;
     let vy =
-      Math.sin(this.direction) *
-      PlayerState.BASE_SPEED *
-      speedMult *
-      tickTimeMs;
+      Math.sin(this.direction) * Player.BASE_SPEED * speedMult * tickTimeMs;
 
     if (Math.abs(vx) <= EPSILON) {
       vx = 0;
@@ -315,9 +321,9 @@ export default class PlayerState {
     // Difference in angle
     let newDirection = this.direction;
     if (type === 'left') {
-      newDirection = this.direction - PlayerState.ROTATION_ANGLE;
+      newDirection = this.direction - Player.ROTATION_ANGLE;
     } else if (type === 'right') {
-      newDirection = this.direction + PlayerState.ROTATION_ANGLE;
+      newDirection = this.direction + Player.ROTATION_ANGLE;
     } else {
       throw new Error('???');
     }
@@ -459,13 +465,11 @@ export default class PlayerState {
         gameClock.tickTimeMs
       );
 
-      if (!this.isInvincible) {
-        this.rubber -= deltaStuff * 0.03 * ((2 + this.targetSpeedMult) ^ 2);
-      }
+      this.rubber -= deltaStuff * 0.03 * ((2 + this.targetSpeedMult) ^ 2);
     } else {
       // If we are not colliding into a wall (because we turned away)
       // Recover rubber
-      if (this.rubber < PlayerState.BASE_RUBBER) {
+      if (this.rubber < Player.BASE_RUBBER) {
         this.rubber += 0.006 * deltaStuff;
       }
       // Recover our regular speed.
@@ -487,6 +491,6 @@ export default class PlayerState {
     this.x += this.velocity[0] / 1000;
     this.y += this.velocity[1] / 1000;
 
-    this.rubber = clamp(this.rubber, 0, PlayerState.BASE_RUBBER);
+    this.rubber = clamp(this.rubber, 0, Player.BASE_RUBBER);
   }
 }

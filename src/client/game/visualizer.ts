@@ -1,7 +1,7 @@
 import TestVisualizerScene from './scenes/TestVisualizerScene';
-import type PlayerStateDTO from '../../shared/PlayerStateDTO';
+import type { PlayerDTO } from '../../shared/Player';
 
-export default function StartVisualizer(parent: string, ticks: PlayerStateDTO[][]) {
+export default function StartVisualizer(parent: string, ticks: PlayerDTO[][]) {
   TestVisualizerScene.pendingTicks = ticks;
 
   return new Phaser.Game({

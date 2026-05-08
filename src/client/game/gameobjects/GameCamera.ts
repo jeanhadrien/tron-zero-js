@@ -1,5 +1,5 @@
 import { Scene } from 'phaser';
-import PlayerState from '../../../shared/PlayerState';
+import Player from '../../../shared/Player';
 import GameArea from '../../../shared/GameArea';
 import { EventBus } from '../EventBus';
 import AudioManager from './AudioManager';
@@ -8,18 +8,18 @@ export default class GameCamera {
   private scene: Scene;
   private gameArea: GameArea;
   private audioManager: AudioManager;
-  
+
   public PLAYER_VIEW_WIDTH: number = 800;
   public isCameraFollowing: boolean = true;
-  private humanPlayer: PlayerState | null = null;
+  private humanPlayer: Player | null = null;
   private lastX: number = 0;
   private lastY: number = 0;
-  
+
   constructor(scene: Scene, gameArea: GameArea, audioManager: AudioManager) {
     this.scene = scene;
     this.gameArea = gameArea;
     this.audioManager = audioManager;
-    
+
     EventBus.on('toggle-camera-follow', (followState: boolean) => {
       this.isCameraFollowing = followState;
       this.updateCameraView();
@@ -30,7 +30,7 @@ export default class GameCamera {
     });
   }
 
-  setHumanPlayer(player: PlayerState | null) {
+  setHumanPlayer(player: Player | null) {
     this.humanPlayer = player;
     this.updateCameraView();
   }

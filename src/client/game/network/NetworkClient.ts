@@ -2,9 +2,9 @@ import geckos, { ClientChannel } from '@geckos.io/client';
 import { GameEventBus } from '../../../shared/GameEventBus';
 import GameClock from '../../../shared/GameClock';
 import GameRoom from '../../../shared/GameRoom';
-import PlayerStateDTO from '../../../shared/PlayerStateDTO';
+import { PlayerDTO } from '../../../shared/Player';
 import { PlayerPoint } from '../../../shared/PlayerPoint';
-import PlayerState from '../../../shared/PlayerState';
+import Player from '../../../shared/Player';
 
 export class NetworkClient {
   channel: ClientChannel;
@@ -21,15 +21,12 @@ export class NetworkClient {
   // We need to emit some events back to the scene, or just handle gameRoom updates here.
   // For pure separation without logic changes, we'll keep the exact same logic
   // but move it here. We'll need a way to notify the scene about humanPlayer, etc.
-  onInitState?: (
-    humanPlayer: PlayerState | null,
-    allPlayers: PlayerState[]
-  ) => void;
-  onPlayerJoined?: (player: PlayerState) => void;
+  onInitState?: (humanPlayer: Player | null, allPlayers: Player[]) => void;
+  onPlayerJoined?: (player: Player) => void;
   onPlayerLeft?: (playerId: string) => void;
-  onPlayerTurn?: (player: PlayerState) => void; // for sound
-  onPlayerDeath?: (player: PlayerState) => void;
-  onPlayerSpawn?: (player: PlayerState) => void;
+  onPlayerTurn?: (player: Player) => void; // for sound
+  onPlayerDeath?: (player: Player) => void;
+  onPlayerSpawn?: (player: Player) => void;
 
   constructor(bus: GameEventBus, gameRoom: GameRoom, gameClock: GameClock) {
     this.bus = bus;
@@ -94,8 +91,7 @@ export class NetworkClient {
     });
 
     this.channel.on('init_state', (data: any) => {
-      const [_serverTick, _playerStateDTOList]: [number, PlayerStateDTO[]] =
-        data;
+      const [_serverTick, _playerStateDTOList]: [number, PlayerDTO[]] = data;
       this.logSync(_serverTick, 'init_state', data);
 
       const expectedClientTick =
@@ -105,13 +101,13 @@ export class NetworkClient {
 
       this.gameRoom.playerManagers.clear();
 
-      let humanPlayer: PlayerState | null = null;
+      let humanPlayer: Player | null = null;
 
-      let allPlayers: PlayerState[] = [];
+      let allPlayers: Player[] = [];
 
       // Recreate from state
       for (const _playerStateDTO of _playerStateDTOList) {
-        const p = new PlayerState(
+        const p = new Player(
           this.gameRoom.playerEventBus,
           this.gameClock.tick,
           0,
@@ -138,7 +134,7 @@ export class NetworkClient {
       const [_serverTick, _playerId, _playerStateDTO]: [
         number,
         string,
-        PlayerStateDTO,
+        PlayerDTO,
       ] = data;
       this.logSync(_serverTick, 'sync_state', data);
 
@@ -176,7 +172,7 @@ export class NetworkClient {
       const [id, pStateDTO] = data;
       this.logSync(this.gameClock.tick, 'game_add_player', data);
       if (!this.gameRoom.playerManagers.has(id)) {
-        const pState = new PlayerState(
+        const pState = new Player(
           this.gameRoom.playerEventBus,
           this.gameClock.tick,
           pStateDTO.x,
@@ -252,7 +248,7 @@ export class NetworkClient {
     });
 
     this.channel.on('player_spawn', (data: any) => {
-      const [id, pState]: [string, PlayerStateDTO] = data;
+      const [id, pState]: [string, PlayerDTO] = data;
       this.logSync(this.gameClock.tick, 'player_spawn', data);
 
       const player = this.gameRoom.getPlayer(id);

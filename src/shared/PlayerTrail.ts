@@ -1,12 +1,12 @@
-import PlayerState, { EPSILON } from './PlayerState';
+import Player, { EPSILON } from './Player';
 import { PlayerPoint } from './PlayerPoint';
 import PlayerTrailDTO from './PlayerTrailDTO';
 
 export class PlayerTrail {
   private points: PlayerPoint[] = [];
-  player: PlayerState;
+  player: Player;
 
-  constructor(player: PlayerState) {
+  constructor(player: Player) {
     this.player = player;
   }
 

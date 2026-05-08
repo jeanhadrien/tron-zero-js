@@ -1,4 +1,4 @@
-import PlayerState from '../PlayerState';
+import Player from '../Player';
 import { PlayerEventBus } from '../PlayerStateEventBus';
 import GameArea from '../GameArea';
 import GameClock from '../GameClock';
@@ -7,7 +7,7 @@ import type { PlayerSnapshot } from './PlayerSnapshot';
 
 interface RunState {
   name: string;
-  player: PlayerState;
+  player: Player;
   plan: Action[];
   actionIndex: number;
   moveDistance: number;
@@ -63,7 +63,7 @@ export default class Scenario {
 
     for (const driver of this.drivers.values()) {
       const bus = new PlayerEventBus();
-      const player = new PlayerState(
+      const player = new Player(
         bus,
         0,
         0,
@@ -144,8 +144,11 @@ export default class Scenario {
         const prevX = rs.player.x;
         const prevY = rs.player.y;
 
-        const otherPlayers = allPlayers.filter(p => p.id !== rs.player.id);
-        const sharedObstacles = PlayerState.buildSharedCollidableLines(otherPlayers, this.gameArea);
+        const otherPlayers = allPlayers.filter((p) => p.id !== rs.player.id);
+        const sharedObstacles = Player.buildSharedCollidableLines(
+          otherPlayers,
+          this.gameArea
+        );
         rs.player.update(tick, this.gameArea, this.gameClock, sharedObstacles);
 
         if (action.type === 'move') {

@@ -1,5 +1,5 @@
 import { GameObjects } from 'phaser';
-import PlayerState from '../../../shared/PlayerState';
+import Player from '../../../shared/Player';
 import AudioManager, { EngineSound } from './AudioManager';
 
 export default class PlayerRenderer extends Phaser.GameObjects.Image {
@@ -7,6 +7,7 @@ export default class PlayerRenderer extends Phaser.GameObjects.Image {
   staticTrailGraphics: GameObjects.Graphics;
   activeTrailGraphics: GameObjects.Graphics;
   nameText: GameObjects.Text;
+  trailWidth = 2;
 
   private audioManager: AudioManager;
   private engineSound: EngineSound | null = null;
@@ -27,11 +28,15 @@ export default class PlayerRenderer extends Phaser.GameObjects.Image {
     this.activeTrailGraphics = this.scene.add.graphics();
     this.driverGraphics = this.scene.add.graphics().setDepth(10);
 
-    this.nameText = this.scene.add.text(0, 0, '', {
+    this.nameText = this.scene.add
+      .text(0, 0, '', {
         fontSize: '10px',
         color: '#ffffff',
-        fontFamily: 'Courier New'
-    }).setOrigin(0.5).setDepth(20).setVisible(false);
+        fontFamily: 'Courier New',
+      })
+      .setOrigin(0.5)
+      .setDepth(20)
+      .setVisible(false);
 
     this.engineSound = this.audioManager.createEngineSound();
   }
@@ -49,7 +54,7 @@ export default class PlayerRenderer extends Phaser.GameObjects.Image {
     super.destroy(fromScene);
   }
 
-  private _drawAt(player: PlayerState, renderX: number, renderY: number) {
+  private _drawAt(player: Player, renderX: number, renderY: number) {
     if (!player.isRunning) {
       this.driverGraphics.setVisible(false);
       this.activeTrailGraphics.clear();
@@ -85,7 +90,7 @@ export default class PlayerRenderer extends Phaser.GameObjects.Image {
 
     // Active trail segment
     this.activeTrailGraphics.clear();
-    this.activeTrailGraphics.lineStyle(player.trailWidth, player.color, 0.5);
+    this.activeTrailGraphics.lineStyle(this.trailWidth, player.color, 0.5);
     this.activeTrailGraphics.beginPath();
     this.activeTrailGraphics.moveTo(
       points[points.length - 1].coordinates.x,
@@ -109,7 +114,7 @@ export default class PlayerRenderer extends Phaser.GameObjects.Image {
     this._lastStaticTrailTick = points[points.length - 1].tick;
 
     this.staticTrailGraphics.clear();
-    this.staticTrailGraphics.lineStyle(player.trailWidth, player.color, 0.5);
+    this.staticTrailGraphics.lineStyle(this.trailWidth, player.color, 0.5);
     this.staticTrailGraphics.beginPath();
 
     this.staticTrailGraphics.moveTo(
@@ -127,7 +132,7 @@ export default class PlayerRenderer extends Phaser.GameObjects.Image {
     this.staticTrailGraphics.strokePath();
   }
 
-  renderInterpolated(player: PlayerState, renderX: number, renderY: number) {
+  renderInterpolated(player: Player, renderX: number, renderY: number) {
     this._drawAt(player, renderX, renderY);
     this.engineSound?.update(renderX, renderY, player.speedMult);
   }

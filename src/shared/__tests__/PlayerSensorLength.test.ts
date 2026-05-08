@@ -1,13 +1,13 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import PlayerState from '../PlayerState';
+import Player from '../Player';
 import { PlayerEventBus } from '../PlayerStateEventBus';
 import { SharedLine } from '../math';
 
 describe('Player Long Sensor Issues', () => {
-  let state: PlayerState;
+  let state: Player;
 
   beforeEach(() => {
-    state = new PlayerState(new PlayerEventBus(), 0, 1000, 1000, 0, 0xff0000);
+    state = new Player(new PlayerEventBus(), 0, 1000, 1000, 0, 0xff0000);
     state.isRunning = true;
   });
 

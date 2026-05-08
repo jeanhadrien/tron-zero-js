@@ -2,7 +2,7 @@ import { ServerChannel } from '@geckos.io/server';
 import GameRoom from '../../shared/GameRoom';
 import GameClock from '../../shared/GameClock';
 import { PlayerPoint } from '../../shared/PlayerPoint';
-import PlayerState from '../../shared/PlayerState';
+import Player from '../../shared/Player';
 
 export class NetworkServer {
   io: any;
@@ -142,14 +142,14 @@ export class NetworkServer {
       });
     });
 
-    this.gameRoom.bus.on('game_add_player', (player: PlayerState) => {
+    this.gameRoom.bus.on('game_add_player', (player: Player) => {
       this.io.emit('game_add_player', [player.id, player.serialize()], {
         reliable: true,
       });
       this.manageSyncCycle();
     });
 
-    this.gameRoom.bus.on('game_remove_player', (player: PlayerState) => {
+    this.gameRoom.bus.on('game_remove_player', (player: Player) => {
       this.io.emit('game_remove_player', [player.id], {
         reliable: true,
       });

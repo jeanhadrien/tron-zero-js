@@ -3,7 +3,7 @@ import { EventBus } from '../EventBus';
 import PlayerRenderer from '../gameobjects/PlayerRenderer';
 import GameRoom from '../../../shared/GameRoom';
 import DebugHud from '../gameobjects/DebugHud';
-import PlayerState from '../../../shared/PlayerState';
+import Player from '../../../shared/Player';
 import { GameEventBus } from '../../../shared/GameEventBus';
 import GameArea from '../../../shared/GameArea';
 import GameClock from '../../../shared/GameClock';
@@ -25,7 +25,7 @@ export class GameScene extends Scene {
 
   playerRenderers: Map<string, PlayerRenderer> = new Map();
 
-  humanPlayer: PlayerState | null = null;
+  humanPlayer: Player | null = null;
 
   gameClock: GameClock;
   gameRoom: GameRoom;
@@ -70,12 +70,6 @@ export class GameScene extends Scene {
 
     // Initialize AudioContext listener
     this.audioManager.initListener(this.CANVAS_WIDTH, this.CANVAS_HEIGHT);
-
-    EventBus.on('toggle-invincibility', (invincibleState: boolean) => {
-      if (this.humanPlayer) {
-        this.humanPlayer.isInvincible = invincibleState;
-      }
-    });
 
     this.scale.on('resize', (gameSize: Phaser.Structs.Size) => {
       this.CANVAS_WIDTH = gameSize.width;

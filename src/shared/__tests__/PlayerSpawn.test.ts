@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach } from 'vitest';
-import PlayerState from '../PlayerState';
+import Player from '../Player';
 import { PlayerPoint } from '../PlayerPoint';
 import { PlayerEventBus } from '../PlayerStateEventBus';
 import PlayerTrailDTO from '../PlayerTrailDTO';
@@ -7,7 +7,7 @@ import PlayerTrailDTO from '../PlayerTrailDTO';
 describe('Player Spawn and Load', () => {
   it('should have a populated trail after load', () => {
     const bus = new PlayerEventBus();
-    const serverPlayer = new PlayerState(bus, 100, 50, 50, 0, 0xffffff);
+    const serverPlayer = new Player(bus, 100, 50, 50, 0, 0xffffff);
     serverPlayer.id = 'test-id';
     serverPlayer.isRunning = true;
 
@@ -18,7 +18,7 @@ describe('Player Spawn and Load', () => {
     const pStateDTO = serverPlayer.serialize();
 
     // Client receives it and loads
-    const clientPlayer = new PlayerState(bus, 100, 0, 0, 0, 0xffffff);
+    const clientPlayer = new Player(bus, 100, 0, 0, 0, 0xffffff);
     clientPlayer.load(pStateDTO);
 
     // Check if client player's trail is populated
@@ -42,4 +42,3 @@ describe('Player Spawn and Load', () => {
     expect(clientPlayer.trail.getPoints().length).toBeGreaterThan(0);
   });
 });
-

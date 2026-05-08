@@ -1,4 +1,4 @@
-import { ROTATION_ANGLE, EPSILON } from './PlayerState';
+import { ROTATION_ANGLE, EPSILON } from './Player';
 import PlayerPointDTO from './PlayerPointDTO';
 
 export class PlayerPoint {
