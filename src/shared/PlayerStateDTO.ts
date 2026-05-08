@@ -6,7 +6,7 @@ export default interface PlayerStateDTO {
   y: number;
   direction: number;
   speedMult: number;
-  targetSpeed: number;
+  targetSpeedMult: number;
   rubber: number;
   isRunning: boolean;
   color: number;

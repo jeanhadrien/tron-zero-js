@@ -138,7 +138,7 @@ export default class PlayerState {
       y: this.y,
       direction: this.direction,
       speedMult: this.speedMult,
-      targetSpeed: this.targetSpeedMult,
+      targetSpeedMult: this.targetSpeedMult,
       rubber: this.rubber,
       velocity: this.velocity,
       isRunning: this.isRunning,
@@ -155,7 +155,7 @@ export default class PlayerState {
     this.direction = playerDto.direction;
     this.currentTick = playerDto.tick;
     this.speedMult = playerDto.speedMult;
-    this.targetSpeedMult = playerDto.targetSpeed;
+    this.targetSpeedMult = playerDto.targetSpeedMult;
     this.rubber = playerDto.rubber;
     this.velocity = playerDto.velocity;
     this.isRunning = playerDto.isRunning;
@@ -362,8 +362,6 @@ export default class PlayerState {
 
     this.eventBus.emit('player_turn', this, turnPoint);
   }
-
-  // applyRemoteTurn has been removed and moved to PlayerStateManager
 
   update(
     targetTick: number,
