@@ -135,11 +135,13 @@ export class NetworkClient {
     });
 
     this.channel.on('sync_state', (data: any) => {
-      const [_serverTick, _playerStateDTOList]: [number, PlayerStateDTO[]] =
-        data;
+      const [_serverTick, _playerId, _playerStateDTO]: [
+        number,
+        string,
+        PlayerStateDTO,
+      ] = data;
       this.logSync(_serverTick, 'sync_state', data);
 
-      // Clear acknowledged turns from our sliding window buffer
       this.turnBuffer = this.turnBuffer.filter((t) => t.tick >= _serverTick);
 
       const expectedClientTick =
@@ -154,21 +156,19 @@ export class NetworkClient {
         this.gameClock.resetAccumulator();
 
         const allManagers = Array.from(this.gameRoom.playerManagers.values());
-        for (const playerStateDTO of _playerStateDTOList) {
-          const manager = this.gameRoom.playerManagers.get(playerStateDTO.id);
-          if (manager) {
-            manager.activeState.currentTick = this.gameClock.tick;
+        const manager = this.gameRoom.playerManagers.get(_playerId);
+        if (manager) {
+          manager.activeState.currentTick = this.gameClock.tick;
 
-            manager.fastForwardFromPastState(
-              playerStateDTO,
-              _serverTick,
-              this.gameClock,
-              this.gameRoom.area,
-              allManagers
-            );
-          }
+          manager.fastForwardFromPastState(
+            _playerStateDTO,
+            _serverTick,
+            this.gameClock,
+            this.gameRoom.area,
+            allManagers
+          );
         }
-        return; // Complete the sync directly, skip normal interpolation check
+        return;
       }
     });
 

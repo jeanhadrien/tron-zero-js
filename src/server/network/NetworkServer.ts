@@ -9,6 +9,10 @@ export class NetworkServer {
   gameRoom: GameRoom;
   gameClock: GameClock;
 
+  private syncIndex = 0;
+  private syncIntervalId: ReturnType<typeof setInterval> | null = null;
+  private readonly PLAYER_SYNC_INTERVAL_MS = 10000;
+
   constructor(io: any, gameRoom: GameRoom, gameClock: GameClock) {
     this.io = io;
     this.gameRoom = gameRoom;
@@ -142,21 +146,42 @@ export class NetworkServer {
       this.io.emit('game_add_player', [player.id, player.serialize()], {
         reliable: true,
       });
+      this.manageSyncCycle();
     });
 
     this.gameRoom.bus.on('game_remove_player', (player: PlayerState) => {
       this.io.emit('game_remove_player', [player.id], {
         reliable: true,
       });
+      this.manageSyncCycle();
     });
+  }
 
-    // Periodically broadcast sync state to fix minor drift on clients
-    setInterval(() => {
+  private manageSyncCycle() {
+    if (this.syncIntervalId !== null) {
+      clearInterval(this.syncIntervalId);
+      this.syncIntervalId = null;
+    }
+
+    const playerCount = this.gameRoom.playerManagers.size;
+    if (playerCount === 0) return;
+
+    const intervalMs = this.PLAYER_SYNC_INTERVAL_MS / playerCount;
+
+    this.syncIntervalId = setInterval(() => {
+      const players = Array.from(this.gameRoom.playerManagers.entries());
+      if (players.length === 0) return;
+
+      this.syncIndex = this.syncIndex % players.length;
+      const [playerId, manager] = players[this.syncIndex];
+
       this.io.emit(
         'sync_state',
-        [this.gameClock.tick, this.gameRoom.getState()],
-        { reliable: false }
+        [this.gameClock.tick, playerId, manager.activeState.serialize()],
+        { reliable: true }
       );
-    }, 10000);
+
+      this.syncIndex++;
+    }, intervalMs);
   }
 }
