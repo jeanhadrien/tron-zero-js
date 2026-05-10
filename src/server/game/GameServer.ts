@@ -1,7 +1,10 @@
+import { trace } from '@opentelemetry/api';
 import GameRoom from '../../shared/GameRoom';
 import GameArea from '../../shared/GameArea';
 import GameClock from '../../shared/GameClock';
 import BotController from '../BotController';
+
+const tracer = trace.getTracer('tron-zero-server');
 
 export class GameServer {
   gameRoom: GameRoom;
@@ -36,6 +39,12 @@ export class GameServer {
       const now = performance.now();
       const delta = now - lastTime;
       lastTime = now;
+
+      const span = tracer.startSpan('game.tick');
+      span.setAttribute('tick', this.gameClock.tick);
+      span.setAttribute('player_count', this.gameRoom.playerManagers.size);
+      span.setAttribute('bot_count', this.bots.length);
+
       this.gameRoom.update(delta);
 
       const allPlayers = this.gameRoom.getAllPlayers();
@@ -45,6 +54,9 @@ export class GameServer {
         }
         this.botControllers[i].update(this.bots[i], allPlayers, this.gameArea);
       }
+
+      span.setAttribute('duration_ms', performance.now() - now);
+      span.end();
     }, TICK_RATE);
   }
 }

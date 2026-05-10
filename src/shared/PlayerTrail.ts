@@ -1,10 +1,12 @@
 import Player, { EPSILON } from './Player';
 import { PlayerPoint } from './PlayerPoint';
 import PlayerTrailDTO from './PlayerTrailDTO';
+import { Logger } from './Logger';
 
 export class PlayerTrail {
   private points: PlayerPoint[] = [];
   player: Player;
+  private logger = new Logger('PlayerTrail');
 
   constructor(player: Player) {
     this.player = player;
@@ -36,12 +38,12 @@ export class PlayerTrail {
   public insertTurn(turnPoint: PlayerPoint): void {
     if (this.points.length === 0) {
       this.points.push(turnPoint);
-      console.warn(turnPoint.tick, 'Expected non-empty trail for', turnPoint);
+      this.logger.warn(turnPoint.tick, 'Expected non-empty trail for', turnPoint);
       return;
     }
 
     if (turnPoint.tick < this.points[0].tick) {
-      console.warn(
+      this.logger.warn(
         'Ignoring turn from previous life',
         turnPoint.tick,
         this.points[0].tick

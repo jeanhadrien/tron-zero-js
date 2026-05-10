@@ -1,5 +1,8 @@
 import Player from '../shared/Player';
 import { distanceBetween, angleBetween, wrapAngle } from '../shared/math';
+import { Logger } from '../shared/Logger';
+
+const logger = new Logger('Bot');
 
 export default class BotController {
   // AI Personality
@@ -51,7 +54,7 @@ export default class BotController {
     };
 
     this.botName = `${firstNames[Math.floor(Math.random() * firstNames.length)]} ${titles[this.strategy]}`;
-    console.log(`Bot created: ${this.botName} (Strategy: ${this.strategy})`);
+    logger.info(`Bot created: ${this.botName} (Strategy: ${this.strategy})`);
   }
 
   getNearestEnemy(player: Player, allPlayers: Player[]): Player | null {

@@ -5,8 +5,10 @@ import GameClock from './GameClock';
 import GameArea from './GameArea';
 import { PlayerEventBus } from './PlayerStateEventBus';
 import { PlayerDTO } from './Player';
+import { Logger } from './Logger';
 
 const MIN_COLOR_COMPONENT = 0x66;
+const logger = new Logger('GameRoom');
 
 function generatePlayerColor(): number {
   const r =
@@ -64,7 +66,7 @@ export default class GameRoom {
   }
 
   registerPlayer(player: Player): Player {
-    console.info('+++ Register player', player.id);
+    logger.info('+++ Register player', player.id);
     const manager = new PlayerStateManager(
       player,
       this.gameClock,
@@ -76,7 +78,7 @@ export default class GameRoom {
   }
 
   spawnPlayer(player: Player) {
-    console.info('&&& Spawning player', player.id);
+    logger.info('&&& Spawning player', player.id);
     const pm = this.playerManagers.get(player.id);
     if (pm?.activeState) {
       pm.activeState = player;
@@ -110,10 +112,10 @@ export default class GameRoom {
     if (p) {
       this.playerManagers.delete(id);
       this.gameEventBus.emit('game_remove_player', p.activeState);
-      console.debug('--- Removed player', id);
+      logger.debug('--- Removed player', id);
       return;
     }
-    console.warn(`Trying to remove player ${id} that doesn't exist`);
+    logger.warn(`Trying to remove player ${id} that doesn't exist`);
   }
 
   update(deltaTime: number) {

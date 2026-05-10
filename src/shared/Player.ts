@@ -11,6 +11,7 @@ import {
   aabbOverlapsRay,
 } from './math';
 import PlayerTrailDTO from './PlayerTrailDTO';
+import { Logger } from './Logger';
 
 export const ROTATION_ANGLE = Math.PI / 2;
 export const BASE_SPEED = 100;
@@ -31,6 +32,8 @@ export interface PlayerDTO {
   trail: PlayerTrailDTO;
   tick: number;
 }
+
+const logger = new Logger('Player');
 
 export default class Player {
   public static readonly ROTATION_ANGLE: number = Math.PI / 2;
@@ -128,7 +131,7 @@ export default class Player {
     );
     this._updateDetectionLines();
     this.eventBus.emit('player_spawn', this);
-    console.debug(this.currentTick, this.id, 'spawn()');
+    logger.debug(this.currentTick, this.id, 'spawn()');
   }
 
   disable() {
@@ -313,7 +316,7 @@ export default class Player {
     if (this.isAlive) {
       this.turnQueue.push({ tick, type });
     } else {
-      console.debug(this.currentTick, this.id, 'skipped turn, not running');
+      logger.debug(this.currentTick, this.id, 'skipped turn, not running');
     }
   }
 
@@ -378,14 +381,14 @@ export default class Player {
       throw new Error('Null tick');
     }
     if (targetTick > this.currentTick + 1) {
-      console.warn(
+      logger.warn(
         '???',
         this.id,
         'skipping',
         targetTick - this.currentTick + 1,
         'ticks'
       );
-      console.warn('Updating player in the past or twice, returning early');
+      logger.warn('Updating player in the past or twice, returning early');
       return;
     }
 

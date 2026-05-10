@@ -1,8 +1,11 @@
 import './setup.ts';
+import { Logger } from '../shared/Logger';
+
+const logger = new Logger('PhaserTest');
 
 async function main() {
     const Phaser = (await import('phaser')).default;
-    console.log("Phaser loaded version:", Phaser.VERSION);
+    logger.log("Phaser loaded version:", Phaser.VERSION);
 
     new Phaser.Game({
         type: Phaser.HEADLESS,
@@ -14,7 +17,7 @@ async function main() {
         }
     });
 
-    console.log("Headless game instance created.");
+    logger.log("Headless game instance created.");
     process.exit(0);
 }
 

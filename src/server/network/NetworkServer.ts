@@ -1,8 +1,13 @@
 import { ServerChannel } from '@geckos.io/server';
+import { trace } from '@opentelemetry/api';
 import GameRoom from '../../shared/GameRoom';
 import GameClock from '../../shared/GameClock';
 import { PlayerPoint } from '../../shared/PlayerPoint';
 import Player from '../../shared/Player';
+import { Logger } from '../../shared/Logger';
+
+const logger = new Logger('NET');
+const tracer = trace.getTracer('tron-zero-server');
 
 export class NetworkServer {
   io: any;
@@ -26,7 +31,10 @@ export class NetworkServer {
     this.io.onConnection((channel: ServerChannel) => {
       // His id is the channel id
       const playerId = channel.id!;
-      console.log(`Player connected: ${playerId}`);
+
+      const connectSpan = tracer.startSpan('player.connect');
+      connectSpan.setAttribute('player.id', playerId);
+      logger.info(`Player connected: ${playerId}`);
 
       // Keep track of which turn ticks we've already processed for this client
       const processedTurnTicks = new Set<number>();
@@ -46,6 +54,8 @@ export class NetworkServer {
           reliable: true,
         }
       );
+
+      connectSpan.end();
 
       // When client sends a turn (now an array of turns in a sliding window), update local state
       channel.on('client_turn', (data: any) => {
@@ -70,7 +80,7 @@ export class NetworkServer {
           // A client shouldn't be more than 20 ticks (333ms) ahead of the server.
           const MAX_FUTURE_OFFSET = 20;
           if (turn.tick > this.gameClock.tick + MAX_FUTURE_OFFSET) {
-            console.warn(
+            logger.warn(
               `Received a turn too far in the future (${turn.tick} vs ${this.gameClock.tick}), clamping to max offset`
             );
             turn.tick = this.gameClock.tick + MAX_FUTURE_OFFSET;
@@ -94,15 +104,22 @@ export class NetworkServer {
 
         // Server must also simulate the player turning and fast forward them
         try {
+          const turnSpan = tracer.startSpan('player.turn.process');
+          turnSpan.setAttribute('player.id', playerId);
+          turnSpan.setAttribute('tick', this.gameClock.tick);
+          turnSpan.setAttribute('turn_count', newTurns.length);
+
           // Send the array of newly discovered turns to be reconciled in a single pass
           manager.reconcileTurns(newTurns, allManagers);
+
+          turnSpan.end();
 
           // Broadcast the newly processed turn points
           for (const turn of newTurns) {
             this.gameRoom.playerEventBus.emit('player_turn', localPlayer, turn);
           }
         } catch (e) {
-          console.warn(`Failed to apply client turns from ${playerId}: ${e}`);
+          logger.warn(`Failed to apply client turns from ${playerId}: ${e}`);
         }
       });
 
@@ -114,8 +131,11 @@ export class NetworkServer {
       });
 
       channel.onDisconnect(() => {
-        console.log(`Player disconnected: ${playerId}`);
+        const disconnectSpan = tracer.startSpan('player.disconnect');
+        disconnectSpan.setAttribute('player.id', playerId);
+        logger.info(`Player disconnected: ${playerId}`);
         this.gameRoom.removePlayerById(playerId);
+        disconnectSpan.end();
       });
     });
 
@@ -170,11 +190,18 @@ export class NetworkServer {
       this.syncIndex = this.syncIndex % players.length;
       const [playerId, manager] = players[this.syncIndex];
 
+      const syncSpan = tracer.startSpan('state.sync');
+      syncSpan.setAttribute('player.id', playerId);
+      syncSpan.setAttribute('tick', this.gameClock.tick);
+      syncSpan.setAttribute('player_count', players.length);
+
       this.io.emit(
         'sync_state',
         [this.gameClock.tick, playerId, manager.activeState.serialize()],
         { reliable: true }
       );
+
+      syncSpan.end();
 
       this.syncIndex++;
     }, intervalMs);

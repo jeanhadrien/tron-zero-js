@@ -12,6 +12,11 @@ import AudioManager from '../gameobjects/AudioManager';
 
 import { NetworkClient } from '../network/NetworkClient';
 import GameCamera from '../gameobjects/GameCamera';
+import { Logger } from '../../../shared/Logger';
+import { trace } from '@opentelemetry/api';
+
+const logger = new Logger('Game');
+const tracer = trace.getTracer('tron-zero-client');
 
 export class GameScene extends Scene {
   CANVAS_WIDTH: number;
@@ -65,6 +70,8 @@ export class GameScene extends Scene {
   }
 
   create() {
+    const span = tracer.startSpan('game.scene.create');
+
     this.gameAreaRenderer.draw();
     this.setupSocket();
 
@@ -104,7 +111,7 @@ export class GameScene extends Scene {
       .setVisible(false);
 
     EventBus.on('game-start', () => {
-      console.info('game-start');
+      logger.info('game-start');
       this.audioManager.resume();
 
       // In multiplayer, restart should probably re-join or tell server to respawn
@@ -153,6 +160,8 @@ export class GameScene extends Scene {
         this.isKeyDown[key] = false;
       });
     });
+
+    span.end();
   }
 
   setupSocket() {

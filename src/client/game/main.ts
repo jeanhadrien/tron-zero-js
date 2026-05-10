@@ -1,5 +1,9 @@
+import '../telemetry';
 import { GameScene } from './scenes/GameScene';
 import 'phaser';
+import { trace } from '@opentelemetry/api';
+
+const tracer = trace.getTracer('tron-zero-client');
 
 const config: Phaser.Types.Core.GameConfig = {
   type: Phaser.AUTO,
@@ -31,7 +35,10 @@ const config: Phaser.Types.Core.GameConfig = {
 };
 
 const StartGame = (parent: string) => {
-  return new Phaser.Game({ ...config, parent });
+  const span = tracer.startSpan('game.init');
+  const game = new Phaser.Game({ ...config, parent });
+  span.end();
+  return game;
 };
 
 export default StartGame;

@@ -3,6 +3,9 @@ import { PlayerDTO } from './Player';
 import { PlayerPoint } from './PlayerPoint';
 import GameClock from './GameClock';
 import GameArea from './GameArea';
+import { Logger } from './Logger';
+
+const logger = new Logger('PlayerStateManager');
 
 export default class PlayerStateManager {
   id: string;
@@ -132,27 +135,26 @@ export default class PlayerStateManager {
   // Receive a target tick to update our active player state to
   update(targetTick: number, allPlayerStateManagers: PlayerStateManager[]) {
     if (targetTick < this.activeState.currentTick) {
-      console.warn(
-        `[PlayerStateManager] Loading a past tick for ${targetTick} for ${this.id}`
-      );
-      const targetState = this.getHistoryStateAtTick(targetTick);
-      if (!targetState) throw new Error('wtf');
-      this.activeState = targetState;
+      logger.warn(`Loading a past tick for ${targetTick} for ${this.id}`);
+      const cursorState = this.getHistoryStateAtLowerBoundTick(targetTick);
+      if (!cursorState) {
+        this.activeState.currentTick = targetTick;
+      } else {
+        this.activeState = cursorState;
+      }
       this.saveState(targetTick);
       return;
     }
 
     if (targetTick == this.activeState.currentTick) {
-      console.warn(
-        `[PlayerStateManager] Nothing to do for ${this.id} at tick ${targetTick}`
-      );
+      logger.warn(`Nothing to do for ${this.id} at tick ${targetTick}`);
       this.saveState(targetTick);
       return;
     }
 
     if (targetTick > this.activeState.currentTick + 1) {
-      console.warn(
-        `[PlayerStateManager] fast forwarding to ${targetTick} from ${this.activeState.currentTick}`
+      logger.warn(
+        `fast forwarding to ${targetTick} from ${this.activeState.currentTick}`
       );
     }
 
@@ -173,9 +175,7 @@ export default class PlayerStateManager {
         try {
           this.activeState.trail.insertTurn(knownPlayerPoint);
         } catch (e) {
-          console.warn(
-            `[PlayerStateManager] Failed to fill turn for ${this.id}: ${e}`
-          );
+          logger.warn(`Failed to fill turn for ${this.id}: ${e}`);
         }
       }
 
@@ -232,8 +232,8 @@ export default class PlayerStateManager {
     // - set cursorstate : load dto from history at earliest turn point tick
     const cursorState = this.getHistoryStateAtLowerBoundTick(startTick);
     if (!cursorState) {
-      console.warn(
-        `[PlayerStateManager] No history found at turn.tick ${startTick} for player ${this.id}. Using active state.`
+      logger.warn(
+        `No history found at turn.tick ${startTick} for player ${this.id}. Using active state.`
       );
       this.cursorState.load(this.activeState.serialize());
       this.cursorState.currentTick = startTick;
@@ -342,9 +342,7 @@ export default class PlayerStateManager {
         try {
           this.cursorState.trail.insertTurn(knownTurn);
         } catch (e) {
-          console.warn(
-            `[PlayerStateManager] Failed to fill turn for ${this.id}: ${e}`
-          );
+          logger.warn(`Failed to fill turn for ${this.id}: ${e}`);
         }
       }
 
@@ -365,8 +363,8 @@ export default class PlayerStateManager {
         );
         this.cursorState.update(simTick, gameClock, sharedObstacles);
       } catch (e) {
-        console.warn(
-          `[PlayerStateManager] Error updating cursorState for ${this.id} at tick ${simTick}: ${e}`
+        logger.warn(
+          `Error updating cursorState for ${this.id} at tick ${simTick}: ${e}`
         );
       }
 

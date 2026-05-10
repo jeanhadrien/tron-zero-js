@@ -1,10 +1,15 @@
 import geckos, { ClientChannel } from '@geckos.io/client';
+import { trace } from '@opentelemetry/api';
 import { GameEventBus } from '../../../shared/GameEventBus';
 import GameClock from '../../../shared/GameClock';
 import GameRoom from '../../../shared/GameRoom';
 import { PlayerDTO } from '../../../shared/Player';
 import { PlayerPoint } from '../../../shared/PlayerPoint';
 import Player from '../../../shared/Player';
+import { Logger } from '../../../shared/Logger';
+
+const logger = new Logger('NET');
+const tracer = trace.getTracer('tron-zero-client');
 
 export class NetworkClient {
   channel: ClientChannel;
@@ -37,10 +42,13 @@ export class NetworkClient {
   private logSync(tick: number | string, eventName: string, ...args: any[]) {
     const tickStr = String(tick).padStart(8, ' ');
     const eventStr = eventName.padEnd(15, ' ');
-    console.info(`[SYNC] tick: ${tickStr} | event: ${eventStr} |`, ...args);
+    logger.info(`[SYNC] tick: ${tickStr} | event: ${eventStr} |`);
   }
 
   connect() {
+    const connectSpan = tracer.startSpan('webrtc.connect');
+    connectSpan.setAttribute('hostname', window.location.hostname);
+
     this.channel = geckos({
       url: `${window.location.protocol}//${window.location.hostname}`,
       iceServers: [
@@ -50,12 +58,14 @@ export class NetworkClient {
       port: 3000,
     });
 
+    connectSpan.end();
+
     this.channel.onConnect((error) => {
       if (error) {
-        console.error(error.message);
+        logger.error(error.message);
         return;
       }
-      console.log('Connected to server with ID:', this.channel.id);
+      logger.info('Connected to server with ID:', this.channel.id);
 
       this.channel.emit('ping', performance.now());
     });
@@ -71,27 +81,23 @@ export class NetworkClient {
       const pingDifferenceTime = performance.now() - oldTime;
       const oneWayTime = pingDifferenceTime / 2;
 
-      if (!this.hasRttMeasurement) {
-        this.smoothedOneWayTime = oneWayTime;
-        this.hasRttMeasurement = true;
-      } else {
-        this.smoothedOneWayTime =
-          NetworkClient.RTT_SMOOTHING_ALPHA * oneWayTime +
-          (1 - NetworkClient.RTT_SMOOTHING_ALPHA) * this.smoothedOneWayTime;
-      }
-
       this.tickOffsetToCatchServer = Math.ceil(
-        this.smoothedOneWayTime / this.gameClock.tickTimeMs
+        oneWayTime / this.gameClock.tickTimeMs
       );
-      this.logSync(
+      logger.warn(
         this.gameClock.tick,
         'pong',
-        `RTT: ${pingDifferenceTime.toFixed(2)}ms, One-way: ${oneWayTime.toFixed(2)}ms, Smooth OW: ${this.smoothedOneWayTime.toFixed(2)}ms, Tick Offset: ${this.tickOffsetToCatchServer}`
+        `RTT: ${pingDifferenceTime.toFixed(2)}ms, One-way: ${oneWayTime.toFixed(2)}ms,  Tick Offset: ${this.tickOffsetToCatchServer}`
       );
     });
 
     this.channel.on('init_state', (data: any) => {
       const [_serverTick, _playerStateDTOList]: [number, PlayerDTO[]] = data;
+
+      const initSpan = tracer.startSpan('init_state');
+      initSpan.setAttribute('tick', _serverTick);
+      initSpan.setAttribute('player_count', _playerStateDTOList.length);
+
       this.logSync(_serverTick, 'init_state', data);
 
       const expectedClientTick =
@@ -128,6 +134,8 @@ export class NetworkClient {
       if (this.onInitState) {
         this.onInitState(humanPlayer, allPlayers);
       }
+
+      initSpan.end();
     });
 
     this.channel.on('sync_state', (data: any) => {
@@ -136,6 +144,10 @@ export class NetworkClient {
         string,
         PlayerDTO,
       ] = data;
+
+      const syncSpan = tracer.startSpan('sync_state');
+      syncSpan.setAttribute('tick', _serverTick);
+
       this.logSync(_serverTick, 'sync_state', data);
 
       this.turnBuffer = this.turnBuffer.filter((t) => t.tick >= _serverTick);
@@ -145,7 +157,8 @@ export class NetworkClient {
       const drift = expectedClientTick - this.gameClock.tick;
 
       if (drift !== 0) {
-        console.warn(
+        syncSpan.setAttribute('drift_ticks', drift);
+        logger.warn(
           `[Desync] Local clock late by ${drift} ticks. Snapping to expected tick.`
         );
         this.gameClock.setTick(expectedClientTick);
@@ -164,8 +177,11 @@ export class NetworkClient {
             allManagers
           );
         }
+        syncSpan.end();
         return;
       }
+
+      syncSpan.end();
     });
 
     this.channel.on('game_add_player', (data: any) => {
@@ -206,6 +222,10 @@ export class NetworkClient {
         data
       );
 
+      const turnSpan = tracer.startSpan('player.turn.receive');
+      turnSpan.setAttribute('player.id', id);
+      turnSpan.setAttribute('tick', turnPointDTO.tick);
+
       // If it's our own turn coming back from the server, we can clear it from our buffer
       if (id === this.channel.id) {
         this.turnBuffer = this.turnBuffer.filter(
@@ -220,6 +240,8 @@ export class NetworkClient {
       // Use the newly standard reconcileTurns
       const allManagers = Array.from(this.gameRoom.playerManagers.values());
       manager.reconcileTurns([turnPoint], allManagers);
+
+      turnSpan.end();
 
       if (this.onPlayerTurn) {
         this.onPlayerTurn(manager.activeState);
@@ -272,6 +294,10 @@ export class NetworkClient {
         this.turnBuffer.shift();
       }
 
+      const turnSpan = tracer.startSpan('player.turn.send');
+      turnSpan.setAttribute('tick', turnPointDTO.tick || this.gameClock.tick);
+      turnSpan.setAttribute('buffer_size', this.turnBuffer.length);
+
       this.logSync(
         turnPointDTO.tick || this.gameClock.tick,
         'client_turn',
@@ -280,6 +306,8 @@ export class NetworkClient {
       this.channel.emit('client_turn', this.turnBuffer, {
         reliable: false,
       });
+
+      turnSpan.end();
     }
   }
 

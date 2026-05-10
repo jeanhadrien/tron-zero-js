@@ -3,6 +3,9 @@ import Player from '../Player';
 import { PlayerPoint } from '../PlayerPoint';
 import { PlayerEventBus } from '../PlayerStateEventBus';
 import PlayerTrailDTO from '../PlayerTrailDTO';
+import { Logger } from '../Logger';
+
+const logger = new Logger('Test');
 
 describe('Player Spawn and Load', () => {
   it('should have a populated trail after load', () => {
@@ -22,7 +25,7 @@ describe('Player Spawn and Load', () => {
     clientPlayer.load(pStateDTO);
 
     // Check if client player's trail is populated
-    console.log(
+    logger.log(
       'Client player points length:',
       clientPlayer.trail.getPoints().length
     );

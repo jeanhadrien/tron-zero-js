@@ -1,6 +1,9 @@
 import { JSDOM } from 'jsdom';
+import { Logger } from '../shared/Logger';
 
-console.log('Running setup...');
+const logger = new Logger('Setup');
+
+logger.log('Running setup...');
 const dom = new JSDOM('', {
     url: 'http://localhost'
 });
@@ -54,4 +57,4 @@ g.HTMLCanvasElement.prototype.getContext = function (type: string, attributes?: 
 };
 
 import 'jsdom-worker';
-console.log('Setup complete.');
+logger.log('Setup complete.');

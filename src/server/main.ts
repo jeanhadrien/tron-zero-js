@@ -1,13 +1,19 @@
+import './telemetry';
 import express from 'express';
 import { createServer } from 'http';
 import geckos from '@geckos.io/server';
 import path from 'path';
+import { trace } from '@opentelemetry/api';
 import GameRoom from '../shared/GameRoom';
 import { GameEventBus } from '../shared/GameEventBus';
 import GameArea from '../shared/GameArea';
 import GameClock from '../shared/GameClock';
 import { NetworkServer } from './network/NetworkServer';
 import { GameServer } from './game/GameServer';
+import { Logger } from '../shared/Logger';
+
+const logger = new Logger('Server');
+const tracer = trace.getTracer('tron-zero-server');
 
 const app = express();
 const httpServer = createServer(app);
@@ -43,5 +49,8 @@ gameServer.start();
 
 const PORT = process.env.PORT || 3000;
 httpServer.listen(PORT, () => {
-  console.log(`Server listening on port ${PORT}`);
+  const span = tracer.startSpan('game.start');
+  span.setAttribute('port', PORT);
+  logger.info(`Server listening on port ${PORT}`);
+  span.end();
 });
