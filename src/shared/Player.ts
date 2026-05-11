@@ -1,5 +1,6 @@
 import { PlayerTrail } from './PlayerTrail';
 import { PlayerPoint } from './PlayerPoint';
+import { PlayerInput } from './PlayerInput';
 import { PlayerEventBus } from './PlayerStateEventBus';
 import GameArea from './GameArea';
 import GameClock from './GameClock';
@@ -65,7 +66,7 @@ export default class Player {
 
   // trail
   trail: PlayerTrail = new PlayerTrail(this);
-  turnQueue: { tick: number; type: string }[] = [];
+  turnQueue: (PlayerInput & { tick: number })[] = [];
 
   color: number;
 
@@ -314,7 +315,11 @@ export default class Player {
 
   queueTurn(type: string, tick: number = 0) {
     if (this.isAlive) {
-      this.turnQueue.push({ tick, type });
+      this.turnQueue.push({
+        tick,
+        turn: type as 'left' | 'right',
+        break: false,
+      });
     } else {
       logger.debug(this.currentTick, this.id, 'skipped turn, not running');
     }
@@ -406,7 +411,7 @@ export default class Player {
     // Turn (one turn per tick max)
     if (this.turnQueue.length > 0) {
       let nextTurn = this.turnQueue.shift()!;
-      this._executeTurn(nextTurn.type, gameClock.tickTimeMs);
+      this._executeTurn(nextTurn.turn, gameClock.tickTimeMs);
     }
 
     this._updateDetectionLines();

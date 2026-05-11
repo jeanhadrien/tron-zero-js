@@ -1,6 +1,7 @@
 import Player from './Player';
 import { PlayerDTO } from './Player';
 import { PlayerPoint } from './PlayerPoint';
+import { TickRingBuffer } from './TickRingBuffer';
 import GameClock from './GameClock';
 import GameArea from './GameArea';
 import { Logger } from './Logger';
@@ -13,7 +14,7 @@ export default class PlayerStateManager {
   cursorState: Player;
   history: Map<number, PlayerDTO> = new Map();
   maxHistoryTicks: number = 120; // About 2 seconds of history
-  knownPlayerPoints: PlayerPoint[] = [];
+  knownPlayerPoints = new TickRingBuffer<PlayerPoint>(128);
   previousState: PlayerDTO | null = null;
   correctionTarget: { x: number; y: number } | null = null;
   readonly gameClock: GameClock;
@@ -47,16 +48,13 @@ export default class PlayerStateManager {
         this.history.delete(key);
       }
     }
-    this.knownPlayerPoints = this.knownPlayerPoints.filter(
-      (t) => t.tick >= oldestAllowedTick
-    );
   }
 
   resetFromPlayerStateDTO(state: PlayerDTO) {
     this.activeState.load(state);
     this.previousState = state;
     this.history.clear();
-    this.knownPlayerPoints = [];
+    this.knownPlayerPoints = new TickRingBuffer<PlayerPoint>(128);
     this.correctionTarget = null;
   }
 
@@ -163,8 +161,9 @@ export default class PlayerStateManager {
       _catchupTick <= targetTick;
       _catchupTick++
     ) {
-      const knownPlayerPoint = this.knownPlayerPoints.find(
-        (point) => point.tick === _catchupTick
+      const knownPlayerPoint = this.knownPlayerPoints.get(
+        _catchupTick,
+        this.id
       );
       if (knownPlayerPoint) {
         this.activeState.x = knownPlayerPoint.coordinates.x;
@@ -208,28 +207,20 @@ export default class PlayerStateManager {
     let earliestPastTick = Infinity;
 
     for (const turn of turnPoints) {
-      if (this.knownPlayerPoints.some((point) => point.tick === turn.tick))
-        // Skip already seen point
+      if (this.knownPlayerPoints.get(turn.tick, this.id) !== null)
         continue;
 
-      this.knownPlayerPoints.push(turn);
+      this.knownPlayerPoints.record(turn.tick, this.id, turn);
       added = true;
       if (turn.tick <= this.activeState.currentTick) {
-        // Keep track of the earliest tick we're handling and have not seen before
         earliestPastTick = Math.min(earliestPastTick, turn.tick);
       }
     }
 
     if (!added || earliestPastTick === Infinity) return;
 
-    // Add this point we've added a new turn to our list, we need to resimulate state
-
-    this.knownPlayerPoints.sort((a, b) => a.tick - b.tick);
-
-    // We rewind to the earliest new past turn
     const startTick = earliestPastTick;
 
-    // - set cursorstate : load dto from history at earliest turn point tick
     const cursorState = this.getHistoryStateAtLowerBoundTick(startTick);
     if (!cursorState) {
       logger.warn(
@@ -243,8 +234,6 @@ export default class PlayerStateManager {
 
     this.cursorState.turnQueue = [];
 
-    // - update cursorstate tick by tick, until activestate tick, or until cursorstate dies
-    // Apply turns at exactly their specific ticks before advancing
     for (
       let simTick = startTick;
       simTick <= this.activeState.currentTick;
@@ -254,7 +243,7 @@ export default class PlayerStateManager {
         break;
       }
 
-      const knownTurn = this.knownPlayerPoints.find((t) => t.tick === simTick);
+      const knownTurn = this.knownPlayerPoints.get(simTick, this.id);
       if (knownTurn) {
         // Apply the turn point data directly to cursorState
         this.cursorState.x = knownTurn.coordinates.x;
@@ -331,7 +320,7 @@ export default class PlayerStateManager {
         break;
       }
 
-      const knownTurn = this.knownPlayerPoints.find((t) => t.tick === simTick);
+      const knownTurn = this.knownPlayerPoints.get(simTick, this.id);
       if (knownTurn) {
         this.cursorState.x = knownTurn.coordinates.x;
         this.cursorState.y = knownTurn.coordinates.y;

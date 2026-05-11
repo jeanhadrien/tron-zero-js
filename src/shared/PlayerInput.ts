@@ -1,5 +1,4 @@
 export interface PlayerInput {
-  turn: 'l' | 'r';
+  turn: 'left' | 'right';
   break: boolean;
-  // ... any other inputs
 }

@@ -6,6 +6,8 @@ import GameRoom from '../../../shared/GameRoom';
 import { PlayerDTO } from '../../../shared/Player';
 import { PlayerPoint } from '../../../shared/PlayerPoint';
 import Player from '../../../shared/Player';
+import PlayerPointDTO from '../../../shared/PlayerPointDTO';
+import { TickRingBuffer } from '../../../shared/TickRingBuffer';
 import { Logger } from '../../../shared/Logger';
 
 const logger = new Logger('NET');
@@ -18,7 +20,8 @@ export class NetworkClient {
   gameClock: GameClock;
   tickOffsetToCatchServer: number = 0;
   aheadTickCount: number = 1;
-  turnBuffer: any[] = [];
+  turnBuffer = new TickRingBuffer<PlayerPointDTO>(60);
+  private lastAckedTurnTick: number = -1;
   private smoothedOneWayTime: number = 0;
   private hasRttMeasurement: boolean = false;
   private static readonly RTT_SMOOTHING_ALPHA = 0.2;
@@ -150,7 +153,7 @@ export class NetworkClient {
 
       this.logSync(_serverTick, 'sync_state', data);
 
-      this.turnBuffer = this.turnBuffer.filter((t) => t.tick >= _serverTick);
+      this.lastAckedTurnTick = Math.max(this.lastAckedTurnTick, _serverTick - 1);
 
       const expectedClientTick =
         _serverTick + this.tickOffsetToCatchServer + this.aheadTickCount;
@@ -226,10 +229,11 @@ export class NetworkClient {
       turnSpan.setAttribute('player.id', id);
       turnSpan.setAttribute('tick', turnPointDTO.tick);
 
-      // If it's our own turn coming back from the server, we can clear it from our buffer
+      // If it's our own turn coming back from the server, ack it
       if (id === this.channel.id) {
-        this.turnBuffer = this.turnBuffer.filter(
-          (t) => t.tick > turnPointDTO.tick
+        this.lastAckedTurnTick = Math.max(
+          this.lastAckedTurnTick,
+          turnPointDTO.tick
         );
       }
 
@@ -274,7 +278,7 @@ export class NetworkClient {
         const manager = this.gameRoom.playerManagers.get(id);
         if (manager) {
           manager.history.clear();
-          manager.knownPlayerPoints = [];
+          manager.knownPlayerPoints = new TickRingBuffer<PlayerPoint>(128);
           manager.previousState = null;
           manager.correctionTarget = null;
         }
@@ -287,23 +291,35 @@ export class NetworkClient {
     });
   }
 
-  sendTurn(turnPointDTO: any) {
+  sendTurn(turnPointDTO: PlayerPointDTO) {
     if (this.channel) {
-      this.turnBuffer.push(turnPointDTO);
-      if (this.turnBuffer.length > 20) {
-        this.turnBuffer.shift();
-      }
+      this.turnBuffer.record(turnPointDTO.tick, 'self', turnPointDTO);
 
       const turnSpan = tracer.startSpan('player.turn.send');
       turnSpan.setAttribute('tick', turnPointDTO.tick || this.gameClock.tick);
-      turnSpan.setAttribute('buffer_size', this.turnBuffer.length);
+
+      const unacked = this.turnBuffer.getUnacked(
+        this.lastAckedTurnTick,
+        'self'
+      );
+      // getUnacked does gap-filling, so dedupe by entry tick
+      const seenTicks = new Set<number>();
+      const toSend: PlayerPointDTO[] = [];
+      for (const entry of unacked) {
+        if (entry !== null && !seenTicks.has(entry.tick)) {
+          seenTicks.add(entry.tick);
+          toSend.push(entry);
+        }
+      }
+
+      turnSpan.setAttribute('buffer_size', toSend.length);
 
       this.logSync(
         turnPointDTO.tick || this.gameClock.tick,
         'client_turn',
-        this.turnBuffer
+        toSend
       );
-      this.channel.emit('client_turn', this.turnBuffer, {
+      this.channel.emit('client_turn', toSend, {
         reliable: false,
       });
 

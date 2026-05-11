@@ -4,6 +4,7 @@ import GameRoom from '../../shared/GameRoom';
 import GameClock from '../../shared/GameClock';
 import { PlayerPoint } from '../../shared/PlayerPoint';
 import Player from '../../shared/Player';
+import { TickRingBuffer } from '../../shared/TickRingBuffer';
 import { Logger } from '../../shared/Logger';
 
 const logger = new Logger('NET');
@@ -37,7 +38,7 @@ export class NetworkServer {
       logger.info(`Player connected: ${playerId}`);
 
       // Keep track of which turn ticks we've already processed for this client
-      const processedTurnTicks = new Set<number>();
+      const processedTurnTicks = new TickRingBuffer<boolean>(128);
 
       // Create player in the game room
       const localPlayer = this.gameRoom.createPlayerWithForcedId(playerId);
@@ -71,7 +72,7 @@ export class NetworkServer {
           const turn = PlayerPoint.fromDto(turnPointDTO);
 
           // Prevent processing the same turn tick twice
-          if (processedTurnTicks.has(turn.tick)) {
+          if (processedTurnTicks.get(turn.tick, playerId) !== null) {
             continue;
           }
 
@@ -86,20 +87,12 @@ export class NetworkServer {
             turn.tick = this.gameClock.tick + MAX_FUTURE_OFFSET;
           }
 
-          processedTurnTicks.add(turn.tick);
+          processedTurnTicks.record(turn.tick, playerId, true);
           newTurns.push(turn);
         }
 
         if (newTurns.length === 0) {
           return; // No new turns to process
-        }
-
-        // Prune old ticks to prevent memory leak
-        const oldestAllowedTick = this.gameClock.tick - 100;
-        for (const tick of processedTurnTicks) {
-          if (tick < oldestAllowedTick) {
-            processedTurnTicks.delete(tick);
-          }
         }
 
         // Server must also simulate the player turning and fast forward them
