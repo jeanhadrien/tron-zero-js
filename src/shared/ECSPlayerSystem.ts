@@ -13,7 +13,6 @@ import { Arena, AreaWidth, AreaHeight, Lines } from './GameArea';
 import { Logger } from './Logger';
 import { ECSGameWorld } from './ECSGameWorld';
 import { System, SystemSerializable } from './ECSSystem';
-import { PlayerInputTickRingBuffer } from './PlayerInputBuffer';
 
 const logger = new Logger('PlayerSystem');
 
@@ -95,16 +94,6 @@ export const PLAYER_COMPONENTS = [
   Player,
 ];
 
-// ─── Turn Queue (sidecar — managed outside ECS, not in snapshots) ────────────
-
-export interface TurnQueueItem {
-  tick: number;
-  turn: 'left' | 'right';
-}
-
-/** Map of entity id → ordered turn queue. Consumed by tickPlayerSystem. */
-export type TurnQueueMap = Map<number, TurnQueueItem[]>;
-
 // ─── Snapshot helpers ────────────────────────────────────────────────────────
 
 export function createPlayerSnapshotSerializer(world: ECSGameWorld) {
@@ -116,34 +105,13 @@ export function createPlayerSnapshotDeserializer(world: ECSGameWorld) {
 }
 
 /** Convenience: fully snapshot the GameWorld and reset it to a previous snapshot. */
-export function rollbackWorld(world: ECSGameWorld, deserialize: ReturnType<typeof createSnapshotDeserializer>, buffer: ArrayBuffer): void {
+export function rollbackWorld(
+  world: ECSGameWorld,
+  deserialize: ReturnType<typeof createSnapshotDeserializer>,
+  buffer: ArrayBuffer
+): void {
   resetWorld(world);
   deserialize(buffer);
-}
-
-// ─── Entity lifecycle ────────────────────────────────────────────────────────
-
-// ─── Turn queue ──────────────────────────────────────────────────────────────
-
-/** Queue a turn for the player at a specific tick. */
-export function queueTurn(turnQueues: TurnQueueMap, eid: number, turn: 'left' | 'right', tick: number = 0): void {
-  if (IsAlive[eid]) {
-    let queue = turnQueues.get(eid);
-    if (!queue) {
-      queue = [];
-      turnQueues.set(eid, queue);
-    }
-    queue.push({ tick, turn });
-  } else {
-    logger.debug(PlayerId[eid], 'skipped turn, not alive');
-  }
-}
-
-/** Pop and return the next turn from the queue, or null if empty. */
-export function popTurn(turnQueues: TurnQueueMap, eid: number): TurnQueueItem | null {
-  const queue = turnQueues.get(eid);
-  if (!queue || queue.length === 0) return null;
-  return queue.shift()!;
 }
 
 // ─── Internal helpers ────────────────────────────────────────────────────────
@@ -180,37 +148,6 @@ export function getPlayerTrailLines(eid: number): SharedLine[] {
   // Last trail point to current position
   if (n > 0) {
     lines.push(new SharedLine(xs[n - 1], ys[n - 1], Position.x[eid], Position.y[eid]));
-  }
-
-  return lines;
-}
-
-/** Build all obstacle lines from all player trails + arena boundaries. */
-export function buildObstacleLines(world: ECSGameWorld): SharedLine[] {
-  const lines: SharedLine[] = [];
-
-  const [arenaEid] = query(world, [Arena]);
-  if (arenaEid !== undefined) {
-    for (let i = 0; i < Lines.x1[arenaEid].length; i++) {
-      lines.push(new SharedLine(
-        Lines.x1[arenaEid][i], Lines.y1[arenaEid][i],
-        Lines.x2[arenaEid][i], Lines.y2[arenaEid][i]
-      ));
-    }
-  }
-
-  for (const eid of Array.from(query(world, [Player]))) {
-    const xs = TrailPoints.xs[eid];
-    const ys = TrailPoints.ys[eid];
-    const n = xs.length;
-
-    for (let i = 0; i < n - 1; i++) {
-      lines.push(new SharedLine(xs[i], ys[i], xs[i + 1], ys[i + 1]));
-    }
-
-    if (n > 0) {
-      lines.push(new SharedLine(xs[n - 1], ys[n - 1], Position.x[eid], Position.y[eid]));
-    }
   }
 
   return lines;
@@ -302,10 +239,9 @@ function _buildObstacleLinesExcluding(world: ECSGameWorld, selfEid: number): Sha
   const [arenaEid] = query(world, [Arena]);
   if (arenaEid !== undefined) {
     for (let i = 0; i < Lines.x1[arenaEid].length; i++) {
-      lines.push(new SharedLine(
-        Lines.x1[arenaEid][i], Lines.y1[arenaEid][i],
-        Lines.x2[arenaEid][i], Lines.y2[arenaEid][i]
-      ));
+      lines.push(
+        new SharedLine(Lines.x1[arenaEid][i], Lines.y1[arenaEid][i], Lines.x2[arenaEid][i], Lines.y2[arenaEid][i])
+      );
     }
   }
 
@@ -337,7 +273,6 @@ function generatePlayerColor(): number {
 export default class PlayerSystem extends SystemSerializable {
   readonly key = 'player';
 
-  private playerTurnBuffer = new PlayerInputTickRingBuffer();
   private _serializers = new Map<ECSGameWorld, ReturnType<typeof createSnapshotSerializer>>();
   private _deserializers = new Map<ECSGameWorld, ReturnType<typeof createSnapshotDeserializer>>();
 
@@ -436,6 +371,7 @@ export default class PlayerSystem extends SystemSerializable {
     TrailPoints.xs[eid] = [];
     TrailPoints.ys[eid] = [];
     TrailPoints.dirs[eid] = [];
+    logger.debug(PlayerId[eid], 'disable()');
   }
 
   static removePlayerById(world: ECSGameWorld, playerId: string) {
@@ -448,20 +384,24 @@ export default class PlayerSystem extends SystemSerializable {
     logger.warn(`${playerId} doesn't exist`);
   }
 
-  update(world: ECSGameWorld): void {
+  update(world: ECSGameWorld, getInput?: (entityId: string) => any): void {
     for (const eid of Array.from(query(world, [Player]))) {
+      console.log(IsAlive[eid]);
+      console.log(Position.x[eid], Position.y[eid]);
+
       // Check for death
       if (!IsAlive[eid] || Rubber[eid] <= 0) {
         if (ShouldHandleDeath[eid]) {
           PlayerSystem.disablePlayer(eid);
         }
-        return;
+        continue;
       }
 
       // Process one turn (max one per tick)
-      const nextTurn = popTurn(world.turnQueues, eid);
-      if (nextTurn) {
-        executeTurn(eid, nextTurn.turn, world.tickTimeMs);
+      const playerId = PlayerId[eid];
+      const input = getInput?.(playerId);
+      if (input?.turn) {
+        executeTurn(eid, input.turn, world.tickTimeMs);
       }
 
       // Build detection rays

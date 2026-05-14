@@ -1,5 +1,7 @@
 import { ECSGameWorld } from './ECSGameWorld';
 
+export type GetInput = (entityId: string) => any;
+
 export interface SystemDiffPayload {
   systemKey: string;
   buffer: ArrayBuffer;
@@ -8,7 +10,8 @@ export interface SystemDiffPayload {
 export abstract class System {
   key: string;
   abstract getComponents(): {}[];
-  abstract update(world: ECSGameWorld): void;
+  abstract update(world: ECSGameWorld, getInput?: GetInput): void;
+  init?(world: ECSGameWorld): void;
 }
 
 export abstract class SystemSerializable extends System {

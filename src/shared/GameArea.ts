@@ -1,7 +1,7 @@
 import { array, f32 } from 'bitecs/serialization';
 import { ECSGameWorld } from './ECSGameWorld';
-import { addComponent, addEntity } from 'bitecs';
-import { System } from './ECSSystem';
+import { addComponent, addComponents, addEntity } from 'bitecs';
+import { GetInput, System } from './ECSSystem';
 
 export default class GameArea {
   width: number;
@@ -36,43 +36,43 @@ export class ECSGameAreaSystem implements System {
     this.height = height;
   }
 
+  update(_world: ECSGameWorld, _getInput?: GetInput): void {
+    return;
+  }
+
   getComponents(): {}[] {
     return [Arena, AreaWidth, AreaHeight, Lines];
   }
 
-  update(world: ECSGameWorld): void {
-    if (!this.initialized) {
-      const eid = addEntity(world);
-      addComponent(world, eid, this.getComponents());
-      AreaWidth[eid] = this.width;
-      AreaHeight[eid] = this.height;
+  init(world: ECSGameWorld): void {
+    const eid = addEntity(world);
+    addComponents(world, eid, this.getComponents());
+    AreaWidth[eid] = this.width;
+    AreaHeight[eid] = this.height;
 
-      Lines.x1[eid] = [];
-      Lines.y1[eid] = [];
-      Lines.x2[eid] = [];
-      Lines.y2[eid] = [];
+    Lines.x1[eid] = [];
+    Lines.y1[eid] = [];
+    Lines.x2[eid] = [];
+    Lines.y2[eid] = [];
 
-      Lines.x1[eid][0] = 0;
-      Lines.y1[eid][0] = 0;
-      Lines.x2[eid][0] = this.width;
-      Lines.y2[eid][0] = 0;
+    Lines.x1[eid][0] = 0;
+    Lines.y1[eid][0] = 0;
+    Lines.x2[eid][0] = this.width;
+    Lines.y2[eid][0] = 0;
 
-      Lines.x1[eid][1] = this.width;
-      Lines.y1[eid][1] = 0;
-      Lines.x2[eid][1] = this.width;
-      Lines.y2[eid][1] = this.height;
+    Lines.x1[eid][1] = this.width;
+    Lines.y1[eid][1] = 0;
+    Lines.x2[eid][1] = this.width;
+    Lines.y2[eid][1] = this.height;
 
-      Lines.x1[eid][2] = this.width;
-      Lines.y1[eid][2] = this.height;
-      Lines.x2[eid][2] = 0;
-      Lines.y2[eid][2] = this.height;
+    Lines.x1[eid][2] = this.width;
+    Lines.y1[eid][2] = this.height;
+    Lines.x2[eid][2] = 0;
+    Lines.y2[eid][2] = this.height;
 
-      Lines.x1[eid][3] = 0;
-      Lines.y1[eid][3] = this.height;
-      Lines.x2[eid][3] = 0;
-      Lines.y2[eid][3] = 0;
-
-      this.initialized = true;
-    }
+    Lines.x1[eid][3] = 0;
+    Lines.y1[eid][3] = this.height;
+    Lines.x2[eid][3] = 0;
+    Lines.y2[eid][3] = 0;
   }
 }
