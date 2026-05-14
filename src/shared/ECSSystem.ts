@@ -1,6 +1,9 @@
 import { ECSGameWorld } from './ECSGameWorld';
+import { GameEvent } from './GameEvent';
 
 export type GetInput = (entityId: string) => any;
+
+export type GetEvents = () => readonly GameEvent[];
 
 export interface SystemDiffPayload {
   systemKey: string;
@@ -10,7 +13,7 @@ export interface SystemDiffPayload {
 export abstract class System {
   key: string;
   abstract getComponents(): {}[];
-  abstract update(world: ECSGameWorld, getInput?: GetInput): void;
+  abstract update(world: ECSGameWorld, getInput?: GetInput, getEvents?: GetEvents): void;
   init?(world: ECSGameWorld): void;
 }
 

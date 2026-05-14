@@ -2,13 +2,15 @@ import { GameEventBus } from './GameEventBus';
 import GameClock from './GameClock';
 import { PlayerEventBus } from './PlayerStateEventBus';
 
-import { createWorld, removeEntity, createEntityIndex, resetWorld } from 'bitecs';
+import { createWorld, createEntityIndex, resetWorld } from 'bitecs';
 import { ECSGameWorld } from './ECSGameWorld';
 import { WorldStateTickRingBuffer } from './WorldStateBuffer';
 import { createSnapshotDeserializer, createSnapshotSerializer } from 'bitecs/serialization';
 import { System, SystemDiffPayload, SystemSerializable } from './ECSSystem';
 import { PlayerInput } from './PlayerInput';
 import { PlayerInputTickRingBuffer } from './PlayerInputBuffer';
+import { GameEvent } from './GameEvent';
+import { GameEventTickRingBuffer } from './GameEventBuffer';
 
 type DeltasHandler = (deltas: SystemDiffPayload[]) => void;
 
@@ -21,6 +23,7 @@ export default class ECSGameRoom {
   cursorWorld: ECSGameWorld;
   worldBuffer: WorldStateTickRingBuffer;
   playerInputBuffer: PlayerInputTickRingBuffer;
+  gameEventBuffer: GameEventTickRingBuffer;
   worldEntityIndex: any;
   systems: System[];
   worldComponents: {}[];
@@ -41,6 +44,7 @@ export default class ECSGameRoom {
     this.systems = systems;
     this.worldBuffer = new WorldStateTickRingBuffer(128);
     this.playerInputBuffer = new PlayerInputTickRingBuffer(128);
+    this.gameEventBuffer = new GameEventTickRingBuffer(128);
     this.worldEntityIndex = createEntityIndex();
     this.world = createWorld(
       {
@@ -69,6 +73,13 @@ export default class ECSGameRoom {
     }
   }
 
+  addEvent(tick: number, event: GameEvent): void {
+    this.gameEventBuffer.record(tick, event);
+    if (tick < this.world.tick) {
+      this.pendingResimTick = this.pendingResimTick === null ? tick : Math.min(this.pendingResimTick, tick);
+    }
+  }
+
   addInput(tick: number, playerId: string, input: PlayerInput): void {
     this.playerInputBuffer.record(tick, playerId, input);
     if (tick < this.world.tick) {
@@ -79,8 +90,9 @@ export default class ECSGameRoom {
   private update(world: ECSGameWorld): void {
     world.tick += 1;
     const input = (entityId: string) => this.playerInputBuffer.get(world.tick, entityId);
+    const events = () => this.gameEventBuffer.get(world.tick);
     for (const sys of this.systems) {
-      sys.update(world, input);
+      sys.update(world, input, events);
     }
   }
 
