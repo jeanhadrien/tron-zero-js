@@ -374,6 +374,12 @@ export default class PlayerSystem extends SystemSerializable {
     logger.debug(PlayerId[eid], 'disable()');
   }
 
+  static isAlive(world: ECSGameWorld, playerId: string): boolean {
+    const eid = PlayerSystem.getPlayerEidByStringId(world, playerId);
+    if (eid < 0) return false;
+    return IsAlive[eid] === 1;
+  }
+
   static removePlayerById(world: ECSGameWorld, playerId: string) {
     let eid = this.getPlayerEidByStringId(world, playerId);
     if (eid >= 0) {

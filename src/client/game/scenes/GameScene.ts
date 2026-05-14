@@ -142,17 +142,14 @@ export class GameScene extends Scene {
       RIGHT: 'right',
     };
 
-    this.gameRoom.playerEventBus.on('player_turn', (pState, pTurnPoint) => {
-      if (pState.id == this.humanPlayer?.id) this.networkClient.sendTurn(pTurnPoint.serialize());
-    });
-
     // Bind key down events to controls
     Object.entries(keyMappings).forEach(([key, direction]) => {
-      this.input.keyboard?.on(`keydown-${key}`, () => {
+        this.input.keyboard?.on(`keydown-${key}`, () => {
         if (!this.isKeyDown[key]) {
           this.isKeyDown[key] = true;
           if (this.humanPlayer) {
             this.humanPlayer.queueTurn(direction, this.gameClock.tick);
+            this.networkClient.sendTurn(this.gameClock.tick, direction as 'left' | 'right');
           }
         }
       });

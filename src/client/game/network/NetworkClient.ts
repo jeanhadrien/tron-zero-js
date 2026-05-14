@@ -2,11 +2,7 @@ import geckos, { ClientChannel } from '@geckos.io/client';
 import { trace } from '@opentelemetry/api';
 import { GameEventBus } from '../../../shared/GameEventBus';
 import GameClock from '../../../shared/GameClock';
-import GameRoom from '../../../shared/GameRoom';
-import { PlayerDTO } from '../../../shared/Player';
-import { PlayerPoint } from '../../../shared/PlayerPoint';
-import Player from '../../../shared/Player';
-import PlayerPointDTO from '../../../shared/PlayerPointDTO';
+import Player, { PlayerDTO } from '../../../shared/Player';
 import { TickRingBuffer } from '../../../shared/TickRingBuffer';
 import { Logger } from '../../../shared/Logger';
 import ECSGameRoom from '../../../shared/ECSGameRoom';
@@ -21,7 +17,7 @@ export class NetworkClient {
   gameClock: GameClock;
   tickOffsetToCatchServer: number = 0;
   aheadTickCount: number = 1;
-  turnBuffer = new TickRingBuffer<PlayerPointDTO>(60);
+  turnBuffer = new TickRingBuffer<{ tick: number; turn: 'left' | 'right' }>(128);
   private lastAckedTurnTick: number = -1;
   private smoothedOneWayTime: number = 0;
   private hasRttMeasurement: boolean = false;
@@ -259,17 +255,17 @@ export class NetworkClient {
     });
   }
 
-  sendTurn(turnPointDTO: PlayerPointDTO) {
+  sendTurn(tick: number, direction: 'left' | 'right') {
     if (this.channel) {
-      this.turnBuffer.record(turnPointDTO.tick, 'self', turnPointDTO);
+      const entry = { tick, turn: direction };
+      this.turnBuffer.record(tick, 'self', entry);
 
       const turnSpan = tracer.startSpan('player.turn.send');
-      turnSpan.setAttribute('tick', turnPointDTO.tick || this.gameClock.tick);
+      turnSpan.setAttribute('tick', tick);
 
       const unacked = this.turnBuffer.getUnacked(this.lastAckedTurnTick, 'self');
-      // getUnacked does gap-filling, so dedupe by entry tick
       const seenTicks = new Set<number>();
-      const toSend: PlayerPointDTO[] = [];
+      const toSend: { tick: number; turn: 'left' | 'right' }[] = [];
       for (const entry of unacked) {
         if (entry !== null && !seenTicks.has(entry.tick)) {
           seenTicks.add(entry.tick);
@@ -279,7 +275,7 @@ export class NetworkClient {
 
       turnSpan.setAttribute('buffer_size', toSend.length);
 
-      this.logSync(turnPointDTO.tick || this.gameClock.tick, 'client_turn', toSend);
+      this.logSync(tick, 'client_turn', toSend);
       this.channel.emit('client_turn', toSend, {
         reliable: false,
       });

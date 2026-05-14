@@ -1,3 +1,4 @@
+import { EventEmitter } from 'eventemitter3';
 import { GameEventBus } from './GameEventBus';
 import GameClock from './GameClock';
 import { PlayerEventBus } from './PlayerStateEventBus';
@@ -12,12 +13,15 @@ import { PlayerInputTickRingBuffer } from './PlayerInputBuffer';
 import { GameEvent } from './GameEvent';
 import { GameEventTickRingBuffer } from './GameEventBuffer';
 
-type DeltasHandler = (deltas: SystemDiffPayload[]) => void;
+interface ECSGameRoomEvents {
+  delta: (deltas: SystemDiffPayload[]) => void;
+}
 
 export default class ECSGameRoom {
   playerEventBus: PlayerEventBus;
   gameEventBus: GameEventBus;
   gameClock: GameClock;
+  private deltasEmitter = new EventEmitter<ECSGameRoomEvents>();
   private pendingResimTick: number | null = null;
   world: ECSGameWorld;
   cursorWorld: ECSGameWorld;
@@ -36,8 +40,9 @@ export default class ECSGameRoom {
     bus: GameEventBus,
     clock: GameClock,
     systems: System[] = [],
-    private onDeltas?: DeltasHandler
+    onDeltas?: (deltas: SystemDiffPayload[]) => void
   ) {
+    if (onDeltas) this.deltasEmitter.on('delta', onDeltas);
     this.gameEventBus = bus;
     this.playerEventBus = new PlayerEventBus();
     this.gameClock = clock;
@@ -71,6 +76,14 @@ export default class ECSGameRoom {
     for (const sys of this.systems) {
       sys.init?.(this.world);
     }
+  }
+
+  onDelta(handler: (deltas: SystemDiffPayload[]) => void): void {
+    this.deltasEmitter.on('delta', handler);
+  }
+
+  offDelta(handler: (deltas: SystemDiffPayload[]) => void): void {
+    this.deltasEmitter.off('delta', handler);
   }
 
   addEvent(tick: number, event: GameEvent): void {
@@ -145,6 +158,6 @@ export default class ECSGameRoom {
       this.worldSnapshotDeserializer,
     ];
 
-    this.onDeltas?.(this.buildDiffPayloads());
+    this.deltasEmitter.emit('delta', this.buildDiffPayloads());
   }
 }
