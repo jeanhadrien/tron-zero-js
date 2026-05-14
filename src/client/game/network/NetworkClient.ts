@@ -9,6 +9,7 @@ import Player from '../../../shared/Player';
 import PlayerPointDTO from '../../../shared/PlayerPointDTO';
 import { TickRingBuffer } from '../../../shared/TickRingBuffer';
 import { Logger } from '../../../shared/Logger';
+import ECSGameRoom from '../../../shared/ECSGameRoom';
 
 const logger = new Logger('NET');
 const tracer = trace.getTracer('tron-zero-client');
@@ -16,7 +17,7 @@ const tracer = trace.getTracer('tron-zero-client');
 export class NetworkClient {
   channel: ClientChannel;
   bus: GameEventBus;
-  gameRoom: GameRoom;
+  gameRoom: ECSGameRoom;
   gameClock: GameClock;
   tickOffsetToCatchServer: number = 0;
   aheadTickCount: number = 1;
@@ -36,7 +37,7 @@ export class NetworkClient {
   onPlayerDeath?: (player: Player) => void;
   onPlayerSpawn?: (player: Player) => void;
 
-  constructor(bus: GameEventBus, gameRoom: GameRoom, gameClock: GameClock) {
+  constructor(bus: GameEventBus, gameRoom: ECSGameRoom, gameClock: GameClock) {
     this.bus = bus;
     this.gameRoom = gameRoom;
     this.gameClock = gameClock;
@@ -54,10 +55,7 @@ export class NetworkClient {
 
     this.channel = geckos({
       url: `${window.location.protocol}//${window.location.hostname}`,
-      iceServers: [
-        { urls: 'stun:stun1.l.google.com:19302' },
-        { urls: 'stun:stun2.l.google.com:19302' },
-      ],
+      iceServers: [{ urls: 'stun:stun1.l.google.com:19302' }, { urls: 'stun:stun2.l.google.com:19302' }],
       port: 3000,
     });
 
@@ -84,9 +82,7 @@ export class NetworkClient {
       const pingDifferenceTime = performance.now() - oldTime;
       const oneWayTime = pingDifferenceTime / 2;
 
-      this.tickOffsetToCatchServer = Math.ceil(
-        oneWayTime / this.gameClock.tickTimeMs
-      );
+      this.tickOffsetToCatchServer = Math.ceil(oneWayTime / this.gameClock.tickTimeMs);
       logger.warn(
         this.gameClock.tick,
         'pong',
@@ -103,8 +99,7 @@ export class NetworkClient {
 
       this.logSync(_serverTick, 'init_state', data);
 
-      const expectedClientTick =
-        _serverTick + this.tickOffsetToCatchServer + this.aheadTickCount;
+      const expectedClientTick = _serverTick + this.tickOffsetToCatchServer + this.aheadTickCount;
 
       this.gameClock.setTick(expectedClientTick);
 
@@ -116,14 +111,7 @@ export class NetworkClient {
 
       // Recreate from state
       for (const _playerStateDTO of _playerStateDTOList) {
-        const p = new Player(
-          this.gameRoom.playerEventBus,
-          this.gameClock.tick,
-          0,
-          0,
-          0,
-          0
-        );
+        const p = new Player(this.gameRoom.playerEventBus, this.gameClock.tick, 0, 0, 0, 0);
         p.load(_playerStateDTO);
 
         this.gameRoom.registerPlayer(p);
@@ -142,11 +130,7 @@ export class NetworkClient {
     });
 
     this.channel.on('sync_state', (data: any) => {
-      const [_serverTick, _playerId, _playerStateDTO]: [
-        number,
-        string,
-        PlayerDTO,
-      ] = data;
+      const [_serverTick, _playerId, _playerStateDTO]: [number, string, PlayerDTO] = data;
 
       const syncSpan = tracer.startSpan('sync_state');
       syncSpan.setAttribute('tick', _serverTick);
@@ -155,15 +139,12 @@ export class NetworkClient {
 
       this.lastAckedTurnTick = Math.max(this.lastAckedTurnTick, _serverTick - 1);
 
-      const expectedClientTick =
-        _serverTick + this.tickOffsetToCatchServer + this.aheadTickCount;
+      const expectedClientTick = _serverTick + this.tickOffsetToCatchServer + this.aheadTickCount;
       const drift = expectedClientTick - this.gameClock.tick;
 
       if (drift !== 0) {
         syncSpan.setAttribute('drift_ticks', drift);
-        logger.warn(
-          `[Desync] Local clock late by ${drift} ticks. Snapping to expected tick.`
-        );
+        logger.warn(`[Desync] Local clock late by ${drift} ticks. Snapping to expected tick.`);
         this.gameClock.setTick(expectedClientTick);
         this.gameClock.resetAccumulator();
 
@@ -172,13 +153,7 @@ export class NetworkClient {
         if (manager) {
           manager.activeState.currentTick = this.gameClock.tick;
 
-          manager.fastForwardFromPastState(
-            _playerStateDTO,
-            _serverTick,
-            this.gameClock,
-            this.gameRoom.gameArea,
-            allManagers
-          );
+          manager.fastForwardFromPastState(_playerStateDTO, _serverTick, this.gameClock, this.gameRoom.gameArea, allManagers);
         }
         syncSpan.end();
         return;
@@ -219,11 +194,7 @@ export class NetworkClient {
 
     this.channel.on('player_turn', (data: any) => {
       const [id, turnPointDTO] = data;
-      this.logSync(
-        turnPointDTO.tick || this.gameClock.tick,
-        'player_turn',
-        data
-      );
+      this.logSync(turnPointDTO.tick || this.gameClock.tick, 'player_turn', data);
 
       const turnSpan = tracer.startSpan('player.turn.receive');
       turnSpan.setAttribute('player.id', id);
@@ -231,10 +202,7 @@ export class NetworkClient {
 
       // If it's our own turn coming back from the server, ack it
       if (id === this.channel.id) {
-        this.lastAckedTurnTick = Math.max(
-          this.lastAckedTurnTick,
-          turnPointDTO.tick
-        );
+        this.lastAckedTurnTick = Math.max(this.lastAckedTurnTick, turnPointDTO.tick);
       }
 
       const manager = this.gameRoom.playerManagers.get(id);
@@ -298,10 +266,7 @@ export class NetworkClient {
       const turnSpan = tracer.startSpan('player.turn.send');
       turnSpan.setAttribute('tick', turnPointDTO.tick || this.gameClock.tick);
 
-      const unacked = this.turnBuffer.getUnacked(
-        this.lastAckedTurnTick,
-        'self'
-      );
+      const unacked = this.turnBuffer.getUnacked(this.lastAckedTurnTick, 'self');
       // getUnacked does gap-filling, so dedupe by entry tick
       const seenTicks = new Set<number>();
       const toSend: PlayerPointDTO[] = [];
@@ -314,11 +279,7 @@ export class NetworkClient {
 
       turnSpan.setAttribute('buffer_size', toSend.length);
 
-      this.logSync(
-        turnPointDTO.tick || this.gameClock.tick,
-        'client_turn',
-        toSend
-      );
+      this.logSync(turnPointDTO.tick || this.gameClock.tick, 'client_turn', toSend);
       this.channel.emit('client_turn', toSend, {
         reliable: false,
       });

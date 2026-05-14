@@ -6,12 +6,14 @@
  * createSnapshotSerializer / createSnapshotDeserializer.
  */
 
-import { addEntity, addComponents, hasComponent, query, resetWorld } from 'bitecs';
+import { addEntity, addComponents, hasComponent, query, resetWorld, removeEntity } from 'bitecs';
 import { createSnapshotSerializer, createSnapshotDeserializer, f32, u8, u32, str, array } from 'bitecs/serialization';
 import { SharedLine, lineToLineIntersection, distanceBetween, clamp, aabbOverlapsRay } from './math';
-import GameArea from './GameArea';
+import { Arena, AreaWidth, AreaHeight, Lines } from './GameArea';
 import { Logger } from './Logger';
 import { ECSGameWorld } from './ECSGameWorld';
+import { System, SystemSerializable } from './ECSSystem';
+import { PlayerInputTickRingBuffer } from './PlayerInputBuffer';
 
 const logger = new Logger('PlayerSystem');
 
@@ -73,7 +75,6 @@ const TrailPoints = {
 
 /** Marker component — every player entity MUST have this tag */
 const Player = {};
-const Networked = {};
 
 /** All components that the snapshot serializer needs to capture.
  *  Used by createPlayerSnapshotSerializer / createPlayerSnapshotDeserializer. */
@@ -92,7 +93,6 @@ export const PLAYER_COMPONENTS = [
   PlayerId,
   TrailPoints,
   Player,
-  Networked,
 ];
 
 // ─── Turn Queue (sidecar — managed outside ECS, not in snapshots) ────────────
@@ -122,70 +122,6 @@ export function rollbackWorld(world: ECSGameWorld, deserialize: ReturnType<typeo
 }
 
 // ─── Entity lifecycle ────────────────────────────────────────────────────────
-
-/** Add a new player entity and return its entity id. */
-export function createPlayer(world: ECSGameWorld, id: string, color: number): number {
-  const eid = addEntity(world);
-  addComponents(world, eid, PLAYER_COMPONENTS);
-  PlayerId[eid] = id;
-  Color[eid] = color;
-
-  // Defaults for lifecycle flags
-  IsAlive[eid] = 0;
-  ShouldHandleDeath[eid] = 0;
-  IsSliding[eid] = 0;
-  IsColliding[eid] = 0;
-
-  // Empty trail
-  TrailPoints.xs[eid] = [];
-  TrailPoints.ys[eid] = [];
-  TrailPoints.dirs[eid] = [];
-
-  // Zero velocity
-  Velocity.vx[eid] = 0;
-  Velocity.vy[eid] = 0;
-
-  return eid;
-}
-
-/** Reset a player to alive state at a given position. */
-export function spawnPlayer(eid: number, x: number, y: number, direction: number, tickTimeMs: number): void {
-  Position.x[eid] = x;
-  Position.y[eid] = y;
-  Direction[eid] = direction;
-  Rubber[eid] = BASE_RUBBER;
-  IsAlive[eid] = 1;
-  ShouldHandleDeath[eid] = 1;
-  TargetSpeedMult[eid] = 1;
-  IsSliding[eid] = 0;
-  IsColliding[eid] = 0;
-
-  _setSpeedAndVelocity(eid, 1, tickTimeMs);
-
-  // Single initial trail point at spawn location
-
-  TrailPoints.xs[eid] = [x];
-  TrailPoints.ys[eid] = [y];
-  TrailPoints.dirs[eid] = [direction];
-
-  logger.debug(PlayerId[eid], 'spawnPlayer()');
-}
-
-/** Immediately kill a player (zero speed, zero rubber, clear trail). */
-export function disablePlayer(eid: number): void {
-  SpeedMult[eid] = 0;
-  TargetSpeedMult[eid] = 0;
-  Velocity.vx[eid] = 0;
-  Velocity.vy[eid] = 0;
-  Rubber[eid] = 0;
-  IsAlive[eid] = 0;
-  ShouldHandleDeath[eid] = 0;
-  IsSliding[eid] = 0;
-  IsColliding[eid] = 0;
-  TrailPoints.xs[eid] = [];
-  TrailPoints.ys[eid] = [];
-  TrailPoints.dirs[eid] = [];
-}
 
 // ─── Turn queue ──────────────────────────────────────────────────────────────
 
@@ -250,13 +186,18 @@ export function getPlayerTrailLines(eid: number): SharedLine[] {
 }
 
 /** Build all obstacle lines from all player trails + arena boundaries. */
-export function buildObstacleLines(world: ECSGameWorld, gameArea: GameArea): SharedLine[] {
-  const lines: SharedLine[] = [
-    new SharedLine(0, 0, gameArea.width, 0),
-    new SharedLine(gameArea.width, 0, gameArea.width, gameArea.height),
-    new SharedLine(gameArea.width, gameArea.height, 0, gameArea.height),
-    new SharedLine(0, gameArea.height, 0, 0),
-  ];
+export function buildObstacleLines(world: ECSGameWorld): SharedLine[] {
+  const lines: SharedLine[] = [];
+
+  const [arenaEid] = query(world, [Arena]);
+  if (arenaEid !== undefined) {
+    for (let i = 0; i < Lines.x1[arenaEid].length; i++) {
+      lines.push(new SharedLine(
+        Lines.x1[arenaEid][i], Lines.y1[arenaEid][i],
+        Lines.x2[arenaEid][i], Lines.y2[arenaEid][i]
+      ));
+    }
+  }
 
   for (const eid of Array.from(query(world, [Player]))) {
     const xs = TrailPoints.xs[eid];
@@ -305,98 +246,6 @@ export function getClosestIntersectingPoint(
 }
 
 // ─── Core simulation tick ────────────────────────────────────────────────────
-
-/**
- * Advance a single player entity by one tick.
- *
- * This is the ECS equivalent of Player.update(). It reads and writes component
- * arrays indexed by `eid`.
- *
- * @param GameWorld          ECS GameWorld
- * @param turnQueues     Sidecar map of entity → pending turns (consumed here)
- * @param targetTick     The tick we are advancing to
- * @param gameClock      Clock (for tickTimeMs)
- * @param obstacleLines  Pre-built collision lines (from buildObstacleLines)
- */
-export function tickPlayerSystem(world: ECSGameWorld): void {
-  for (const eid of Array.from(query(world, [Player]))) {
-    tickPlayer(world, eid);
-  }
-}
-
-/** Tick a single player entity (called from tickPlayerSystem or standalone). */
-function tickPlayer(world: ECSGameWorld, eid: number): void {
-  // Check for death
-  if (!IsAlive[eid] || Rubber[eid] <= 0) {
-    if (ShouldHandleDeath[eid]) {
-      disablePlayer(eid);
-    }
-    return;
-  }
-
-  // Process one turn (max one per tick)
-  const nextTurn = popTurn(world.turnQueues, eid);
-  if (nextTurn) {
-    executeTurn(eid, nextTurn.turn, world.tickTimeMs);
-  }
-
-  // Build detection rays
-  const sensorFront = new SharedLine();
-  const sensorLeft = new SharedLine();
-  const sensorRight = new SharedLine();
-  _buildDetectionLines(eid, sensorFront, sensorLeft, sensorRight);
-
-  // Combine obstacle lines with self-trail for collision check
-  const selfLines = getPlayerTrailLines(eid);
-  const obstacleLines = _buildObstacleLinesExcluding(world, eid);
-  const collisionLines = [...obstacleLines, ...selfLines];
-
-  // Find closest intersections
-  const pointFront = getClosestIntersectingPoint(sensorFront, collisionLines, Position.x[eid], Position.y[eid]);
-  const pointLeft = getClosestIntersectingPoint(sensorLeft, collisionLines, Position.x[eid], Position.y[eid]);
-  const pointRight = getClosestIntersectingPoint(sensorRight, collisionLines, Position.x[eid], Position.y[eid]);
-
-  const distFront = distanceBetween(Position.x[eid], Position.y[eid], pointFront.x, pointFront.y);
-  const distLeft = distanceBetween(Position.x[eid], Position.y[eid], pointLeft.x, pointLeft.y);
-  const distRight = distanceBetween(Position.x[eid], Position.y[eid], pointRight.x, pointRight.y);
-
-  // ─── Collision response ──────────────────────────────────────────────────
-  IsColliding[eid] = 0;
-
-  if (distFront < SLOW_DOWN_DISTANCE) {
-    IsColliding[eid] = 1;
-
-    const speedRatio = (distFront * distFront) / (SLOW_DOWN_DISTANCE * SLOW_DOWN_DISTANCE);
-    _setSpeedAndVelocity(eid, TargetSpeedMult[eid] * speedRatio, world.tickTimeMs);
-
-    // Drain rubber — faster at higher speeds
-    Rubber[eid] -= DELTA_STUFF * 0.03 * (2 + TargetSpeedMult[eid]) ** 2;
-  } else {
-    // Recover rubber toward BASE_RUBBER
-    if (Rubber[eid] < BASE_RUBBER) {
-      Rubber[eid] += 0.006 * DELTA_STUFF;
-    }
-    // Restore normal speed
-    _setSpeedAndVelocity(eid, TargetSpeedMult[eid], world.tickTimeMs);
-  }
-
-  // ─── Slide boost ─────────────────────────────────────────────────────────
-  IsSliding[eid] = 0;
-
-  if (distLeft < SLOW_DOWN_DISTANCE || distRight < SLOW_DOWN_DISTANCE) {
-    TargetSpeedMult[eid] *= Math.pow(1.003, DELTA_STUFF / 16.666);
-    IsSliding[eid] = 1;
-  } else if (!IsColliding[eid] && TargetSpeedMult[eid] > 1) {
-    TargetSpeedMult[eid] = Math.max(1, TargetSpeedMult[eid] - 0.0003 * DELTA_STUFF);
-  }
-
-  // ─── Move ────────────────────────────────────────────────────────────────
-  Position.x[eid] += Velocity.vx[eid] / 1000;
-  Position.y[eid] += Velocity.vy[eid] / 1000;
-
-  // Clamp rubber
-  Rubber[eid] = clamp(Rubber[eid], 0, BASE_RUBBER);
-}
 
 // ─── Turn execution ──────────────────────────────────────────────────────────
 
@@ -448,13 +297,17 @@ function _buildDetectionLines(eid: number, front: SharedLine, left: SharedLine, 
 
 /** Build obstacle lines from arena boundaries + all player trails except selfEid. */
 function _buildObstacleLinesExcluding(world: ECSGameWorld, selfEid: number): SharedLine[] {
-  const area = world.area;
-  const lines: SharedLine[] = [
-    new SharedLine(0, 0, area.width, 0),
-    new SharedLine(area.width, 0, area.width, area.height),
-    new SharedLine(area.width, area.height, 0, area.height),
-    new SharedLine(0, area.height, 0, 0),
-  ];
+  const lines: SharedLine[] = [];
+
+  const [arenaEid] = query(world, [Arena]);
+  if (arenaEid !== undefined) {
+    for (let i = 0; i < Lines.x1[arenaEid].length; i++) {
+      lines.push(new SharedLine(
+        Lines.x1[arenaEid][i], Lines.y1[arenaEid][i],
+        Lines.x2[arenaEid][i], Lines.y2[arenaEid][i]
+      ));
+    }
+  }
 
   for (const eid of Array.from(query(world, [Player]))) {
     if (eid === selfEid) continue;
@@ -472,22 +325,256 @@ function _buildObstacleLinesExcluding(world: ECSGameWorld, selfEid: number): Sha
   return lines;
 }
 
-// ─── Query helpers ───────────────────────────────────────────────────────────
+const MIN_COLOR_COMPONENT = 0x66;
 
-/** Return true if the entity is a player. */
-export function isPlayer(world: ECSGameWorld, eid: number): boolean {
-  return hasComponent(world, eid, Player);
+function generatePlayerColor(): number {
+  const r = MIN_COLOR_COMPONENT + Math.floor(Math.random() * (0x100 - MIN_COLOR_COMPONENT));
+  const g = MIN_COLOR_COMPONENT + Math.floor(Math.random() * (0x100 - MIN_COLOR_COMPONENT));
+  const b = MIN_COLOR_COMPONENT + Math.floor(Math.random() * (0x100 - MIN_COLOR_COMPONENT));
+  return (r << 16) | (g << 8) | b;
 }
 
-/** Return the eids of all player entities. */
-export function getAllPlayerEids(world: ECSGameWorld): number[] {
-  return Array.from(query(world, [Player]));
-}
+export default class PlayerSystem extends SystemSerializable {
+  readonly key = 'player';
 
-/** Get the entity id for a given player string id. Returns -1 if not found. */
-export function getPlayerEidByStringId(world: ECSGameWorld, stringId: string): number {
-  for (const eid of Array.from(query(world, [Player, PlayerId]))) {
-    if (PlayerId[eid] === stringId) return eid;
+  private playerTurnBuffer = new PlayerInputTickRingBuffer();
+  private _serializers = new Map<ECSGameWorld, ReturnType<typeof createSnapshotSerializer>>();
+  private _deserializers = new Map<ECSGameWorld, ReturnType<typeof createSnapshotDeserializer>>();
+
+  getComponents(): {}[] {
+    return PLAYER_COMPONENTS;
   }
-  return -1;
+
+  /** Return true if the entity is a player. */
+  static isPlayer(world: ECSGameWorld, eid: number): boolean {
+    return hasComponent(world, eid, Player);
+  }
+
+  /** Return the eids of all player entities. */
+  static getAllPlayerEids(world: ECSGameWorld): number[] {
+    return Array.from(query(world, [Player]));
+  }
+
+  /** Get the entity id for a given player string id. Returns -1 if not found. */
+  static getPlayerEidByStringId(world: ECSGameWorld, stringId: string): number {
+    for (const eid of Array.from(query(world, [Player, PlayerId]))) {
+      if (PlayerId[eid] === stringId) return eid;
+    }
+    return -1;
+  }
+
+  /** Add a new player entity and return its entity id. */
+  static createPlayer(world: ECSGameWorld, id: string): number {
+    const color = generatePlayerColor();
+    const eid = addEntity(world);
+    addComponents(world, eid, PLAYER_COMPONENTS);
+    PlayerId[eid] = id;
+    Color[eid] = color;
+
+    // Defaults for lifecycle flags
+    IsAlive[eid] = 0;
+    ShouldHandleDeath[eid] = 0;
+    IsSliding[eid] = 0;
+    IsColliding[eid] = 0;
+
+    // Empty trail
+    TrailPoints.xs[eid] = [];
+    TrailPoints.ys[eid] = [];
+    TrailPoints.dirs[eid] = [];
+
+    // Zero velocity
+    Velocity.vx[eid] = 0;
+    Velocity.vy[eid] = 0;
+
+    return eid;
+  }
+
+  static spawnPlayer(world: ECSGameWorld, playerId: string) {
+    logger.info('&&& Spawning player', playerId);
+
+    const eid = PlayerSystem.getPlayerEidByStringId(world, playerId);
+
+    const [arenaEid] = query(world, [Arena]);
+    const width = AreaWidth[arenaEid];
+    const height = AreaHeight[arenaEid];
+
+    const x = 100 + Math.random() * (width - 200);
+    const y = 100 + Math.random() * (height - 200);
+    const direction = Math.floor(Math.random() * 4) * (Math.PI / 2);
+    Position.x[eid] = x;
+    Position.y[eid] = y;
+    Direction[eid] = direction;
+    Rubber[eid] = BASE_RUBBER;
+    IsAlive[eid] = 1;
+    ShouldHandleDeath[eid] = 1;
+    TargetSpeedMult[eid] = 1;
+    IsSliding[eid] = 0;
+    IsColliding[eid] = 0;
+
+    _setSpeedAndVelocity(eid, 1, world.tickTimeMs);
+
+    // Single initial trail point at spawn location
+
+    TrailPoints.xs[eid] = [x];
+    TrailPoints.ys[eid] = [y];
+    TrailPoints.dirs[eid] = [direction];
+
+    logger.debug(PlayerId[eid], 'spawnPlayer()');
+  }
+
+  /** Immediately kill a player (zero speed, zero rubber, clear trail). */
+  static disablePlayer(eid: number): void {
+    SpeedMult[eid] = 0;
+    TargetSpeedMult[eid] = 0;
+    Velocity.vx[eid] = 0;
+    Velocity.vy[eid] = 0;
+    Rubber[eid] = 0;
+    IsAlive[eid] = 0;
+    ShouldHandleDeath[eid] = 0;
+    IsSliding[eid] = 0;
+    IsColliding[eid] = 0;
+    TrailPoints.xs[eid] = [];
+    TrailPoints.ys[eid] = [];
+    TrailPoints.dirs[eid] = [];
+  }
+
+  static removePlayerById(world: ECSGameWorld, playerId: string) {
+    let eid = this.getPlayerEidByStringId(world, playerId);
+    if (eid >= 0) {
+      removeEntity(world, eid);
+      logger.debug('--- Removed player', playerId);
+      return;
+    }
+    logger.warn(`${playerId} doesn't exist`);
+  }
+
+  update(world: ECSGameWorld): void {
+    for (const eid of Array.from(query(world, [Player]))) {
+      // Check for death
+      if (!IsAlive[eid] || Rubber[eid] <= 0) {
+        if (ShouldHandleDeath[eid]) {
+          PlayerSystem.disablePlayer(eid);
+        }
+        return;
+      }
+
+      // Process one turn (max one per tick)
+      const nextTurn = popTurn(world.turnQueues, eid);
+      if (nextTurn) {
+        executeTurn(eid, nextTurn.turn, world.tickTimeMs);
+      }
+
+      // Build detection rays
+      const sensorFront = new SharedLine();
+      const sensorLeft = new SharedLine();
+      const sensorRight = new SharedLine();
+      _buildDetectionLines(eid, sensorFront, sensorLeft, sensorRight);
+
+      // Combine obstacle lines with self-trail for collision check
+      const selfLines = getPlayerTrailLines(eid);
+      const obstacleLines = _buildObstacleLinesExcluding(world, eid);
+      const collisionLines = [...obstacleLines, ...selfLines];
+
+      // Find closest intersections
+      const pointFront = getClosestIntersectingPoint(sensorFront, collisionLines, Position.x[eid], Position.y[eid]);
+      const pointLeft = getClosestIntersectingPoint(sensorLeft, collisionLines, Position.x[eid], Position.y[eid]);
+      const pointRight = getClosestIntersectingPoint(sensorRight, collisionLines, Position.x[eid], Position.y[eid]);
+
+      const distFront = distanceBetween(Position.x[eid], Position.y[eid], pointFront.x, pointFront.y);
+      const distLeft = distanceBetween(Position.x[eid], Position.y[eid], pointLeft.x, pointLeft.y);
+      const distRight = distanceBetween(Position.x[eid], Position.y[eid], pointRight.x, pointRight.y);
+
+      // ─── Collision response ──────────────────────────────────────────────────
+      IsColliding[eid] = 0;
+
+      if (distFront < SLOW_DOWN_DISTANCE) {
+        IsColliding[eid] = 1;
+
+        const speedRatio = (distFront * distFront) / (SLOW_DOWN_DISTANCE * SLOW_DOWN_DISTANCE);
+        _setSpeedAndVelocity(eid, TargetSpeedMult[eid] * speedRatio, world.tickTimeMs);
+
+        // Drain rubber — faster at higher speeds
+        Rubber[eid] -= DELTA_STUFF * 0.03 * (2 + TargetSpeedMult[eid]) ** 2;
+      } else {
+        // Recover rubber toward BASE_RUBBER
+        if (Rubber[eid] < BASE_RUBBER) {
+          Rubber[eid] += 0.006 * DELTA_STUFF;
+        }
+        // Restore normal speed
+        _setSpeedAndVelocity(eid, TargetSpeedMult[eid], world.tickTimeMs);
+      }
+
+      // ─── Slide boost ─────────────────────────────────────────────────────────
+      IsSliding[eid] = 0;
+
+      if (distLeft < SLOW_DOWN_DISTANCE || distRight < SLOW_DOWN_DISTANCE) {
+        TargetSpeedMult[eid] *= Math.pow(1.003, DELTA_STUFF / 16.666);
+        IsSliding[eid] = 1;
+      } else if (!IsColliding[eid] && TargetSpeedMult[eid] > 1) {
+        TargetSpeedMult[eid] = Math.max(1, TargetSpeedMult[eid] - 0.0003 * DELTA_STUFF);
+      }
+
+      // ─── Move ────────────────────────────────────────────────────────────────
+      Position.x[eid] += Velocity.vx[eid] / 1000;
+      Position.y[eid] += Velocity.vy[eid] / 1000;
+
+      // Clamp rubber
+      Rubber[eid] = clamp(Rubber[eid], 0, BASE_RUBBER);
+    }
+  }
+
+  diff(worldA: ECSGameWorld, worldB: ECSGameWorld): number[] {
+    const worldAEntityByPlayerId = new Map<string, number>();
+    for (const eid of query(worldA, [Player, PlayerId])) {
+      worldAEntityByPlayerId.set(PlayerId[eid], eid);
+    }
+
+    const dirtyEids: number[] = [];
+    for (const eid of query(worldB, [Player, PlayerId])) {
+      const playerId = PlayerId[eid];
+      const eidA = worldAEntityByPlayerId.get(playerId);
+
+      if (
+        eidA === undefined ||
+        Position.x[eid] !== Position.x[eidA] ||
+        Position.y[eid] !== Position.y[eidA] ||
+        Direction[eid] !== Direction[eidA] ||
+        Velocity.vx[eid] !== Velocity.vx[eidA] ||
+        Velocity.vy[eid] !== Velocity.vy[eidA] ||
+        SpeedMult[eid] !== SpeedMult[eidA] ||
+        TargetSpeedMult[eid] !== TargetSpeedMult[eidA] ||
+        Rubber[eid] !== Rubber[eidA] ||
+        IsAlive[eid] !== IsAlive[eidA] ||
+        ShouldHandleDeath[eid] !== ShouldHandleDeath[eidA] ||
+        IsSliding[eid] !== IsSliding[eidA] ||
+        IsColliding[eid] !== IsColliding[eidA] ||
+        Color[eid] !== Color[eidA] ||
+        TrailPoints.xs[eid].length !== TrailPoints.xs[eidA].length ||
+        TrailPoints.ys[eid].length !== TrailPoints.ys[eidA].length ||
+        TrailPoints.dirs[eid].length !== TrailPoints.dirs[eidA].length
+      ) {
+        dirtyEids.push(eid);
+      }
+    }
+
+    return dirtyEids;
+  }
+
+  serialize(world: ECSGameWorld, eids: readonly number[]): ArrayBuffer {
+    let serializer = this._serializers.get(world);
+    if (!serializer) {
+      serializer = createSnapshotSerializer(world, PLAYER_COMPONENTS);
+      this._serializers.set(world, serializer);
+    }
+    return serializer(eids);
+  }
+
+  deserialize(world: ECSGameWorld, buffer: ArrayBuffer): Map<number, number> {
+    let deserializer = this._deserializers.get(world);
+    if (!deserializer) {
+      deserializer = createSnapshotDeserializer(world, PLAYER_COMPONENTS);
+      this._deserializers.set(world, deserializer);
+    }
+    return deserializer(buffer);
+  }
 }

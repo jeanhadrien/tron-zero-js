@@ -5,7 +5,7 @@ import GameRoom from '../../../shared/GameRoom';
 import DebugHud from '../gameobjects/DebugHud';
 import Player from '../../../shared/Player';
 import { GameEventBus } from '../../../shared/GameEventBus';
-import GameArea from '../../../shared/GameArea';
+import GameArea, { ECSGameAreaSystem } from '../../../shared/GameArea';
 import GameClock from '../../../shared/GameClock';
 import GameAreaRenderer from '../gameobjects/GameAreaRenderer';
 import AudioManager from '../gameobjects/AudioManager';
@@ -14,6 +14,8 @@ import { NetworkClient } from '../network/NetworkClient';
 import GameCamera from '../gameobjects/GameCamera';
 import { Logger } from '../../../shared/Logger';
 import { trace } from '@opentelemetry/api';
+import ECSGameRoom from '../../../shared/ECSGameRoom';
+import PlayerSystem from '../../../shared/ECSPlayerSystem';
 
 const logger = new Logger('Game');
 const tracer = trace.getTracer('tron-zero-client');
@@ -33,7 +35,7 @@ export class GameScene extends Scene {
   humanPlayer: Player | null = null;
 
   gameClock: GameClock;
-  gameRoom: GameRoom;
+  gameRoom: ECSGameRoom;
 
   debugHud: DebugHud;
   gameArea: GameArea;
@@ -56,9 +58,10 @@ export class GameScene extends Scene {
     let bus = new GameEventBus();
     this.gameArea = new GameArea();
     this.gameClock = new GameClock();
-    this.gameRoom = new GameRoom(bus, this.gameArea, this.gameClock);
+    // this.gameRoom = new GameRoom(bus, this.gameArea, this.gameClock);
     this.debugHud = new DebugHud(this);
     this.audioManager = new AudioManager(this);
+    this.gameRoom = new ECSGameRoom(new GameEventBus(), new GameArea(), new GameClock(), [new PlayerSystem(), new ECSGameAreaSystem()]);
 
     this.gameAreaRenderer = new GameAreaRenderer(this, this.gameArea);
     this.networkClient = new NetworkClient(bus, this.gameRoom, this.gameClock);
@@ -126,9 +129,7 @@ export class GameScene extends Scene {
     });
 
     // Add space key for restart
-    this.spaceKey = this.input.keyboard!.addKey(
-      Phaser.Input.Keyboard.KeyCodes.SPACE
-    );
+    this.spaceKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
 
     const keyMappings = {
       Q: 'left',
@@ -142,8 +143,7 @@ export class GameScene extends Scene {
     };
 
     this.gameRoom.playerEventBus.on('player_turn', (pState, pTurnPoint) => {
-      if (pState.id == this.humanPlayer?.id)
-        this.networkClient.sendTurn(pTurnPoint.serialize());
+      if (pState.id == this.humanPlayer?.id) this.networkClient.sendTurn(pTurnPoint.serialize());
     });
 
     // Bind key down events to controls
@@ -167,10 +167,7 @@ export class GameScene extends Scene {
   setupSocket() {
     this.networkClient.onInitState = (humanPlayer, allPlayers) => {
       for (const player of allPlayers) {
-        this.playerRenderers.set(
-          player.id,
-          new PlayerRenderer(this, this.audioManager)
-        );
+        this.playerRenderers.set(player.id, new PlayerRenderer(this, this.audioManager));
       }
 
       if (humanPlayer) {
@@ -241,21 +238,14 @@ export class GameScene extends Scene {
     }
 
     if (this.humanPlayer) {
-      const humanPos = this.gameRoom.getRenderPosition(
-        this.humanPlayer.id,
-        alpha
-      );
+      const humanPos = this.gameRoom.getRenderPosition(this.humanPlayer.id, alpha);
       if (humanPos) {
         this.gameCamera.update(humanPos.x, humanPos.y);
       }
     }
 
     // Handle death
-    if (
-      this.humanPlayer &&
-      this.humanPlayer.rubber <= 0 &&
-      this.humanPlayer.isAlive
-    ) {
+    if (this.humanPlayer && this.humanPlayer.rubber <= 0 && this.humanPlayer.isAlive) {
       EventBus.emit('game-over', 'ai');
     }
 
