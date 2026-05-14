@@ -1,10 +1,3 @@
----
-name: core-game-mechanics
-description: Game mechanics design document. Use when touching gameplay, collisions, trails.
-license: MIT
-compatibility: opencode
----
-
 # Game Mechanics Design Document
 
 This document outlines the core game mechanics. These should be respected at all times.

@@ -11,15 +11,9 @@ const MIN_COLOR_COMPONENT = 0x66;
 const logger = new Logger('GameRoom');
 
 function generatePlayerColor(): number {
-  const r =
-    MIN_COLOR_COMPONENT +
-    Math.floor(Math.random() * (0x100 - MIN_COLOR_COMPONENT));
-  const g =
-    MIN_COLOR_COMPONENT +
-    Math.floor(Math.random() * (0x100 - MIN_COLOR_COMPONENT));
-  const b =
-    MIN_COLOR_COMPONENT +
-    Math.floor(Math.random() * (0x100 - MIN_COLOR_COMPONENT));
+  const r = MIN_COLOR_COMPONENT + Math.floor(Math.random() * (0x100 - MIN_COLOR_COMPONENT));
+  const g = MIN_COLOR_COMPONENT + Math.floor(Math.random() * (0x100 - MIN_COLOR_COMPONENT));
+  const b = MIN_COLOR_COMPONENT + Math.floor(Math.random() * (0x100 - MIN_COLOR_COMPONENT));
   return (r << 16) | (g << 8) | b;
 }
 
@@ -44,10 +38,7 @@ export default class GameRoom {
     return p.activeState;
   }
 
-  getRenderPosition(
-    id: string,
-    alpha: number
-  ): { x: number; y: number } | null {
+  getRenderPosition(id: string, alpha: number): { x: number; y: number } | null {
     const m = this.playerManagers.get(id);
     if (!m) return null;
     return m.getInterpolatedRenderPosition(alpha);
@@ -67,11 +58,7 @@ export default class GameRoom {
 
   registerPlayer(player: Player): Player {
     logger.info('+++ Register player', player.id);
-    const manager = new PlayerStateManager(
-      player,
-      this.gameClock,
-      this.gameArea
-    );
+    const manager = new PlayerStateManager(player, this.gameClock, this.gameArea);
     this.playerManagers.set(player.id, manager);
     this.gameEventBus.emit('game_add_player', player);
     return player;

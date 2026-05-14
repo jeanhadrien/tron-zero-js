@@ -1,10 +1,3 @@
----
-name: netcode-design
-description: Netcode reference document. Use when touching the netcode.
-license: MIT
-compatibility: opencode
----
-
 # Network & Simulation Architecture (Netcode)
 
 ## 1. Core Philosophy
