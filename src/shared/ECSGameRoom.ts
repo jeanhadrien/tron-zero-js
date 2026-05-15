@@ -4,9 +4,11 @@ import GameClock from './GameClock';
 import { PlayerEventBus } from './PlayerStateEventBus';
 
 import { createWorld, createEntityIndex, resetWorld } from 'bitecs';
+import { createSnapshotSerializer, createSnapshotDeserializer } from 'bitecs/serialization';
+
+const SNAPSHOT_BUFFER_SIZE = 1024 * 1024 * 5; //  avoids 100MB default in bitecs that kills perf via slice()
 import { ECSGameWorld } from './ECSGameWorld';
 import { WorldStateTickRingBuffer } from './WorldStateBuffer';
-import { createSnapshotDeserializer, createSnapshotSerializer } from 'bitecs/serialization';
 import { System, SystemDiffPayload, SystemSerializable } from './ECSSystem';
 import { PlayerInput } from './PlayerInput';
 import { PlayerInputTickRingBuffer } from './PlayerInputBuffer';
@@ -59,7 +61,11 @@ export default class ECSGameRoom {
       this.worldEntityIndex
     );
     this.worldComponents = systems.flatMap((s) => s.getComponents());
-    this.worldSnapshotSerializer = createSnapshotSerializer(this.world, this.worldComponents);
+    this.worldSnapshotSerializer = createSnapshotSerializer(
+      this.world,
+      this.worldComponents,
+      new ArrayBuffer(SNAPSHOT_BUFFER_SIZE)
+    );
     this.worldSnapshotDeserializer = createSnapshotDeserializer(this.world, this.worldComponents);
 
     this.cursorWorld = createWorld(
@@ -69,13 +75,36 @@ export default class ECSGameRoom {
       },
       this.worldEntityIndex
     );
-    this.cursorSnapshotSerializer = createSnapshotSerializer(this.cursorWorld, this.worldComponents);
+    this.cursorSnapshotSerializer = createSnapshotSerializer(
+      this.cursorWorld,
+      this.worldComponents,
+      new ArrayBuffer(SNAPSHOT_BUFFER_SIZE)
+    );
     this.cursorSnapshotDeserializer = createSnapshotDeserializer(this.cursorWorld, this.worldComponents);
 
     // Initialize all systems before anything else runs
     for (const sys of this.systems) {
       sys.init?.(this.world);
     }
+  }
+
+  /** Replace the current world with a server-provided full snapshot.
+   *  Resets the world, then deserializes the buffer. Sets world.tick to the
+   *  given tick without advancing the game clock (caller should also
+   *  gameClock.setTick(tick) to keep them in sync). */
+  initFromSnapshot(tick: number, buffer: ArrayBuffer): void {
+    resetWorld(this.world);
+    this.worldSnapshotDeserializer(buffer);
+    this.world.tick = tick;
+
+    // The old serializer/deserializer captured references to component stores
+    // that are still valid, but we rebuild them to be safe.
+    this.worldSnapshotSerializer = createSnapshotSerializer(
+      this.world,
+      this.worldComponents,
+      new ArrayBuffer(SNAPSHOT_BUFFER_SIZE)
+    );
+    this.worldSnapshotDeserializer = createSnapshotDeserializer(this.world, this.worldComponents);
   }
 
   onDelta(handler: (deltas: SystemDiffPayload[]) => void): void {
@@ -112,11 +141,19 @@ export default class ECSGameRoom {
   updateFixed(deltaTime: number): void {
     if (this.pendingResimTick !== null) {
       this.resimulateForwardFrom(this.pendingResimTick);
+      console.log('resim', this.world.tick - this.pendingResimTick);
       this.pendingResimTick = null;
+      // Prevent death spiral: sync game clock with world tick after resimulation
+      // so the time spent resimulating doesn't compound into extra tick processing.
+      // Without this, gameClock.tick falls behind world.tick during resim, and
+      // the next gameClock.update(deltaTime) produces too many catch-up ticks,
+      // widening the gap for the next input that arrives from the client.
+      this.gameClock.setTick(this.world.tick);
+      this.gameClock.resetAccumulator();
     }
 
     const ticksToProcess = this.gameClock.update(deltaTime);
-    for (let index = -1; index < ticksToProcess; index++) {
+    for (let index = 0; index < ticksToProcess; index++) {
       this.update(this.world);
       this.worldBuffer.record(this.world.tick, this.worldSnapshotSerializer());
     }

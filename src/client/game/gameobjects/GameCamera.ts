@@ -1,5 +1,4 @@
 import { Scene } from 'phaser';
-import Player from '../../../shared/Player';
 import GameArea from '../../../shared/GameArea';
 import { EventBus } from '../EventBus';
 import AudioManager from './AudioManager';
@@ -11,7 +10,7 @@ export default class GameCamera {
 
   public PLAYER_VIEW_WIDTH: number = 800;
   public isCameraFollowing: boolean = true;
-  private humanPlayer: Player | null = null;
+  private humanPlayer: { x: number; y: number } | null = null;
   private lastX: number = 0;
   private lastY: number = 0;
 
@@ -25,12 +24,12 @@ export default class GameCamera {
       this.updateCameraView();
     });
 
-    this.scene.scale.on('resize', (gameSize: Phaser.Structs.Size) => {
+    this.scene.scale.on('resize', () => {
       this.updateCameraView();
     });
   }
 
-  setHumanPlayer(player: Player | null) {
+  setHumanPlayer(player: { x: number; y: number } | null) {
     this.humanPlayer = player;
     this.updateCameraView();
   }

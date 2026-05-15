@@ -1,6 +1,17 @@
 import { GameObjects } from 'phaser';
-import Player from '../../../shared/Player';
 import AudioManager, { EngineSound } from './AudioManager';
+
+interface PlayerLike {
+  id: string;
+  isAlive: boolean;
+  direction: number;
+  color: number;
+  x: number;
+  y: number;
+  speedMult: number;
+  rubber: number;
+  trail: { getPoints(): readonly { coordinates: { x: number; y: number }; direction: number; tick: number }[] };
+}
 
 export default class PlayerRenderer extends Phaser.GameObjects.Image {
   driverGraphics: GameObjects.Graphics;
@@ -54,7 +65,7 @@ export default class PlayerRenderer extends Phaser.GameObjects.Image {
     super.destroy(fromScene);
   }
 
-  private _drawAt(player: Player, renderX: number, renderY: number) {
+  private _drawAt(player: PlayerLike, renderX: number, renderY: number) {
     if (!player.isAlive) {
       this.driverGraphics.setVisible(false);
       this.activeTrailGraphics.clear();
@@ -132,7 +143,7 @@ export default class PlayerRenderer extends Phaser.GameObjects.Image {
     this.staticTrailGraphics.strokePath();
   }
 
-  renderInterpolated(player: Player, renderX: number, renderY: number) {
+  renderInterpolated(player: PlayerLike, renderX: number, renderY: number) {
     this._drawAt(player, renderX, renderY);
     this.engineSound?.update(renderX, renderY, player.speedMult);
   }

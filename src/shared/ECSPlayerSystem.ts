@@ -12,14 +12,13 @@ import { SharedLine, lineToLineIntersection, distanceBetween, clamp, aabbOverlap
 import { Arena, AreaWidth, AreaHeight, Lines } from './GameArea';
 import { Logger } from './Logger';
 import { ECSGameWorld } from './ECSGameWorld';
-import { System, SystemSerializable } from './ECSSystem';
+import { SystemSerializable } from './ECSSystem';
 
 const logger = new Logger('PlayerSystem');
 
 // ─── Constants (mirroring Player statics) ────────────────────────────────────
 const ROTATION_ANGLE = Math.PI / 2;
 const BASE_SPEED = 150;
-const MAX_SPEED = 500;
 const BASE_RUBBER = 30;
 const EPSILON = 1e-12;
 const SLOW_DOWN_DISTANCE = 10;
@@ -28,52 +27,52 @@ const DELTA_STUFF = 12;
 // ─── Components (SoA, typed for bitECS serialization) ────────────────────────
 
 /** GameWorld-space position */
-const Position = { x: f32([]), y: f32([]) };
+export const Position = { x: f32([]), y: f32([]) };
 
 /** Per-tick velocity (x, y movement per tick × 1000) */
-const Velocity = { vx: f32([]), vy: f32([]) };
+export const Velocity = { vx: f32([]), vy: f32([]) };
 
 /** Heading in radians (must be multiple of PI/2) */
-const Direction = f32([]);
+export const Direction = f32([]);
 
 /** Current speed multiplier */
-const SpeedMult = f32([]);
+export const SpeedMult = f32([]);
 
 /** Desired / target speed multiplier (drifts toward 1 when not sliding) */
-const TargetSpeedMult = f32([]);
+export const TargetSpeedMult = f32([]);
 
 /** Rubber resource (0 = death) */
-const Rubber = f32([]);
+export const Rubber = f32([]);
 
 /** Whether the player is alive (1 = alive, 0 = dead) */
-const IsAlive = u8([]);
+export const IsAlive = u8([]);
 
 /** Flag to prevent death handling from firing more than once */
-const ShouldHandleDeath = u8([]);
+export const ShouldHandleDeath = u8([]);
 
 /** Whether the player is currently sliding near a wall */
-const IsSliding = u8([]);
+export const IsSliding = u8([]);
 
 /** Whether the front sensor is inside the slow-down zone */
-const IsColliding = u8([]);
+export const IsColliding = u8([]);
 
 /** Player colour as 24-bit RGB integer */
-const Color = u32([]);
+export const Color = u32([]);
 
 /** Human-readable player id (string) */
-const PlayerId = str([]);
+export const PlayerId = str([]);
 
 /** Trail points stored as parallel SoA arrays per entity.
  *  TrailPoints.ticks[eid] is a number[], TrailPoints.xs[eid] is a number[], etc.
  *  All arrays for a given entity have the same length. */
-const TrailPoints = {
+export const TrailPoints = {
   xs: array(f32),
   ys: array(f32),
   dirs: array(f32),
 };
 
 /** Marker component — every player entity MUST have this tag */
-const Player = {};
+export const Player = {};
 
 /** All components that the snapshot serializer needs to capture.
  *  Used by createPlayerSnapshotSerializer / createPlayerSnapshotDeserializer. */
@@ -312,6 +311,14 @@ export default class PlayerSystem extends SystemSerializable {
     IsSliding[eid] = 0;
     IsColliding[eid] = 0;
 
+    // Position defaults (set to origin; spawnPlayer will place properly)
+    Position.x[eid] = 0;
+    Position.y[eid] = 0;
+    Direction[eid] = 0;
+    Rubber[eid] = BASE_RUBBER;
+    TargetSpeedMult[eid] = 1;
+    SpeedMult[eid] = 0;
+
     // Empty trail
     TrailPoints.xs[eid] = [];
     TrailPoints.ys[eid] = [];
@@ -392,9 +399,6 @@ export default class PlayerSystem extends SystemSerializable {
 
   update(world: ECSGameWorld, getInput?: (entityId: string) => any): void {
     for (const eid of Array.from(query(world, [Player]))) {
-      console.log(IsAlive[eid]);
-      console.log(Position.x[eid], Position.y[eid]);
-
       // Check for death
       if (!IsAlive[eid] || Rubber[eid] <= 0) {
         if (ShouldHandleDeath[eid]) {

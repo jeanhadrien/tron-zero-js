@@ -2,10 +2,10 @@ import geckos, { ClientChannel } from '@geckos.io/client';
 import { trace } from '@opentelemetry/api';
 import { GameEventBus } from '../../../shared/GameEventBus';
 import GameClock from '../../../shared/GameClock';
-import Player, { PlayerDTO } from '../../../shared/Player';
-import { TickRingBuffer } from '../../../shared/TickRingBuffer';
 import { Logger } from '../../../shared/Logger';
 import ECSGameRoom from '../../../shared/ECSGameRoom';
+import PlayerSystem from '../../../shared/ECSPlayerSystem';
+import { ECSPlayerAdapter } from '../ECSPlayerAdapter';
 
 const logger = new Logger('NET');
 const tracer = trace.getTracer('tron-zero-client');
@@ -15,23 +15,17 @@ export class NetworkClient {
   bus: GameEventBus;
   gameRoom: ECSGameRoom;
   gameClock: GameClock;
-  tickOffsetToCatchServer: number = 0;
   aheadTickCount: number = 1;
-  turnBuffer = new TickRingBuffer<{ tick: number; turn: 'left' | 'right' }>(128);
-  private lastAckedTurnTick: number = -1;
+  humanPlayerId: string | null = null;
   private smoothedOneWayTime: number = 0;
-  private hasRttMeasurement: boolean = false;
   private static readonly RTT_SMOOTHING_ALPHA = 0.2;
 
-  // We need to emit some events back to the scene, or just handle gameRoom updates here.
-  // For pure separation without logic changes, we'll keep the exact same logic
-  // but move it here. We'll need a way to notify the scene about humanPlayer, etc.
-  onInitState?: (humanPlayer: Player | null, allPlayers: Player[]) => void;
-  onPlayerJoined?: (player: Player) => void;
+  onInitState?: (humanPlayer: ECSPlayerAdapter | null, allPlayers: ECSPlayerAdapter[]) => void;
+  onPlayerJoined?: (player: ECSPlayerAdapter) => void;
   onPlayerLeft?: (playerId: string) => void;
-  onPlayerTurn?: (player: Player) => void; // for sound
-  onPlayerDeath?: (player: Player) => void;
-  onPlayerSpawn?: (player: Player) => void;
+  onPlayerTurn?: (player: ECSPlayerAdapter) => void;
+  onPlayerDeath?: (player: ECSPlayerAdapter) => void;
+  onPlayerSpawn?: (player: ECSPlayerAdapter) => void;
 
   constructor(bus: GameEventBus, gameRoom: ECSGameRoom, gameClock: GameClock) {
     this.bus = bus;
@@ -39,10 +33,16 @@ export class NetworkClient {
     this.gameClock = gameClock;
   }
 
-  private logSync(tick: number | string, eventName: string, ...args: any[]) {
+  private logSync(tick: number | string, eventName: string, ..._args: any[]) {
     const tickStr = String(tick).padStart(8, ' ');
     const eventStr = eventName.padEnd(15, ' ');
     logger.info(`[SYNC] tick: ${tickStr} | event: ${eventStr} |`);
+  }
+
+  private buildPlayerAdapters(): ECSPlayerAdapter[] {
+    const world = this.gameRoom.world;
+    const eids = PlayerSystem.getAllPlayerEids(world);
+    return eids.map((eid) => new ECSPlayerAdapter(eid, world));
   }
 
   connect() {
@@ -63,6 +63,7 @@ export class NetworkClient {
         return;
       }
       logger.info('Connected to server with ID:', this.channel.id);
+      this.humanPlayerId = this.channel.id!;
 
       this.channel.emit('ping', performance.now());
     });
@@ -78,45 +79,39 @@ export class NetworkClient {
       const pingDifferenceTime = performance.now() - oldTime;
       const oneWayTime = pingDifferenceTime / 2;
 
-      this.tickOffsetToCatchServer = Math.ceil(oneWayTime / this.gameClock.tickTimeMs);
+      this.smoothedOneWayTime =
+        this.smoothedOneWayTime === 0
+          ? oneWayTime
+          : this.smoothedOneWayTime * (1 - NetworkClient.RTT_SMOOTHING_ALPHA) +
+            oneWayTime * NetworkClient.RTT_SMOOTHING_ALPHA;
+
       logger.warn(
         this.gameClock.tick,
         'pong',
-        `RTT: ${pingDifferenceTime.toFixed(2)}ms, One-way: ${oneWayTime.toFixed(2)}ms,  Tick Offset: ${this.tickOffsetToCatchServer}`
+        `RTT: ${pingDifferenceTime.toFixed(2)}ms, One-way: ${oneWayTime.toFixed(2)}ms`
       );
     });
 
-    this.channel.on('init_state', (data: any) => {
-      const [_serverTick, _playerStateDTOList]: [number, PlayerDTO[]] = data;
+    // Receive init_state as raw binary: [tick:u32][worldSnapshot:bytes]
+    this.channel.onRaw((raw: any) => {
+      const tick = new DataView(raw, 0, 4).getUint32(0);
+      const worldSnapshot = raw.slice(4);
 
       const initSpan = tracer.startSpan('init_state');
-      initSpan.setAttribute('tick', _serverTick);
-      initSpan.setAttribute('player_count', _playerStateDTOList.length);
+      initSpan.setAttribute('tick', tick);
 
-      this.logSync(_serverTick, 'init_state', data);
+      this.logSync(tick, 'init_state');
 
-      const expectedClientTick = _serverTick + this.tickOffsetToCatchServer + this.aheadTickCount;
+      // Initialize local ECS world from the server snapshot
+      this.gameRoom.initFromSnapshot(tick, worldSnapshot);
+      this.gameClock.setTick(tick);
 
-      this.gameClock.setTick(expectedClientTick);
-
-      this.gameRoom.playerManagers.clear();
-
-      let humanPlayer: Player | null = null;
-
-      let allPlayers: Player[] = [];
-
-      // Recreate from state
-      for (const _playerStateDTO of _playerStateDTOList) {
-        const p = new Player(this.gameRoom.playerEventBus, this.gameClock.tick, 0, 0, 0, 0);
-        p.load(_playerStateDTO);
-
-        this.gameRoom.registerPlayer(p);
-        allPlayers.push(p);
-
-        if (_playerStateDTO.id === this.channel.id) {
-          humanPlayer = p;
-        }
-      }
+      // Build adapters for all player entities in the snapshot
+      const allPlayers = this.buildPlayerAdapters();
+      const humanEid = this.humanPlayerId
+        ? PlayerSystem.getPlayerEidByStringId(this.gameRoom.world, this.humanPlayerId)
+        : -1;
+      const humanPlayer = humanEid >= 0 ? (allPlayers.find((p) => p.eid === humanEid) ?? null) : null;
 
       if (this.onInitState) {
         this.onInitState(humanPlayer, allPlayers);
@@ -125,160 +120,78 @@ export class NetworkClient {
       initSpan.end();
     });
 
-    this.channel.on('sync_state', (data: any) => {
-      const [_serverTick, _playerId, _playerStateDTO]: [number, string, PlayerDTO] = data;
+    // sync_state disabled for MVP (server delta broadcast is also disabled)
+    // this.channel.on('sync_state', ...)
 
-      const syncSpan = tracer.startSpan('sync_state');
-      syncSpan.setAttribute('tick', _serverTick);
-
-      this.logSync(_serverTick, 'sync_state', data);
-
-      this.lastAckedTurnTick = Math.max(this.lastAckedTurnTick, _serverTick - 1);
-
-      const expectedClientTick = _serverTick + this.tickOffsetToCatchServer + this.aheadTickCount;
-      const drift = expectedClientTick - this.gameClock.tick;
-
-      if (drift !== 0) {
-        syncSpan.setAttribute('drift_ticks', drift);
-        logger.warn(`[Desync] Local clock late by ${drift} ticks. Snapping to expected tick.`);
-        this.gameClock.setTick(expectedClientTick);
-        this.gameClock.resetAccumulator();
-
-        const allManagers = Array.from(this.gameRoom.playerManagers.values());
-        const manager = this.gameRoom.playerManagers.get(_playerId);
-        if (manager) {
-          manager.activeState.currentTick = this.gameClock.tick;
-
-          manager.fastForwardFromPastState(_playerStateDTO, _serverTick, this.gameClock, this.gameRoom.gameArea, allManagers);
-        }
-        syncSpan.end();
-        return;
-      }
-
-      syncSpan.end();
-    });
-
-    this.channel.on('game_add_player', (data: any) => {
-      const [id, pStateDTO] = data;
-      this.logSync(this.gameClock.tick, 'game_add_player', data);
-      if (!this.gameRoom.playerManagers.has(id)) {
-        const pState = new Player(
-          this.gameRoom.playerEventBus,
-          this.gameClock.tick,
-          pStateDTO.x,
-          pStateDTO.y,
-          pStateDTO.direction,
-          pStateDTO.color
-        );
-        pState.load(pStateDTO);
-
-        const player = this.gameRoom.registerPlayer(pState);
+    this.channel.on('game_add_player', (raw: any) => {
+      const [id] = raw as [string];
+      this.logSync(this.gameClock.tick, 'game_add_player', raw);
+      const eid = PlayerSystem.getPlayerEidByStringId(this.gameRoom.world, id);
+      if (eid >= 0) {
+        const adapter = new ECSPlayerAdapter(eid, this.gameRoom.world);
         if (this.onPlayerJoined) {
-          this.onPlayerJoined(player);
+          this.onPlayerJoined(adapter);
         }
       }
     });
 
-    this.channel.on('game_remove_player', (data: any) => {
-      const [id] = data;
+    this.channel.on('game_remove_player', (raw: any) => {
+      const [id] = raw as [string];
       this.logSync(this.gameClock.tick, 'game_remove_player', id);
-      this.gameRoom.removePlayerById(id);
       if (this.onPlayerLeft) {
         this.onPlayerLeft(id);
       }
     });
 
-    this.channel.on('player_turn', (data: any) => {
-      const [id, turnPointDTO] = data;
-      this.logSync(turnPointDTO.tick || this.gameClock.tick, 'player_turn', data);
-
-      const turnSpan = tracer.startSpan('player.turn.receive');
-      turnSpan.setAttribute('player.id', id);
-      turnSpan.setAttribute('tick', turnPointDTO.tick);
-
-      // If it's our own turn coming back from the server, ack it
-      if (id === this.channel.id) {
-        this.lastAckedTurnTick = Math.max(this.lastAckedTurnTick, turnPointDTO.tick);
-      }
-
-      const manager = this.gameRoom.playerManagers.get(id);
-      if (!manager) throw new Error("can't handle turn");
-      const turnPoint = PlayerPoint.fromDto(turnPointDTO);
-
-      // Use the newly standard reconcileTurns
-      const allManagers = Array.from(this.gameRoom.playerManagers.values());
-      manager.reconcileTurns([turnPoint], allManagers);
-
-      turnSpan.end();
-
-      if (this.onPlayerTurn) {
-        this.onPlayerTurn(manager.activeState);
+    this.channel.on('player_turn', (raw: any) => {
+      const [id] = raw as [string];
+      this.logSync(this.gameClock.tick, 'player_turn', raw);
+      const eid = PlayerSystem.getPlayerEidByStringId(this.gameRoom.world, id);
+      if (eid >= 0) {
+        const adapter = new ECSPlayerAdapter(eid, this.gameRoom.world);
+        if (this.onPlayerTurn) {
+          this.onPlayerTurn(adapter);
+        }
       }
     });
 
-    this.channel.on('player_death', (data: any) => {
-      const [id]: [string] = data;
-      this.logSync(this.gameClock.tick, 'player_death', data);
-
-      const player = this.gameRoom.getPlayer(id);
-
-      if (player) {
-        player.disable();
+    this.channel.on('player_death', (raw: any) => {
+      const [id] = raw as [string];
+      this.logSync(this.gameClock.tick, 'player_death', raw);
+      const eid = PlayerSystem.getPlayerEidByStringId(this.gameRoom.world, id);
+      if (eid >= 0) {
+        const adapter = new ECSPlayerAdapter(eid, this.gameRoom.world);
         if (this.onPlayerDeath) {
-          this.onPlayerDeath(player);
+          this.onPlayerDeath(adapter);
         }
-      } else {
-        throw new Error();
       }
     });
 
-    this.channel.on('player_spawn', (data: any) => {
-      const [id, pState]: [string, PlayerDTO] = data;
-      this.logSync(this.gameClock.tick, 'player_spawn', data);
-
-      const player = this.gameRoom.getPlayer(id);
-      if (player) {
-        player.load(pState);
-        const manager = this.gameRoom.playerManagers.get(id);
-        if (manager) {
-          manager.history.clear();
-          manager.knownPlayerPoints = new TickRingBuffer<PlayerPoint>(128);
-          manager.previousState = null;
-          manager.correctionTarget = null;
-        }
+    this.channel.on('player_spawn', (raw: any) => {
+      const [id] = raw as [string];
+      this.logSync(this.gameClock.tick, 'player_spawn', raw);
+      const eid = PlayerSystem.getPlayerEidByStringId(this.gameRoom.world, id);
+      if (eid >= 0) {
+        const adapter = new ECSPlayerAdapter(eid, this.gameRoom.world);
         if (this.onPlayerSpawn) {
-          this.onPlayerSpawn(player);
+          this.onPlayerSpawn(adapter);
         }
-      } else {
-        throw new Error();
       }
     });
   }
 
   sendTurn(tick: number, direction: 'left' | 'right') {
     if (this.channel) {
-      const entry = { tick, turn: direction };
-      this.turnBuffer.record(tick, 'self', entry);
-
       const turnSpan = tracer.startSpan('player.turn.send');
       turnSpan.setAttribute('tick', tick);
 
-      const unacked = this.turnBuffer.getUnacked(this.lastAckedTurnTick, 'self');
-      const seenTicks = new Set<number>();
-      const toSend: { tick: number; turn: 'left' | 'right' }[] = [];
-      for (const entry of unacked) {
-        if (entry !== null && !seenTicks.has(entry.tick)) {
-          seenTicks.add(entry.tick);
-          toSend.push(entry);
-        }
+      // Add input to local simulation
+      if (this.humanPlayerId) {
+        this.gameRoom.addInput(tick, this.humanPlayerId, { turn: direction, break: false });
       }
 
-      turnSpan.setAttribute('buffer_size', toSend.length);
-
-      this.logSync(tick, 'client_turn', toSend);
-      this.channel.emit('client_turn', toSend, {
-        reliable: false,
-      });
+      this.logSync(tick, 'client_turn', { tick, turn: direction });
+      this.channel.emit('client_turn', { tick, turn: direction }, { reliable: false });
 
       turnSpan.end();
     }
@@ -287,7 +200,7 @@ export class NetworkClient {
   sendRespawn() {
     if (this.channel) {
       this.logSync(this.gameClock.tick, 'respawn');
-      this.channel.emit('respawn', undefined, { reliable: true });
+      this.channel.emit('respawn', [this.gameClock.tick], { reliable: true });
     }
   }
 }

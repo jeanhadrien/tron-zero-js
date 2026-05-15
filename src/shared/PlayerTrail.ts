@@ -1,4 +1,4 @@
-import Player, { EPSILON } from './Player';
+import Player from './Player';
 import { PlayerPoint } from './PlayerPoint';
 import PlayerTrailDTO from './PlayerTrailDTO';
 import { Logger } from './Logger';

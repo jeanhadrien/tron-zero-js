@@ -20,8 +20,11 @@ export default defineConfig({
     ],
     logLevel: 'error',
     build: {
+        target: 'esnext',
+        cssMinify: true,
         minify: 'terser',
         terserOptions: {
+            ecma: 2020,
             compress: {
                 passes: 2,
                 drop_console: process.env.DROP_CONSOLE === 'true'
@@ -30,7 +33,8 @@ export default defineConfig({
             format: {
                 comments: false
             }
-        }
+        },
+        reportCompressedSize: false,
     }
 });
 

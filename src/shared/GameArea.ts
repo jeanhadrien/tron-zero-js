@@ -1,6 +1,6 @@
 import { array, f32 } from 'bitecs/serialization';
 import { ECSGameWorld } from './ECSGameWorld';
-import { addComponent, addComponents, addEntity } from 'bitecs';
+import { addComponents, addEntity } from 'bitecs';
 import { GetInput, System } from './ECSSystem';
 
 export default class GameArea {

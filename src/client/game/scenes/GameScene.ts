@@ -1,9 +1,7 @@
 import { Scene } from 'phaser';
 import { EventBus } from '../EventBus';
 import PlayerRenderer from '../gameobjects/PlayerRenderer';
-import GameRoom from '../../../shared/GameRoom';
 import DebugHud from '../gameobjects/DebugHud';
-import Player from '../../../shared/Player';
 import { GameEventBus } from '../../../shared/GameEventBus';
 import GameArea, { ECSGameAreaSystem } from '../../../shared/GameArea';
 import GameClock from '../../../shared/GameClock';
@@ -16,6 +14,7 @@ import { Logger } from '../../../shared/Logger';
 import { trace } from '@opentelemetry/api';
 import ECSGameRoom from '../../../shared/ECSGameRoom';
 import PlayerSystem from '../../../shared/ECSPlayerSystem';
+import { ECSPlayerAdapter } from '../ECSPlayerAdapter';
 
 const logger = new Logger('Game');
 const tracer = trace.getTracer('tron-zero-client');
@@ -32,7 +31,7 @@ export class GameScene extends Scene {
 
   playerRenderers: Map<string, PlayerRenderer> = new Map();
 
-  humanPlayer: Player | null = null;
+  humanPlayer: ECSPlayerAdapter | null = null;
 
   gameClock: GameClock;
   gameRoom: ECSGameRoom;
@@ -58,10 +57,9 @@ export class GameScene extends Scene {
     let bus = new GameEventBus();
     this.gameArea = new GameArea();
     this.gameClock = new GameClock();
-    // this.gameRoom = new GameRoom(bus, this.gameArea, this.gameClock);
     this.debugHud = new DebugHud(this);
     this.audioManager = new AudioManager(this);
-    this.gameRoom = new ECSGameRoom(new GameEventBus(), new GameArea(), new GameClock(), [new PlayerSystem(), new ECSGameAreaSystem()]);
+    this.gameRoom = new ECSGameRoom(new GameEventBus(), this.gameClock, [new ECSGameAreaSystem(), new PlayerSystem()]);
 
     this.gameAreaRenderer = new GameAreaRenderer(this, this.gameArea);
     this.networkClient = new NetworkClient(bus, this.gameRoom, this.gameClock);
@@ -144,12 +142,11 @@ export class GameScene extends Scene {
 
     // Bind key down events to controls
     Object.entries(keyMappings).forEach(([key, direction]) => {
-        this.input.keyboard?.on(`keydown-${key}`, () => {
+      this.input.keyboard?.on(`keydown-${key}`, () => {
         if (!this.isKeyDown[key]) {
           this.isKeyDown[key] = true;
           if (this.humanPlayer) {
-            this.humanPlayer.queueTurn(direction, this.gameClock.tick);
-            this.networkClient.sendTurn(this.gameClock.tick, direction as 'left' | 'right');
+            this.networkClient.sendTurn(this.gameRoom.world.tick + 1, direction as 'left' | 'right');
           }
         }
       });
@@ -164,7 +161,9 @@ export class GameScene extends Scene {
   setupSocket() {
     this.networkClient.onInitState = (humanPlayer, allPlayers) => {
       for (const player of allPlayers) {
-        this.playerRenderers.set(player.id, new PlayerRenderer(this, this.audioManager));
+        if (!this.playerRenderers.has(player.id)) {
+          this.playerRenderers.set(player.id, new PlayerRenderer(this, this.audioManager));
+        }
       }
 
       if (humanPlayer) {
@@ -176,8 +175,10 @@ export class GameScene extends Scene {
     };
 
     this.networkClient.onPlayerJoined = (player) => {
-      const playerRenderer = new PlayerRenderer(this, this.audioManager);
-      this.playerRenderers.set(player.id, playerRenderer);
+      if (!this.playerRenderers.has(player.id)) {
+        const playerRenderer = new PlayerRenderer(this, this.audioManager);
+        this.playerRenderers.set(player.id, playerRenderer);
+      }
     };
 
     this.networkClient.onPlayerLeft = (playerId) => {
@@ -197,7 +198,6 @@ export class GameScene extends Scene {
 
   update(_time: any, delta: number) {
     if (this.humanPlayer && !this.humanPlayer.isAlive) {
-      // Keep game over text centered and correctly sized relative to camera
       const cx = this.cameras.main.worldView.centerX;
       const cy = this.cameras.main.worldView.centerY;
       const zoom = this.cameras.main.zoom;
@@ -208,37 +208,34 @@ export class GameScene extends Scene {
       this.restartText.setPosition(cx, cy + 30 / zoom);
       this.restartText.setScale(1 / zoom);
 
-      // Check for restart
       if (this.spaceKey.isDown) {
         this.networkClient.sendRespawn();
-        // Do NOT reset the game clock to 0 here! The server drives the time.
-        // We will wait for the server to spawn us and send 'player_spawn'.
-        // We can emit game-start locally to hide the game over UI.
         EventBus.emit('game-start');
       }
     }
 
-    this.gameRoom.update(delta);
-
-    const alpha = this.gameClock.getAlpha();
+    this.gameRoom.updateFixed(delta);
 
     for (const [id, renderer] of this.playerRenderers) {
-      try {
-        const pos = this.gameRoom.getRenderPosition(id, alpha);
-        const player = this.gameRoom.getPlayer(id);
-        if (pos && player) {
-          renderer.renderInterpolated(player, pos.x, pos.y);
-        }
-      } catch (e) {
-        // Player might be missing temporarily before sync catches up
+      const eid = PlayerSystem.getPlayerEidByStringId(this.gameRoom.world, id);
+      if (eid < 0) {
+        renderer.setVisible(false);
+        continue;
       }
+      // Reuse a lightweight adapter per frame for rendering — created inline
+      // since ECSPlayerAdapter is just a thin wrapper reading component stores.
+      const adapter = this._adapterCache.get(id) ?? new ECSPlayerAdapter(eid, this.gameRoom.world);
+      if (!this._adapterCache.has(id)) {
+        this._adapterCache.set(id, adapter);
+      }
+      adapter.eid = eid;
+
+      renderer.renderInterpolated(adapter, adapter.x, adapter.y);
+      renderer.setVisible(true);
     }
 
     if (this.humanPlayer) {
-      const humanPos = this.gameRoom.getRenderPosition(this.humanPlayer.id, alpha);
-      if (humanPos) {
-        this.gameCamera.update(humanPos.x, humanPos.y);
-      }
+      this.gameCamera.update(this.humanPlayer.x, this.humanPlayer.y);
     }
 
     // Handle death
@@ -255,6 +252,9 @@ export class GameScene extends Scene {
     // Debug HUD is throttled internally (~12 Hz) to avoid SolidJS reactivity spam
     this.debugHud.update(_time);
   }
+
+  // Cache adapters across frames to avoid allocations
+  private _adapterCache = new Map<string, ECSPlayerAdapter>();
 
   releaseKey(key: string) {
     this.isKeyDown[key] = false;

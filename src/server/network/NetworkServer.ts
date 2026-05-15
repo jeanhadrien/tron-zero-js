@@ -5,7 +5,6 @@ import { Logger } from '../../shared/Logger';
 import ECSGameRoom from '../../shared/ECSGameRoom';
 import PlayerSystem from '../../shared/ECSPlayerSystem';
 import { GameEventType } from '../../shared/GameEvent';
-import { SystemDiffPayload } from '../../shared/ECSSystem';
 
 const logger = new Logger('NET');
 const tracer = trace.getTracer('tron-zero-server');
@@ -21,14 +20,10 @@ export class NetworkServer {
     this.ecsRoom = ecsRoom;
     this.gameClock = gameClock;
 
-    ecsRoom.onDelta((deltas) => this.broadcastDeltas(deltas));
+    // Delta broadcast disabled for MVP — client simulates locally.
+    // Needs binary serialization for sync_state (geckos.io JSON-stringifies non-raw messages).
+    // ecsRoom.onDelta((deltas) => this.broadcastDeltas(deltas));
     this.setupListeners();
-  }
-
-  private broadcastDeltas(deltas: SystemDiffPayload[]): void {
-    for (const channel of this.channels.values()) {
-      channel.emit('sync_state', deltas, { reliable: true });
-    }
   }
 
   setupListeners() {
@@ -40,16 +35,21 @@ export class NetworkServer {
       connectSpan.setAttribute('player.id', playerId);
       logger.info(`Player connected: ${playerId}`);
 
-      // Create ECS entity and record join event
+      // Create ECS entity and spawn immediately so the snapshot includes a live player
       PlayerSystem.createPlayer(this.ecsRoom.world, playerId);
+      PlayerSystem.spawnPlayer(this.ecsRoom.world, playerId);
       this.ecsRoom.addEvent(this.gameClock.tick + 1, { type: GameEventType.PlayerJoined, playerId });
 
       channel.on('ping', (clientTime: any) => {
         channel.emit('pong', clientTime);
       });
 
-      // Send full serialized world snapshot of the current tick
-      channel.emit('init_state', [this.gameClock.tick, this.ecsRoom.worldSnapshotSerializer()], { reliable: true });
+      // Send full serialized world snapshot as raw binary (geckos.io JSON-stringifies non-raw messages, destroying ArrayBuffers)
+      const snapshot = this.ecsRoom.worldSnapshotSerializer();
+      const combined = new ArrayBuffer(4 + snapshot.byteLength);
+      new DataView(combined).setUint32(0, this.gameClock.tick);
+      new Uint8Array(combined, 4).set(new Uint8Array(snapshot));
+      channel.raw.emit(combined);
 
       connectSpan.end();
 
