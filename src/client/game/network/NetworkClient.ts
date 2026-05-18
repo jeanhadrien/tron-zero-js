@@ -6,6 +6,7 @@ import { Logger } from '../../../shared/Logger';
 import ECSGameRoom from '../../../shared/ECSGameRoom';
 import PlayerSystem from '../../../shared/ECSPlayerSystem';
 import { ECSPlayerAdapter } from '../ECSPlayerAdapter';
+import type { SystemDiffPayload } from '../../../shared/ECSSystem';
 
 const logger = new Logger('NET');
 const tracer = trace.getTracer('tron-zero-client');
@@ -43,6 +44,65 @@ export class NetworkClient {
     const world = this.gameRoom.world;
     const eids = PlayerSystem.getAllPlayerEids(world);
     return eids.map((eid) => new ECSPlayerAdapter(eid, world));
+  }
+
+  private handleInitState(raw: ArrayBuffer): void {
+    const tick = new DataView(raw, 1, 4).getUint32(0);
+    const worldSnapshot = raw.slice(5);
+
+    const initSpan = tracer.startSpan('init_state');
+    initSpan.setAttribute('tick', tick);
+
+    this.logSync(tick, 'init_state');
+
+    this.gameRoom.initFromSnapshot(tick, worldSnapshot);
+    this.gameClock.setTick(tick);
+
+    const allPlayers = this.buildPlayerAdapters();
+    const humanEid = this.humanPlayerId
+      ? PlayerSystem.getPlayerEidByStringId(this.gameRoom.world, this.humanPlayerId)
+      : -1;
+    const humanPlayer = humanEid >= 0 ? (allPlayers.find((p) => p.eid === humanEid) ?? null) : null;
+
+    if (this.onInitState) {
+      this.onInitState(humanPlayer, allPlayers);
+    }
+
+    initSpan.end();
+  }
+
+  private handleSyncState(raw: ArrayBuffer): void {
+    const view = new DataView(raw);
+    let offset = 1;
+
+    const tick = view.getUint32(offset);
+    offset += 4;
+
+    const count = view.getUint16(offset);
+    offset += 2;
+
+    const decoder = new TextDecoder();
+    const deltas: SystemDiffPayload[] = [];
+
+    for (let i = 0; i < count; i++) {
+      const keyLen = view.getUint8(offset);
+      offset += 1;
+
+      const keyBytes = raw.slice(offset, offset + keyLen);
+      const systemKey = decoder.decode(keyBytes);
+      offset += keyLen;
+
+      const bufLen = view.getUint32(offset);
+      offset += 4;
+
+      const buffer = raw.slice(offset, offset + bufLen);
+      offset += bufLen;
+
+      deltas.push({ systemKey, buffer });
+    }
+
+this.logSync(tick, 'sync_state', `deltas=${deltas.length}`);
+    this.gameRoom.applyDeltas(tick, deltas);
   }
 
   connect() {
@@ -92,36 +152,18 @@ export class NetworkClient {
       );
     });
 
-    // Receive init_state as raw binary: [tick:u32][worldSnapshot:bytes]
+    // Receive raw binary messages with 1-byte type header:
+    //   0x00 = init_state: [u8: 0x00][u32: tick][bytes: worldSnapshot]
+    //   0x01 = sync_state: [u8: 0x01][u32: tick][u16: count]([u8: keyLen][bytes: key][u32: bufLen][bytes: buffer])*
     this.channel.onRaw((raw: any) => {
-      const tick = new DataView(raw, 0, 4).getUint32(0);
-      const worldSnapshot = raw.slice(4);
+      const messageType = new DataView(raw, 0, 1).getUint8(0);
 
-      const initSpan = tracer.startSpan('init_state');
-      initSpan.setAttribute('tick', tick);
-
-      this.logSync(tick, 'init_state');
-
-      // Initialize local ECS world from the server snapshot
-      this.gameRoom.initFromSnapshot(tick, worldSnapshot);
-      this.gameClock.setTick(tick);
-
-      // Build adapters for all player entities in the snapshot
-      const allPlayers = this.buildPlayerAdapters();
-      const humanEid = this.humanPlayerId
-        ? PlayerSystem.getPlayerEidByStringId(this.gameRoom.world, this.humanPlayerId)
-        : -1;
-      const humanPlayer = humanEid >= 0 ? (allPlayers.find((p) => p.eid === humanEid) ?? null) : null;
-
-      if (this.onInitState) {
-        this.onInitState(humanPlayer, allPlayers);
+      if (messageType === 0x00) {
+        this.handleInitState(raw);
+      } else if (messageType === 0x01) {
+        this.handleSyncState(raw);
       }
-
-      initSpan.end();
     });
-
-    // sync_state disabled for MVP (server delta broadcast is also disabled)
-    // this.channel.on('sync_state', ...)
 
     this.channel.on('game_add_player', (raw: any) => {
       const [id] = raw as [string];

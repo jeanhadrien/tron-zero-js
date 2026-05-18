@@ -335,6 +335,10 @@ export default class PlayerSystem extends SystemSerializable {
     logger.info('&&& Spawning player', playerId);
 
     const eid = PlayerSystem.getPlayerEidByStringId(world, playerId);
+    if(IsAlive[eid]) {
+      logger.warn(`Player ${playerId} is already alive, cannot spawn.`);
+      return;
+    }
 
     const [arenaEid] = query(world, [Arena]);
     const width = AreaWidth[arenaEid];

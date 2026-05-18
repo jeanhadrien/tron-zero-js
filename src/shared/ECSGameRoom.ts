@@ -14,10 +14,14 @@ import { PlayerInput } from './PlayerInput';
 import { PlayerInputTickRingBuffer } from './PlayerInputBuffer';
 import { GameEvent } from './GameEvent';
 import { GameEventTickRingBuffer } from './GameEventBuffer';
+import { Logger } from './Logger';
 
 interface ECSGameRoomEvents {
   delta: (deltas: SystemDiffPayload[]) => void;
 }
+
+const logger = new Logger('PlayerStateManager');
+
 
 export default class ECSGameRoom {
   playerEventBus: PlayerEventBus;
@@ -115,6 +119,10 @@ export default class ECSGameRoom {
     this.deltasEmitter.off('delta', handler);
   }
 
+  applyDeltas(_tick: number, _deltas: SystemDiffPayload[]): void {
+    // TODO: apply per-system deserialize to overwrite local ECS state with server-corrected data
+  }
+
   addEvent(tick: number, event: GameEvent): void {
     this.gameEventBuffer.record(tick, event);
     if (tick < this.world.tick) {
@@ -173,9 +181,15 @@ export default class ECSGameRoom {
 
   private resimulateForwardFrom(pastTick: number): void {
     const snapshot = this.worldBuffer.get(pastTick);
-    if (!snapshot) return;
+    if (!snapshot) {
+        logger.error(`No snapshot found for tick ${pastTick}, cannot resimulate.`);
+        return;
+    }
 
     resetWorld(this.cursorWorld);
+    this.cursorSnapshotDeserializer = createSnapshotDeserializer(this.cursorWorld, this.worldComponents);
+
+
     this.cursorSnapshotDeserializer(snapshot);
     this.cursorWorld.tick = pastTick;
 
@@ -184,7 +198,7 @@ export default class ECSGameRoom {
       this.update(this.cursorWorld);
       this.worldBuffer.record(this.cursorWorld.tick, this.cursorSnapshotSerializer());
     }
-
+    logger.info(`Resimulated from tick ${pastTick} to ${currentTick}, total ${currentTick - pastTick} ticks.`);
     [this.world, this.cursorWorld] = [this.cursorWorld, this.world];
     [this.worldSnapshotSerializer, this.cursorSnapshotSerializer] = [
       this.cursorSnapshotSerializer,
