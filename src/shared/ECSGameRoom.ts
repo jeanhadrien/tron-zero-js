@@ -23,13 +23,14 @@ import { NetworkDiffPayload } from './ECSNetworkSystem';
 import { NetworkDiffTickRingBuffer as NetworkDiffTickRingBuffer } from './ECSNetworkSystem';
 import { PlayerInput } from './PlayerInput';
 import { PlayerInputTickRingBuffer } from './PlayerInputBuffer';
-import { GameEvent } from './GameEvent';
+import { GameEvent, GameEventType } from './GameEvent';
 import { GameEventTickRingBuffer } from './GameEventBuffer';
 import { Logger } from './Logger';
 import { NetworkUpdated } from './ECSNetworkSystem';
 import { EPSILON } from './math';
+import { TickLogger } from './otel/Logger';
 
-const logger = new Logger('PlayerStateManager');
+const logger = new TickLogger('PlayerStateManager');
 
 export default class ECSGameRoom {
   playerEventBus: PlayerEventBus;
@@ -48,9 +49,9 @@ export default class ECSGameRoom {
   worldSnapshotSerialize: (selectedEntities?: readonly number[]) => ArrayBuffer;
   worldSnapshotDeserialize: (packet: ArrayBuffer, idMapOverride?: Map<number, number>) => Map<number, number>;
 
-  worldObserverSerialize;
+  worldObserverSerializeNet;
   worldSoASerializeDiff;
-  worldObserverDeserialize;
+  worldObserverDeserializeNet;
   worldSoADeserialize: (packet: ArrayBuffer, entityIdMapping?: Map<number, number>) => void;
 
   constructor(
@@ -63,6 +64,7 @@ export default class ECSGameRoom {
     this.gameEventBus = bus;
     this.playerEventBus = new PlayerEventBus();
     this.gameClock = clock;
+
     this.systems = systems;
     this.worldBuffer = new WorldStateTickRingBuffer(128);
     this.playerInputBuffer = new PlayerInputTickRingBuffer(128);
@@ -85,15 +87,17 @@ export default class ECSGameRoom {
     );
     this.worldSnapshotDeserialize = createSnapshotDeserializer(this.world, this.worldComponents);
 
-    this.worldObserverSerialize = createObserverSerializer(this.world, NetworkUpdated, this.worldComponents);
-    this.worldObserverDeserialize = createObserverDeserializer(this.world, NetworkUpdated, this.worldComponents);
+    this.worldObserverSerializeNet = createObserverSerializer(this.world, NetworkUpdated, this.worldComponents);
+    this.worldObserverDeserializeNet = createObserverDeserializer(this.world, NetworkUpdated, this.worldComponents);
 
     this.worldSoASerializeDiff = createSoASerializer(this.worldComponents, {
       diff: true,
       buffer: new ArrayBuffer(DIFF_BUFFER_SIZE),
       epsilon: EPSILON,
     });
-    this.worldSoADeserialize = createSoADeserializer(this.worldComponents);
+    this.worldSoADeserialize = createSoADeserializer(this.worldComponents, { diff: true });
+
+    logger.setWorld(this.world);
 
     // Initialize all systems before anything else runs
     for (const sys of this.systems) {
@@ -109,9 +113,9 @@ export default class ECSGameRoom {
     resetWorld(this.world);
     this.worldSnapshotDeserialize(buffer);
     this.world.tick = tick;
-
-    // The old serializer/deserializer captured references to component stores
-    // that are still valid, but we rebuild them to be safe.
+    // Record the initial state so replayFrom can roll back to this tick
+    this.worldBuffer.record(tick, this.worldSnapshotSerialize());
+    // Rebuild serializers (existing code)
     this.worldSnapshotSerialize = createSnapshotSerializer(
       this.world,
       this.worldComponents,
@@ -130,7 +134,7 @@ export default class ECSGameRoom {
 
   addEvent(tick: number, event: GameEvent): void {
     this.gameEventBuffer.record(tick, event);
-    logger.debug('event @', tick, event.type.toString());
+    logger.debug('event at tick', tick, 'of type ', GameEventType[event.type]);
     if (tick <= this.world.tick) {
       logger.debug('=> ');
       this.pendingResimTick = this.pendingResimTick === null ? tick : Math.min(this.pendingResimTick, tick);
@@ -139,7 +143,7 @@ export default class ECSGameRoom {
 
   addInput(tick: number, playerId: string, input: PlayerInput): void {
     this.playerInputBuffer.record(tick, playerId, input);
-    logger.debug(tick, playerId, input.turn);
+    logger.debug('input at tick', tick, 'for player', playerId, input.turn, input.break);
     if (tick <= this.world.tick) {
       this.pendingResimTick = this.pendingResimTick === null ? tick : Math.min(this.pendingResimTick, tick);
     }
@@ -174,8 +178,8 @@ export default class ECSGameRoom {
   }
 
   updateFixed(deltaTime: number): void {
-    if (this.pendingResimTick !== null) {
-      logger.info(this.world.tick, this.pendingResimTick, 'uhhh!');
+    if (this.pendingResimTick !== null && this.world.tick > this.pendingResimTick) {
+      logger.info('replaying from', this.pendingResimTick);
       this.replayFrom(this.pendingResimTick);
       this.pendingResimTick = null;
     }
@@ -186,13 +190,15 @@ export default class ECSGameRoom {
       this.worldBuffer.record(this.world.tick, this.worldSnapshotSerialize());
     }
 
-    this.networkDiffEmitter.emit('diff', this.getSerializedDiffs());
+    // Server only, send network diffs when something actually changed
+    const diff = this.getSerializedDiffs();
   }
 
   /** Computes internally-tracked entity updates. Each calls computes a new diff.*/
   getSerializedDiffs() {
     return {
-      struct: this.worldObserverSerialize(),
+      tick: this.world.tick,
+      struct: this.worldObserverSerializeNet(),
       data: this.worldSoASerializeDiff([...query(this.world, [NetworkUpdated])]),
     };
   }
@@ -204,9 +210,14 @@ export default class ECSGameRoom {
       logger.error(`No snapshot found for tick ${pastTick}, cannot resimulate.`);
       return;
     }
-
+    logger.info('Before past deserialization, world tick is', this.world.tick);
     resetWorld(this.world);
-    this.worldSnapshotDeserialize(snapshot);
+    this.worldSnapshotDeserialize(snapshot, new Map());
+    this.world.tick = pastTick;
+    for (const sys of this.systems) {
+      sys.init?.(this.world);
+    }
+    logger.info('After past deserialization, world tick is', this.world.tick);
     if (!(this.world.tick == pastTick)) throw new Error('');
 
     logger.info(`replaying from ${pastTick} to ${currentTick} (${currentTick - pastTick} ticks)`);
@@ -216,9 +227,8 @@ export default class ECSGameRoom {
       const diff = this.networkDiffTickRingBuffer.get(_tick, 'network');
       if (diff) {
         this.worldSoADeserialize(diff.data);
-        this.worldObserverDeserialize(diff.struct);
+        this.worldObserverDeserializeNet(diff.struct, new Map());
       }
-      this.worldBuffer.record(this.world.tick, this.worldSnapshotSerialize());
     }
   }
 }

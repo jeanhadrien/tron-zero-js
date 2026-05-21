@@ -93,15 +93,19 @@ export class Logger {
 }
 
 export class TickLogger extends Logger {
-  private world: ECSGameWorld;
+  private world: ECSGameWorld | null = null;
 
-  constructor(tag: string, world: ECSGameWorld, attributes?: Record<string, unknown>) {
+  constructor(tag: string, attributes?: Record<string, unknown>) {
     super(tag, attributes);
+  }
+
+  setWorld(world: ECSGameWorld): void {
     this.world = world;
   }
 
   private prefixArgs(args: unknown[]): unknown[] {
-    return [`[tick:${this.world.tick}]`, ...args];
+    if (this.world) return [`[${this.world.tick}]`, ...args];
+    return args;
   }
 
   debug(...args: unknown[]): void {
@@ -124,3 +128,4 @@ export class TickLogger extends Logger {
     super.error(...this.prefixArgs(args));
   }
 }
+

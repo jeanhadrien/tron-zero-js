@@ -41,6 +41,7 @@ export class GameScene extends Scene {
   networkClient: NetworkClient;
 
   tickOffset: number = 1;
+  private _pendingTurnCount: number = 0;
 
   lastFpsEmitTime: number = 0;
   gameAreaRenderer: GameAreaRenderer;
@@ -146,7 +147,9 @@ export class GameScene extends Scene {
         if (!this.isKeyDown[key]) {
           this.isKeyDown[key] = true;
           if (this.humanPlayer) {
-            this.networkClient.sendTurn(this.gameRoom.world.tick + 1, direction as 'left' | 'right');
+            const targetTick = this.gameRoom.world.tick - 1 + this._pendingTurnCount;
+            this.networkClient.sendTurn(targetTick, direction as 'left' | 'right');
+            this._pendingTurnCount++;
           }
         }
       });
@@ -215,6 +218,8 @@ export class GameScene extends Scene {
     }
 
     this.gameRoom.updateFixed(delta);
+
+    this._pendingTurnCount = 0;
 
     for (const [id, renderer] of this.playerRenderers) {
       const eid = PlayerSystem.getPlayerEidByStringId(this.gameRoom.world, id);
