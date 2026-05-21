@@ -3,7 +3,7 @@ import { GameEventBus } from './GameEventBus';
 import GameClock from './GameClock';
 import { PlayerEventBus } from './PlayerStateEventBus';
 
-import { createWorld, createEntityIndex, resetWorld, query } from 'bitecs';
+import { createWorld, createEntityIndex, resetWorld } from 'bitecs';
 import {
   createSnapshotSerializer,
   createSnapshotDeserializer,
@@ -26,7 +26,7 @@ import { PlayerInputTickRingBuffer } from './PlayerInputBuffer';
 import { GameEvent, GameEventType } from './GameEvent';
 import { GameEventTickRingBuffer } from './GameEventBuffer';
 import { Logger } from './Logger';
-import { NetworkUpdated } from './ECSNetworkSystem';
+import { Networked as Networked } from './ECSNetworkSystem';
 import { EPSILON } from './math';
 import { TickLogger } from './otel/Logger';
 
@@ -76,6 +76,7 @@ export default class ECSGameRoom {
       {
         tick: 0,
         tickTimeMs: this.gameClock.tickTimeMs,
+        dirtyEntities: new Set<number>(),
       },
       this.worldEntityIndex
     );
@@ -87,8 +88,8 @@ export default class ECSGameRoom {
     );
     this.worldSnapshotDeserialize = createSnapshotDeserializer(this.world, this.worldComponents);
 
-    this.worldObserverSerializeNet = createObserverSerializer(this.world, NetworkUpdated, this.worldComponents);
-    this.worldObserverDeserializeNet = createObserverDeserializer(this.world, NetworkUpdated, this.worldComponents);
+    this.worldObserverSerializeNet = createObserverSerializer(this.world, Networked, this.worldComponents);
+    this.worldObserverDeserializeNet = createObserverDeserializer(this.world, Networked, this.worldComponents);
 
     this.worldSoASerializeDiff = createSoASerializer(this.worldComponents, {
       diff: true,
@@ -135,17 +136,22 @@ export default class ECSGameRoom {
   addEvent(tick: number, event: GameEvent): void {
     this.gameEventBuffer.record(tick, event);
     logger.debug('event at tick', tick, 'of type ', GameEventType[event.type]);
-    if (tick <= this.world.tick) {
+    // Event at tick T is consumed during the update that transitions T-1 → T.
+    const resimTick = tick - 1;
+    if (resimTick <= this.world.tick) {
       logger.debug('=> ');
-      this.pendingResimTick = this.pendingResimTick === null ? tick : Math.min(this.pendingResimTick, tick);
+      this.pendingResimTick = this.pendingResimTick === null ? resimTick : Math.min(this.pendingResimTick, resimTick);
     }
   }
 
   addInput(tick: number, playerId: string, input: PlayerInput): void {
     this.playerInputBuffer.record(tick, playerId, input);
     logger.debug('input at tick', tick, 'for player', playerId, input.turn, input.break);
-    if (tick <= this.world.tick) {
-      this.pendingResimTick = this.pendingResimTick === null ? tick : Math.min(this.pendingResimTick, tick);
+    // Input at tick T is consumed during the update that transitions T-1 → T.
+    // To replay with that input, we must roll back to T-1 (state before T was simulated).
+    const resimTick = tick - 1;
+    if (resimTick <= this.world.tick) {
+      this.pendingResimTick = this.pendingResimTick === null ? resimTick : Math.min(this.pendingResimTick, resimTick);
     }
   }
 
@@ -157,14 +163,16 @@ export default class ECSGameRoom {
 
   addNetworkDiffPayload(diff: NetworkDiffPayload): void {
     logger.info(`Applying diff at tick ${diff.tick}`);
-
     this.networkDiffTickRingBuffer.record(diff.tick, 'network', {
       data: diff.data,
       struct: diff.struct,
       tick: diff.tick,
     });
-    if (diff.tick <= this.world.tick) {
-      this.pendingResimTick = this.pendingResimTick === null ? diff.tick : Math.min(this.pendingResimTick, diff.tick);
+    // Diff at tick T corrects state after the update that transitions T-1 → T.
+    // Roll back to T-1 so the diff is applied at the right point during replay.
+    const resimTick = diff.tick - 1;
+    if (resimTick <= this.world.tick) {
+      this.pendingResimTick = this.pendingResimTick === null ? resimTick : Math.min(this.pendingResimTick, resimTick);
     }
   }
 
@@ -190,16 +198,20 @@ export default class ECSGameRoom {
       this.worldBuffer.record(this.world.tick, this.worldSnapshotSerialize());
     }
 
-    // Server only, send network diffs when something actually changed
     const diff = this.getSerializedDiffs();
+    if (diff.struct.byteLength > 0 || diff.data.byteLength > 0) {
+      this.networkDiffEmitter.emit('diff', diff);
+    }
   }
 
   /** Computes internally-tracked entity updates. Each calls computes a new diff.*/
   getSerializedDiffs() {
+    const dirtyEntities = [...this.world.dirtyEntities];
+    this.world.dirtyEntities.clear();
     return {
       tick: this.world.tick,
       struct: this.worldObserverSerializeNet(),
-      data: this.worldSoASerializeDiff([...query(this.world, [NetworkUpdated])]),
+      data: this.worldSoASerializeDiff(dirtyEntities),
     };
   }
 
@@ -210,25 +222,27 @@ export default class ECSGameRoom {
       logger.error(`No snapshot found for tick ${pastTick}, cannot resimulate.`);
       return;
     }
-    logger.info('Before past deserialization, world tick is', this.world.tick);
+
+    // Load past world
     resetWorld(this.world);
+    this.world.dirtyEntities.clear();
+
     this.worldSnapshotDeserialize(snapshot, new Map());
     this.world.tick = pastTick;
-    for (const sys of this.systems) {
-      sys.init?.(this.world);
-    }
-    logger.info('After past deserialization, world tick is', this.world.tick);
-    if (!(this.world.tick == pastTick)) throw new Error('');
 
-    logger.info(`replaying from ${pastTick} to ${currentTick} (${currentTick - pastTick} ticks)`);
+    if (this.world.tick !== pastTick) throw new Error('Snapshot is not the tick we expected');
+
+    logger.info(`Replaying from ${pastTick} to ${currentTick} (${currentTick - pastTick} ticks)`);
     for (let _tick = this.world.tick; _tick < currentTick; _tick++) {
-      this.update(this.world);
-      // Apply received network diffs (client only)
+      // Load authorithative state diffs from server
       const diff = this.networkDiffTickRingBuffer.get(_tick, 'network');
       if (diff) {
         this.worldSoADeserialize(diff.data);
         this.worldObserverDeserializeNet(diff.struct, new Map());
       }
+      this.update(this.world);
+      // Updated buffered world snapshots with the new state
+      this.worldBuffer.record(this.world.tick, this.worldSnapshotSerialize());
     }
   }
 }

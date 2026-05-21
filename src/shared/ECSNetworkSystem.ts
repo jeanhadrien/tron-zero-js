@@ -3,6 +3,7 @@ import { ECSGameWorld } from './ECSGameWorld';
 import { System, GetInput, GetEvents } from './ECSSystem';
 import { TickRingBuffer } from './TickRingBuffer';
 
+export const Networked = {};
 export const NetworkUpdated = {};
 
 export class NetworkDiffTickRingBuffer extends TickRingBuffer<NetworkDiffPayload> {

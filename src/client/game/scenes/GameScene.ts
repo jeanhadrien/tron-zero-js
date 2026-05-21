@@ -147,7 +147,7 @@ export class GameScene extends Scene {
         if (!this.isKeyDown[key]) {
           this.isKeyDown[key] = true;
           if (this.humanPlayer) {
-            const targetTick = this.gameRoom.world.tick - 1 + this._pendingTurnCount;
+            const targetTick = this.gameRoom.world.tick + this._pendingTurnCount;
             this.networkClient.sendTurn(targetTick, direction as 'left' | 'right');
             this._pendingTurnCount++;
           }

@@ -13,7 +13,7 @@ import { Arena, AreaWidth, AreaHeight, Lines } from './GameArea';
 import { Logger } from './Logger';
 import { ECSGameWorld } from './ECSGameWorld';
 import { SystemSerializable, GetEvents } from './ECSSystem';
-import { NetworkUpdated } from './ECSNetworkSystem';
+import { Networked } from './ECSNetworkSystem';
 import { GameEventType } from './GameEvent';
 
 const logger = new Logger('PlayerSystem');
@@ -93,7 +93,7 @@ export const PLAYER_COMPONENTS = [
   PlayerId,
   TrailPoints,
   Player,
-  NetworkUpdated,
+  Networked,
 ];
 
 // ─── Snapshot helpers ────────────────────────────────────────────────────────
@@ -371,7 +371,7 @@ export default class PlayerSystem extends SystemSerializable {
   }
 
   /** Immediately kill a player (zero speed, zero rubber, clear trail). */
-  static disablePlayer(eid: number): void {
+  static disablePlayer(world: ECSGameWorld, eid: number): void {
     SpeedMult[eid] = 0;
     TargetSpeedMult[eid] = 0;
     Velocity.vx[eid] = 0;
@@ -384,6 +384,7 @@ export default class PlayerSystem extends SystemSerializable {
     TrailPoints.xs[eid] = [];
     TrailPoints.ys[eid] = [];
     TrailPoints.dirs[eid] = [];
+    world.dirtyEntities.add(eid);
     logger.debug(PlayerId[eid], 'disable()');
   }
 
@@ -408,9 +409,11 @@ export default class PlayerSystem extends SystemSerializable {
       for (const event of getEvents()) {
         if (event.type === GameEventType.PlayerSpawn && event.entityId) {
           PlayerSystem.spawnPlayer(world, event.entityId);
+          world.dirtyEntities.add(event.entityId);
         }
         if (event.type === GameEventType.PlayerLeft && event.entityId) {
           removeEntity(world, event.entityId);
+          world.dirtyEntities.add(event.entityId);
         }
       }
     }
@@ -419,7 +422,7 @@ export default class PlayerSystem extends SystemSerializable {
       // Check for death
       if (!IsAlive[eid] || Rubber[eid] <= 0) {
         if (ShouldHandleDeath[eid]) {
-          PlayerSystem.disablePlayer(eid);
+          PlayerSystem.disablePlayer(world, eid);
         }
         continue;
       }
@@ -429,6 +432,7 @@ export default class PlayerSystem extends SystemSerializable {
       const input = getInput?.(playerId);
       if (input?.turn) {
         executeTurn(eid, input.turn, world.tickTimeMs);
+        world.dirtyEntities.add(eid);
       }
 
       // Build detection rays
