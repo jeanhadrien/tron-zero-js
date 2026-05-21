@@ -12,7 +12,9 @@ import { SharedLine, lineToLineIntersection, distanceBetween, clamp, aabbOverlap
 import { Arena, AreaWidth, AreaHeight, Lines } from './GameArea';
 import { Logger } from './Logger';
 import { ECSGameWorld } from './ECSGameWorld';
-import { SystemSerializable } from './ECSSystem';
+import { SystemSerializable, GetEvents } from './ECSSystem';
+import { NetworkUpdated } from './ECSNetworkSystem';
+import { GameEventType } from './GameEvent';
 
 const logger = new Logger('PlayerSystem');
 
@@ -91,6 +93,7 @@ export const PLAYER_COMPONENTS = [
   PlayerId,
   TrailPoints,
   Player,
+  NetworkUpdated,
 ];
 
 // ─── Snapshot helpers ────────────────────────────────────────────────────────
@@ -331,12 +334,11 @@ export default class PlayerSystem extends SystemSerializable {
     return eid;
   }
 
-  static spawnPlayer(world: ECSGameWorld, playerId: string) {
-    logger.info('&&& Spawning player', playerId);
+  static spawnPlayer(world: ECSGameWorld, eid: number) {
+    logger.info('&&& Spawning entity ', eid);
 
-    const eid = PlayerSystem.getPlayerEidByStringId(world, playerId);
-    if(IsAlive[eid]) {
-      logger.warn(`Player ${playerId} is already alive, cannot spawn.`);
+    if (IsAlive[eid]) {
+      logger.warn(`Entity ${eid} is already alive, cannot spawn.`);
       return;
     }
 
@@ -401,7 +403,18 @@ export default class PlayerSystem extends SystemSerializable {
     logger.warn(`${playerId} doesn't exist`);
   }
 
-  update(world: ECSGameWorld, getInput?: (entityId: string) => any): void {
+  update(world: ECSGameWorld, getInput?: (entityId: string) => any, getEvents?: GetEvents): void {
+    if (getEvents) {
+      for (const event of getEvents()) {
+        if (event.type === GameEventType.PlayerSpawn && event.entityId) {
+          PlayerSystem.spawnPlayer(world, event.entityId);
+        }
+        if (event.type === GameEventType.PlayerLeft && event.entityId) {
+          removeEntity(world, event.entityId);
+        }
+      }
+    }
+
     for (const eid of Array.from(query(world, [Player]))) {
       // Check for death
       if (!IsAlive[eid] || Rubber[eid] <= 0) {
@@ -475,43 +488,6 @@ export default class PlayerSystem extends SystemSerializable {
       // Clamp rubber
       Rubber[eid] = clamp(Rubber[eid], 0, BASE_RUBBER);
     }
-  }
-
-  diff(worldA: ECSGameWorld, worldB: ECSGameWorld): number[] {
-    const worldAEntityByPlayerId = new Map<string, number>();
-    for (const eid of query(worldA, [Player, PlayerId])) {
-      worldAEntityByPlayerId.set(PlayerId[eid], eid);
-    }
-
-    const dirtyEids: number[] = [];
-    for (const eid of query(worldB, [Player, PlayerId])) {
-      const playerId = PlayerId[eid];
-      const eidA = worldAEntityByPlayerId.get(playerId);
-
-      if (
-        eidA === undefined ||
-        Position.x[eid] !== Position.x[eidA] ||
-        Position.y[eid] !== Position.y[eidA] ||
-        Direction[eid] !== Direction[eidA] ||
-        Velocity.vx[eid] !== Velocity.vx[eidA] ||
-        Velocity.vy[eid] !== Velocity.vy[eidA] ||
-        SpeedMult[eid] !== SpeedMult[eidA] ||
-        TargetSpeedMult[eid] !== TargetSpeedMult[eidA] ||
-        Rubber[eid] !== Rubber[eidA] ||
-        IsAlive[eid] !== IsAlive[eidA] ||
-        ShouldHandleDeath[eid] !== ShouldHandleDeath[eidA] ||
-        IsSliding[eid] !== IsSliding[eidA] ||
-        IsColliding[eid] !== IsColliding[eidA] ||
-        Color[eid] !== Color[eidA] ||
-        TrailPoints.xs[eid].length !== TrailPoints.xs[eidA].length ||
-        TrailPoints.ys[eid].length !== TrailPoints.ys[eidA].length ||
-        TrailPoints.dirs[eid].length !== TrailPoints.dirs[eidA].length
-      ) {
-        dirtyEids.push(eid);
-      }
-    }
-
-    return dirtyEids;
   }
 
   serialize(world: ECSGameWorld, eids: readonly number[]): ArrayBuffer {

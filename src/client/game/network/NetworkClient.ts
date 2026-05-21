@@ -6,7 +6,8 @@ import { Logger } from '../../../shared/Logger';
 import ECSGameRoom from '../../../shared/ECSGameRoom';
 import PlayerSystem from '../../../shared/ECSPlayerSystem';
 import { ECSPlayerAdapter } from '../ECSPlayerAdapter';
-import type { SystemDiffPayload } from '../../../shared/ECSSystem';
+import { decodeMessage, MSG_INIT_STATE, MSG_SYNC_STATE } from '../../../shared/NetworkProtocol';
+
 
 const logger = new Logger('NET');
 const tracer = trace.getTracer('tron-zero-client');
@@ -46,16 +47,13 @@ export class NetworkClient {
     return eids.map((eid) => new ECSPlayerAdapter(eid, world));
   }
 
-  private handleInitState(raw: ArrayBuffer): void {
-    const tick = new DataView(raw, 1, 4).getUint32(0);
-    const worldSnapshot = raw.slice(5);
-
+  private handleInitState(tick: number, snapshot: ArrayBuffer): void {
     const initSpan = tracer.startSpan('init_state');
     initSpan.setAttribute('tick', tick);
 
     this.logSync(tick, 'init_state');
 
-    this.gameRoom.initFromSnapshot(tick, worldSnapshot);
+    this.gameRoom.initFromSnapshot(tick, snapshot);
     this.gameClock.setTick(tick);
 
     const allPlayers = this.buildPlayerAdapters();
@@ -71,38 +69,9 @@ export class NetworkClient {
     initSpan.end();
   }
 
-  private handleSyncState(raw: ArrayBuffer): void {
-    const view = new DataView(raw);
-    let offset = 1;
-
-    const tick = view.getUint32(offset);
-    offset += 4;
-
-    const count = view.getUint16(offset);
-    offset += 2;
-
-    const decoder = new TextDecoder();
-    const deltas: SystemDiffPayload[] = [];
-
-    for (let i = 0; i < count; i++) {
-      const keyLen = view.getUint8(offset);
-      offset += 1;
-
-      const keyBytes = raw.slice(offset, offset + keyLen);
-      const systemKey = decoder.decode(keyBytes);
-      offset += keyLen;
-
-      const bufLen = view.getUint32(offset);
-      offset += 4;
-
-      const buffer = raw.slice(offset, offset + bufLen);
-      offset += bufLen;
-
-      deltas.push({ systemKey, buffer });
-    }
-
-this.logSync(tick, 'sync_state', `deltas=${deltas.length}`);
-    this.gameRoom.applyDeltas(tick, deltas);
+  private handleSyncState(tick: number, data: ArrayBuffer, struct: ArrayBuffer): void {
+    this.logSync(tick, 'sync_state', `dataLen=${data.byteLength} structLen=${struct.byteLength}`);
+    this.gameRoom.addNetworkDiffPayload({ tick, data, struct });
   }
 
   connect() {
@@ -152,16 +121,12 @@ this.logSync(tick, 'sync_state', `deltas=${deltas.length}`);
       );
     });
 
-    // Receive raw binary messages with 1-byte type header:
-    //   0x00 = init_state: [u8: 0x00][u32: tick][bytes: worldSnapshot]
-    //   0x01 = sync_state: [u8: 0x01][u32: tick][u16: count]([u8: keyLen][bytes: key][u32: bufLen][bytes: buffer])*
     this.channel.onRaw((raw: any) => {
-      const messageType = new DataView(raw, 0, 1).getUint8(0);
-
-      if (messageType === 0x00) {
-        this.handleInitState(raw);
-      } else if (messageType === 0x01) {
-        this.handleSyncState(raw);
+      const msg = decodeMessage(raw);
+      if (msg.type === MSG_INIT_STATE) {
+        this.handleInitState(msg.tick, msg.snapshot);
+      } else if (msg.type === MSG_SYNC_STATE) {
+        this.handleSyncState(msg.tick, msg.data, msg.struct);
       }
     });
 
