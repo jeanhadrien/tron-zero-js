@@ -64,6 +64,8 @@ export const Color = u32([]);
 /** Human-readable player id (string) */
 export const PlayerId = str([]);
 
+export const Ping = f32([]);
+
 /** Trail points stored as parallel SoA arrays per entity.
  *  TrailPoints.ticks[eid] is a number[], TrailPoints.xs[eid] is a number[], etc.
  *  All arrays for a given entity have the same length. */
@@ -210,14 +212,15 @@ export function executeTurn(eid: number, type: 'left' | 'right', tickTimeMs: num
   if (trailN > 0 && Math.abs(Position.x[eid] - lastX) <= EPSILON && Math.abs(Position.y[eid] - lastY) <= EPSILON) {
     Direction[eid] = newDirection;
     _setSpeedAndVelocity(eid, SpeedMult[eid], tickTimeMs);
+    TrailPoints.dirs[eid] = [...TrailPoints.dirs[eid]];
     TrailPoints.dirs[eid][trailN - 1] = newDirection;
     return;
   }
 
   // Add a new trail point at current position
-  TrailPoints.xs[eid].push(Position.x[eid]);
-  TrailPoints.ys[eid].push(Position.y[eid]);
-  TrailPoints.dirs[eid].push(newDirection);
+  TrailPoints.xs[eid] = [...TrailPoints.xs[eid], Position.x[eid]];
+  TrailPoints.ys[eid] = [...TrailPoints.ys[eid], Position.y[eid]];
+  TrailPoints.dirs[eid] = [...TrailPoints.dirs[eid], newDirection];
 
   Direction[eid] = newDirection;
   _setSpeedAndVelocity(eid, SpeedMult[eid], tickTimeMs);
@@ -225,7 +228,7 @@ export function executeTurn(eid: number, type: 'left' | 'right', tickTimeMs: num
 
 // ─── Detection lines ─────────────────────────────────────────────────────────
 
-function _buildDetectionLines(eid: number, front: SharedLine, left: SharedLine, right: SharedLine): void {
+export function buildDetectionLines(eid: number, front: SharedLine, left: SharedLine, right: SharedLine): void {
   const currentSpeed = SpeedMult[eid] || 0;
   const lookAheadLength = Math.max(2000, BASE_SPEED * currentSpeed * 0.5);
 
@@ -235,7 +238,7 @@ function _buildDetectionLines(eid: number, front: SharedLine, left: SharedLine, 
 }
 
 /** Build obstacle lines from arena boundaries + all player trails except selfEid. */
-function _buildObstacleLinesExcluding(world: ECSGameWorld, selfEid: number): SharedLine[] {
+export function buildObstacleLinesExcluding(world: ECSGameWorld, selfEid: number): SharedLine[] {
   const lines: SharedLine[] = [];
 
   const [arenaEid] = query(world, [Arena]);
@@ -366,7 +369,7 @@ export default class PlayerSystem extends SystemSerializable {
     TrailPoints.xs[eid] = [x];
     TrailPoints.ys[eid] = [y];
     TrailPoints.dirs[eid] = [direction];
-
+    world.dirtyEntities.add(eid);
     logger.debug(PlayerId[eid], 'spawnPlayer()');
   }
 
@@ -409,7 +412,6 @@ export default class PlayerSystem extends SystemSerializable {
       for (const event of getEvents()) {
         if (event.type === GameEventType.PlayerSpawn && event.entityId) {
           PlayerSystem.spawnPlayer(world, event.entityId);
-          world.dirtyEntities.add(event.entityId);
         }
         if (event.type === GameEventType.PlayerLeft && event.entityId) {
           removeEntity(world, event.entityId);
@@ -439,11 +441,11 @@ export default class PlayerSystem extends SystemSerializable {
       const sensorFront = new SharedLine();
       const sensorLeft = new SharedLine();
       const sensorRight = new SharedLine();
-      _buildDetectionLines(eid, sensorFront, sensorLeft, sensorRight);
+      buildDetectionLines(eid, sensorFront, sensorLeft, sensorRight);
 
       // Combine obstacle lines with self-trail for collision check
       const selfLines = getPlayerTrailLines(eid);
-      const obstacleLines = _buildObstacleLinesExcluding(world, eid);
+      const obstacleLines = buildObstacleLinesExcluding(world, eid);
       const collisionLines = [...obstacleLines, ...selfLines];
 
       // Find closest intersections

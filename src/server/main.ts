@@ -11,6 +11,7 @@ import { NetworkServer } from './network/NetworkServer';
 import { Logger } from '../shared/Logger';
 import ECSGameRoom from '../shared/ECSGameRoom';
 import PlayerSystem from '../shared/ECSPlayerSystem';
+import BotSystem from './BotSystem';
 
 const logger = new Logger('Server');
 const tracer = trace.getTracer('tron-zero-server');
@@ -38,12 +39,11 @@ const gameClock = new GameClock();
 
 const playerSystem = new PlayerSystem();
 const areaSystem = new ECSGameAreaSystem();
-const ecsRoom = new ECSGameRoom(new GameEventBus(), gameClock, [areaSystem, playerSystem]);
+const botSystem = new BotSystem();
+const ecsRoom = new ECSGameRoom(new GameEventBus(), gameClock, [areaSystem, botSystem, playerSystem]);
+botSystem.setInputBuffer(ecsRoom.playerInputBuffer);
 
 new NetworkServer(io, ecsRoom, gameClock);
-
-PlayerSystem.createPlayer(ecsRoom.world, 'aze');
-PlayerSystem.spawnPlayer(ecsRoom.world, 'aze');
 
 const TICK_RATE = 1000 / 60;
 let lastTime = performance.now();

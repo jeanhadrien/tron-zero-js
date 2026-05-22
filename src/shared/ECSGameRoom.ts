@@ -25,9 +25,7 @@ import { PlayerInput } from './PlayerInput';
 import { PlayerInputTickRingBuffer } from './PlayerInputBuffer';
 import { GameEvent, GameEventType } from './GameEvent';
 import { GameEventTickRingBuffer } from './GameEventBuffer';
-import { Logger } from './Logger';
 import { Networked as Networked } from './ECSNetworkSystem';
-import { EPSILON } from './math';
 import { TickLogger } from './otel/Logger';
 
 const logger = new TickLogger('PlayerStateManager');
@@ -94,7 +92,7 @@ export default class ECSGameRoom {
     this.worldSoASerializeDiff = createSoASerializer(this.worldComponents, {
       diff: true,
       buffer: new ArrayBuffer(DIFF_BUFFER_SIZE),
-      epsilon: EPSILON,
+      epsilon: 0,
     });
     this.worldSoADeserialize = createSoADeserializer(this.worldComponents, { diff: true });
 
@@ -171,7 +169,7 @@ export default class ECSGameRoom {
     // Diff at tick T corrects state after the update that transitions T-1 → T.
     // Roll back to T-1 so the diff is applied at the right point during replay.
     const resimTick = diff.tick - 1;
-    if (resimTick <= this.world.tick) {
+    if (resimTick < this.world.tick) {
       this.pendingResimTick = this.pendingResimTick === null ? resimTick : Math.min(this.pendingResimTick, resimTick);
     }
   }
