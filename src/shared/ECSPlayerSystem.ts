@@ -64,7 +64,7 @@ export const Color = u32([]);
 /** Human-readable player id (string) */
 export const PlayerId = str([]);
 
-export const Ping = f32([]);
+export const PingInTicks = f32([]);
 
 /** Trail points stored as parallel SoA arrays per entity.
  *  TrailPoints.ticks[eid] is a number[], TrailPoints.xs[eid] is a number[], etc.
@@ -96,27 +96,8 @@ export const PLAYER_COMPONENTS = [
   TrailPoints,
   Player,
   Networked,
+  PingInTicks,
 ];
-
-// ─── Snapshot helpers ────────────────────────────────────────────────────────
-
-export function createPlayerSnapshotSerializer(world: ECSGameWorld) {
-  return createSnapshotSerializer(world, PLAYER_COMPONENTS);
-}
-
-export function createPlayerSnapshotDeserializer(world: ECSGameWorld) {
-  return createSnapshotDeserializer(world, PLAYER_COMPONENTS);
-}
-
-/** Convenience: fully snapshot the GameWorld and reset it to a previous snapshot. */
-export function rollbackWorld(
-  world: ECSGameWorld,
-  deserialize: ReturnType<typeof createSnapshotDeserializer>,
-  buffer: ArrayBuffer
-): void {
-  resetWorld(world);
-  deserialize(buffer);
-}
 
 // ─── Internal helpers ────────────────────────────────────────────────────────
 
@@ -164,7 +145,7 @@ export function getClosestIntersectingPoint(
   originX: number,
   originY: number
 ): { x: number; y: number } {
-  let closestPoint = { x: Infinity, y: Infinity };
+  const closestPoint = { x: Infinity, y: Infinity };
   const point = { x: -1, y: -1 };
 
   for (const line of obstacleLines) {
@@ -266,12 +247,10 @@ export function buildObstacleLinesExcluding(world: ECSGameWorld, selfEid: number
   return lines;
 }
 
-const MIN_COLOR_COMPONENT = 0x66;
-
 function generatePlayerColor(): number {
-  const r = MIN_COLOR_COMPONENT + Math.floor(Math.random() * (0x100 - MIN_COLOR_COMPONENT));
-  const g = MIN_COLOR_COMPONENT + Math.floor(Math.random() * (0x100 - MIN_COLOR_COMPONENT));
-  const b = MIN_COLOR_COMPONENT + Math.floor(Math.random() * (0x100 - MIN_COLOR_COMPONENT));
+  const r = 0x66 + Math.floor(Math.random() * (0x100 - 0x66));
+  const g = 0x66 + Math.floor(Math.random() * (0x100 - 0x66));
+  const b = 0x66 + Math.floor(Math.random() * (0x100 - 0x66));
   return (r << 16) | (g << 8) | b;
 }
 
@@ -281,7 +260,7 @@ export default class PlayerSystem extends SystemSerializable {
   private _serializers = new Map<ECSGameWorld, ReturnType<typeof createSnapshotSerializer>>();
   private _deserializers = new Map<ECSGameWorld, ReturnType<typeof createSnapshotDeserializer>>();
 
-  getComponents(): {}[] {
+  getComponents(): object[] {
     return PLAYER_COMPONENTS;
   }
 
@@ -398,7 +377,7 @@ export default class PlayerSystem extends SystemSerializable {
   }
 
   static removePlayerById(world: ECSGameWorld, playerId: string) {
-    let eid = this.getPlayerEidByStringId(world, playerId);
+    const eid = this.getPlayerEidByStringId(world, playerId);
     if (eid >= 0) {
       removeEntity(world, eid);
       logger.debug('--- Removed player', playerId);

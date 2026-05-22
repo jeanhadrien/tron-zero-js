@@ -1,6 +1,3 @@
-import { query } from 'bitecs';
-import { ECSGameWorld } from './ECSGameWorld';
-import { System, GetInput, GetEvents } from './ECSSystem';
 import { TickRingBuffer } from './TickRingBuffer';
 
 export const Networked = {};

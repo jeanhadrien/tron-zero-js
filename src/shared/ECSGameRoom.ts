@@ -20,30 +20,31 @@ import { ECSGameWorld } from './ECSGameWorld';
 import { WorldStateTickRingBuffer } from './WorldStateBuffer';
 import { System } from './ECSSystem';
 import { NetworkDiffPayload } from './ECSNetworkSystem';
-import { NetworkDiffTickRingBuffer as NetworkDiffTickRingBuffer } from './ECSNetworkSystem';
+import { NetworkDiffTickRingBuffer } from './ECSNetworkSystem';
 import { PlayerInput } from './PlayerInput';
 import { PlayerInputTickRingBuffer } from './PlayerInputBuffer';
 import { GameEvent, GameEventType } from './GameEvent';
 import { GameEventTickRingBuffer } from './GameEventBuffer';
-import { Networked as Networked } from './ECSNetworkSystem';
+import { Networked } from './ECSNetworkSystem';
 import { TickLogger } from './otel/Logger';
+import PlayerSystem, { PingInTicks } from './ECSPlayerSystem';
 
-const logger = new TickLogger('PlayerStateManager');
+const logger = new TickLogger('GameRoom');
 
 export default class ECSGameRoom {
   playerEventBus: PlayerEventBus;
   gameEventBus: GameEventBus;
   gameClock: GameClock;
-  private networkDiffEmitter = new EventEmitter<any>();
+  private networkDiffEmitter = new EventEmitter<string>();
   private pendingResimTick: number | null = null;
   world: ECSGameWorld;
   worldBuffer: WorldStateTickRingBuffer;
   playerInputBuffer: PlayerInputTickRingBuffer;
   networkDiffTickRingBuffer: NetworkDiffTickRingBuffer;
   gameEventBuffer: GameEventTickRingBuffer;
-  worldEntityIndex: any;
+  worldEntityIndex: object;
   systems: System[];
-  worldComponents: {}[];
+  worldComponents: object[];
   worldSnapshotSerialize: (selectedEntities?: readonly number[]) => ArrayBuffer;
   worldSnapshotDeserialize: (packet: ArrayBuffer, idMapOverride?: Map<number, number>) => Map<number, number>;
 
@@ -58,7 +59,7 @@ export default class ECSGameRoom {
     systems: System[] = [],
     onDeltas?: (deltas: NetworkDiffPayload[]) => void
   ) {
-    if (onDeltas) this.networkDiffEmitter.on('delta', onDeltas);
+    if (onDeltas) this.networkDiffEmitter.on('diff', onDeltas);
     this.gameEventBus = bus;
     this.playerEventBus = new PlayerEventBus();
     this.gameClock = clock;
@@ -127,7 +128,7 @@ export default class ECSGameRoom {
     this.networkDiffEmitter.on('diff', handler);
   }
 
-  offNetworkDiff(handler: (diff: NetworkDiffPayload[]) => void): void {
+  offNetworkDiff(handler: (diff: NetworkDiffPayload) => void): void {
     this.networkDiffEmitter.off('diff', handler);
   }
 
@@ -145,8 +146,8 @@ export default class ECSGameRoom {
   addInput(tick: number, playerId: string, input: PlayerInput): void {
     this.playerInputBuffer.record(tick, playerId, input);
     logger.debug('input at tick', tick, 'for player', playerId, input.turn, input.break);
-    // Input at tick T is consumed during the update that transitions T-1 → T.
-    // To replay with that input, we must roll back to T-1 (state before T was simulated).
+    const eid = PlayerSystem.getPlayerEidByStringId(this.world, playerId);
+    PingInTicks[eid] = Math.max(0, this.world.tick - tick);
     const resimTick = tick - 1;
     if (resimTick <= this.world.tick) {
       this.pendingResimTick = this.pendingResimTick === null ? resimTick : Math.min(this.pendingResimTick, resimTick);

@@ -64,12 +64,11 @@ export class NetworkServer {
         const inputs: { tick: number; turn: 'left' | 'right' }[] = Array.isArray(data) ? data : [data];
 
         for (const input of inputs) {
-          const MAX_FUTURE_OFFSET = 20;
-          if (input.tick > this.gameClock.tick + MAX_FUTURE_OFFSET) {
-            logger.warn(`Received input too far in the future (${input.tick} vs ${this.gameClock.tick}), clamping`);
-            input.tick = this.gameClock.tick + MAX_FUTURE_OFFSET;
-          }
-
+          //   const MAX_FUTURE_OFFSET = 20;
+          //   if (input.tick > this.gameClock.tick + MAX_FUTURE_OFFSET) {
+          //     logger.warn(`Received input too far in the future (${input.tick} vs ${this.gameClock.tick}), clamping`);
+          //     input.tick = this.gameClock.tick + MAX_FUTURE_OFFSET;
+          //   }
           this.ecsRoom.addInput(input.tick, playerId, { turn: input.turn, break: false });
         }
       });
