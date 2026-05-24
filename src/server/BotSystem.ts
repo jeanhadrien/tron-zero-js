@@ -24,9 +24,20 @@ const BOT_COUNT = 3;
 type Strategy = 'CUT_OFF' | 'BOX_IN' | 'SPEED_DEMON' | 'TRAPPER';
 
 const FIRST_NAMES = [
-  'Kova', 'Atro', 'Hayzeur', 'Nobody', 'Rampiece',
-  'Hyouz', 'Ksiyae', 'Koniev', 'Dys', 'Shelby',
-  'Ryv', 'Tangz', 'Kaflao', 'Boby',
+  'Kova',
+  'Atro',
+  'Hayzeur',
+  'Nobody',
+  'Rampiece',
+  'Hyouz',
+  'Ksiyae',
+  'Koniev',
+  'Dys',
+  'Shelby',
+  'Ryv',
+  'Tangz',
+  'Kaflao',
+  'Boby',
 ];
 
 const TITLES: Record<Strategy, string> = {
@@ -108,9 +119,7 @@ export default class BotSystem extends System {
       const { distFront, distLeft, distRight } = this.computeDistances(world, eid);
 
       const nearestEnemyEid = this.getNearestEnemy(world, eid);
-      const relPos = nearestEnemyEid !== null
-        ? this.getRelativePosition(eid, nearestEnemyEid)
-        : null;
+      const relPos = nearestEnemyEid !== null ? this.getRelativePosition(eid, nearestEnemyEid) : null;
 
       const strategy = this.strategies.get(eid) || 'CUT_OFF';
 
@@ -206,7 +215,12 @@ export default class BotSystem extends System {
 
   private getRelativePosition(selfEid: number, enemyEid: number): RelativePosition {
     const dist = distanceBetween(Position.x[selfEid], Position.y[selfEid], Position.x[enemyEid], Position.y[enemyEid]);
-    const angleToEnemy = angleBetween(Position.x[selfEid], Position.y[selfEid], Position.x[enemyEid], Position.y[enemyEid]);
+    const angleToEnemy = angleBetween(
+      Position.x[selfEid],
+      Position.y[selfEid],
+      Position.x[enemyEid],
+      Position.y[enemyEid]
+    );
 
     const normalizedBotDir = wrapAngle(Direction[selfEid]);
     const normalizedAngleToEnemy = wrapAngle(angleToEnemy);
@@ -234,7 +248,7 @@ export default class BotSystem extends System {
     leftDist: number,
     rightDist: number,
     tick: number,
-    playerId: string,
+    playerId: string
   ): void {
     const relPos = this.getRelativePosition(eid, enemyEid);
     const relHeading = this.getRelativeHeading(eid, enemyEid);

@@ -1,19 +1,28 @@
 import { GameObjects } from 'phaser';
 import AudioManager, { EngineSound } from './AudioManager';
+import { ECSGameWorld } from '../../../shared/ECSGameWorld';
+import {
+  PlayerId,
+  TrailPoints,
+} from '../../../shared/ECSPlayerSystem';
 
-interface PlayerLike {
-  id: string;
-  isAlive: boolean;
-  direction: number;
-  color: number;
+export interface RenderSnapshot {
+  tick: number;
   x: number;
   y: number;
+  direction: number;
+  color: number;
   speedMult: number;
   rubber: number;
-  trail: { getPoints(): readonly { coordinates: { x: number; y: number }; direction: number; tick: number }[] };
+  isAlive: boolean;
+  trailLength: number;
+  trailXs?: number[];
+  trailYs?: number[];
 }
 
 export default class PlayerRenderer extends Phaser.GameObjects.Image {
+  eid: number;
+  world: ECSGameWorld;
   driverGraphics: GameObjects.Graphics;
   staticTrailGraphics: GameObjects.Graphics;
   activeTrailGraphics: GameObjects.Graphics;
@@ -23,13 +32,13 @@ export default class PlayerRenderer extends Phaser.GameObjects.Image {
   private audioManager: AudioManager;
   private engineSound: EngineSound | null = null;
 
-  private _lastTrail: any = null;
-  private _lastStaticTrailLength: number = -1;
-  private _lastStaticTrailTick: number = -1;
+  private _lastTrailLength: number = -1;
 
-  constructor(scene: Phaser.Scene, audioManager?: AudioManager) {
+  constructor(scene: Phaser.Scene, eid: number, world: ECSGameWorld, audioManager?: AudioManager) {
     super(scene, 0, 0, '_playerRenderer');
     this.scene = scene;
+    this.eid = eid;
+    this.world = world;
     this.audioManager = audioManager ?? new AudioManager(scene);
 
     this.scene.add.existing(this);
@@ -65,86 +74,63 @@ export default class PlayerRenderer extends Phaser.GameObjects.Image {
     super.destroy(fromScene);
   }
 
-  private _drawAt(player: PlayerLike, renderX: number, renderY: number) {
-    if (!player.isAlive) {
+  renderAt(snapshot: RenderSnapshot) {
+    if (!snapshot.isAlive) {
       this.driverGraphics.setVisible(false);
       this.activeTrailGraphics.clear();
       this.staticTrailGraphics.clear();
       this.nameText.setVisible(false);
-
-      this._lastStaticTrailLength = -1;
+      this._lastTrailLength = -1;
       return;
     }
 
-    // Name Text
+    const renderX = snapshot.x;
+    const renderY = snapshot.y;
+
     this.nameText.setVisible(true);
-    this.nameText.setText(player.id.substring(0, 16));
+    this.nameText.setText(PlayerId[this.eid].substring(0, 16));
     this.nameText.setPosition(renderX, renderY - 15);
     this.nameText.setColor('#ffffff');
     this.nameText.setTint(0xffffff);
 
-    // Driver
-
     this.driverGraphics.setVisible(true);
     this.driverGraphics.x = renderX;
     this.driverGraphics.y = renderY;
-    this.driverGraphics.rotation = player.direction + Math.PI / 2;
+    this.driverGraphics.rotation = snapshot.direction + Math.PI / 2;
     this.driverGraphics.clear();
-    this.driverGraphics.fillStyle(player.color);
+    this.driverGraphics.fillStyle(snapshot.color);
     this.driverGraphics.fillTriangle(0, -7, -7, 7, 7, 7);
 
-    const points = player.trail.getPoints();
-
-    if (points.length == 0) {
+    const xs = snapshot.trailXs ?? TrailPoints.xs[this.eid];
+    const ys = snapshot.trailYs ?? TrailPoints.ys[this.eid];
+    if (!xs || !ys || xs.length === 0) {
+      this.activeTrailGraphics.clear();
+      this.staticTrailGraphics.clear();
+      this._lastTrailLength = -1;
       return;
     }
 
-    // Active trail segment
+    const n = Math.min(snapshot.trailLength, xs.length);
+
     this.activeTrailGraphics.clear();
-    this.activeTrailGraphics.lineStyle(this.trailWidth, player.color, 0.5);
+    this.activeTrailGraphics.lineStyle(this.trailWidth, snapshot.color, 0.5);
     this.activeTrailGraphics.beginPath();
-    this.activeTrailGraphics.moveTo(
-      points[points.length - 1].coordinates.x,
-      points[points.length - 1].coordinates.y
-    );
+    this.activeTrailGraphics.moveTo(xs[n - 1], ys[n - 1]);
     this.activeTrailGraphics.lineTo(renderX, renderY);
     this.activeTrailGraphics.strokePath();
 
-    // Static trail segments
-
-    if (
-      this._lastTrail === player.trail &&
-      this._lastStaticTrailLength === points.length &&
-      this._lastStaticTrailTick === points[points.length - 1].tick
-    ) {
-      return; // Nothing changed, skip redrawing the static trail
-    }
-
-    this._lastTrail = player.trail;
-    this._lastStaticTrailLength = points.length;
-    this._lastStaticTrailTick = points[points.length - 1].tick;
+    if (this._lastTrailLength === n) return;
+    this._lastTrailLength = n;
 
     this.staticTrailGraphics.clear();
-    this.staticTrailGraphics.lineStyle(this.trailWidth, player.color, 0.5);
+    this.staticTrailGraphics.lineStyle(this.trailWidth, snapshot.color, 0.5);
     this.staticTrailGraphics.beginPath();
-
-    this.staticTrailGraphics.moveTo(
-      points[0].coordinates.x,
-      points[0].coordinates.y
-    );
-
-    for (let i = 1; i < points.length; i++) {
-      this.staticTrailGraphics.lineTo(
-        points[i].coordinates.x,
-        points[i].coordinates.y
-      );
+    this.staticTrailGraphics.moveTo(xs[0], ys[0]);
+    for (let i = 1; i < n; i++) {
+      this.staticTrailGraphics.lineTo(xs[i], ys[i]);
     }
-
     this.staticTrailGraphics.strokePath();
-  }
 
-  renderInterpolated(player: PlayerLike, renderX: number, renderY: number) {
-    this._drawAt(player, renderX, renderY);
-    this.engineSound?.update(renderX, renderY, player.speedMult);
+    this.engineSound?.update(renderX, renderY, snapshot.speedMult);
   }
 }

@@ -1,4 +1,9 @@
+import { query, removeEntity } from 'bitecs';
 import { TickRingBuffer } from './TickRingBuffer';
+import { ECSGameWorld } from './ECSGameWorld';
+import PlayerSystem from './ECSPlayerSystem';
+import { System, GetInput, GetEvents } from './ECSSystem';
+import { GameEventType } from './GameEvent';
 
 export const Networked = {};
 export const NetworkUpdated = {};
@@ -14,23 +19,18 @@ export interface NetworkDiffPayload {
   struct: ArrayBuffer;
 }
 
-// export class ECSNetworkSystem extends System {
-//   readonly key = 'network';
-//   private changedEids: number[] = [];
+export class ECSNetworkSystem extends System {
+  readonly key = 'network';
 
-//   getComponents(): {}[] {
-//     return [NetworkUpdated];
-//   }
+  getComponents(): object[] {
+    return [NetworkUpdated];
+  }
 
-//   update(world: ECSGameWorld, _getInput?: GetInput, _getEvents?: GetEvents): void {
-//     for (const eid of query(world, [NetworkUpdated])) {
-//       this.changedEids.push(eid);
-//     }
-//   }
-
-//   getChangedEids(): number[] {
-//     const eids = this.changedEids;
-//     this.changedEids = [];
-//     return eids;
-//   }
-// }
+  update(world: ECSGameWorld, _getInput?: GetInput, _getEvents?: GetEvents): void {
+    if (_getEvents) {
+      for (const event of _getEvents()) {
+        continue;
+      }
+    }
+  }
+}

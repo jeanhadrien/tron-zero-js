@@ -4,9 +4,13 @@ export enum GameEventType {
   PlayerSpawn,
   PlayerDeath,
   PlayerTurn,
+  GameStart,
+  GameStop,
+  GamePause,
 }
 
 export interface GameEvent {
   type: GameEventType;
   entityId?: number;
+  playerId?: string;
 }

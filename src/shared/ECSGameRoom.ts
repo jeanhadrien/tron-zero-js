@@ -91,11 +91,11 @@ export default class ECSGameRoom {
     this.worldObserverDeserializeNet = createObserverDeserializer(this.world, Networked, this.worldComponents);
 
     this.worldSoASerializeDiff = createSoASerializer(this.worldComponents, {
-      diff: true,
+      diff: false,
       buffer: new ArrayBuffer(DIFF_BUFFER_SIZE),
       epsilon: 0,
     });
-    this.worldSoADeserialize = createSoADeserializer(this.worldComponents, { diff: true });
+    this.worldSoADeserialize = createSoADeserializer(this.worldComponents, { diff: false });
 
     logger.setWorld(this.world);
 
@@ -145,8 +145,12 @@ export default class ECSGameRoom {
 
   addInput(tick: number, playerId: string, input: PlayerInput): void {
     this.playerInputBuffer.record(tick, playerId, input);
-    logger.debug('input at tick', tick, 'for player', playerId, input.turn, input.break);
+    logger.warn('input at tick', tick, 'for player', playerId, input.turn, input.break);
     const eid = PlayerSystem.getPlayerEidByStringId(this.world, playerId);
+    if (!eid) {
+      logger.warn('No player for input', eid);
+      return;
+    }
     PingInTicks[eid] = Math.max(0, this.world.tick - tick);
     const resimTick = tick - 1;
     if (resimTick <= this.world.tick) {
@@ -161,7 +165,7 @@ export default class ECSGameRoom {
   }
 
   addNetworkDiffPayload(diff: NetworkDiffPayload): void {
-    logger.info(`Applying diff at tick ${diff.tick}`);
+    logger.debug(`Applying diff at tick ${diff.tick}`);
     this.networkDiffTickRingBuffer.record(diff.tick, 'network', {
       data: diff.data,
       struct: diff.struct,
@@ -175,13 +179,19 @@ export default class ECSGameRoom {
     }
   }
 
+  /**
+   * Runs the world for the current world tick and then updates the world tick.
+   * When reading the world tick externally, the simulation has not happened yet for that tick.
+   * This means it is safe to add events or inputs for that tick that the systems will read.
+   * @param world
+   */
   private update(world: ECSGameWorld): void {
-    world.tick += 1;
     const input = (entityId: string) => this.playerInputBuffer.get(world.tick, entityId);
     const events = () => this.gameEventBuffer.get(world.tick);
     for (const sys of this.systems) {
       sys.update(world, input, events);
     }
+    world.tick += 1;
   }
 
   updateFixed(deltaTime: number): void {

@@ -10,6 +10,16 @@ export enum LogLevel {
   NONE = 4,
 }
 
+function parseEnvLevel(): LogLevel {
+  const raw =
+    (typeof process !== 'undefined' && process.env?.LOG_LEVEL) ||
+    (typeof import.meta !== 'undefined' && (import.meta as any).env?.VITE_LOG_LEVEL) ||
+    '';
+  const key = raw.toUpperCase();
+  if (key in LogLevel) return LogLevel[key as keyof typeof LogLevel];
+  return LogLevel.INFO;
+}
+
 const SEVERITY_MAP: Record<LogLevel, SeverityNumber> = {
   [LogLevel.DEBUG]: SeverityNumber.DEBUG,
   [LogLevel.INFO]: SeverityNumber.INFO,
@@ -34,7 +44,7 @@ function toAttributes(val: unknown): Record<string, unknown> {
 }
 
 export class Logger {
-  private static globalLevel: LogLevel = LogLevel.DEBUG;
+  private static globalLevel: LogLevel = parseEnvLevel();
   private tag: string;
   private attributes: Record<string, unknown>;
   private otelLogger: OtelLogger;
@@ -54,6 +64,8 @@ export class Logger {
   }
 
   private emit(level: LogLevel, args: unknown[]): void {
+    if (Logger.globalLevel > level) return;
+
     const firstArg = args[0];
     const body = typeof firstArg === 'string' ? firstArg : '';
     const callAttrs = args.length > 1 ? toAttributes(args[1]) : {};
@@ -65,10 +77,8 @@ export class Logger {
     });
 
     const consoleLevel = level > LogLevel.NONE ? LogLevel.NONE : level;
-    if (Logger.globalLevel <= consoleLevel) {
-      const method = CONSOLE_MAP[consoleLevel as keyof typeof CONSOLE_MAP];
-      console[method](`[${this.tag}]`, ...args);
-    }
+    const method = CONSOLE_MAP[consoleLevel as keyof typeof CONSOLE_MAP];
+    console[method](`[${this.tag}]`, ...args);
   }
 
   debug(...args: unknown[]): void {

@@ -1,9 +1,7 @@
 import 'phaser';
 import { EventBus } from '../EventBus';
 import type { PlayerDTO } from '../../../shared/Player';
-import PlayerRenderer from '../gameobjects/PlayerRenderer';
-import Player from '../../../shared/Player';
-import { PlayerEventBus } from '../../../shared/PlayerStateEventBus';
+import PlayerRenderer, { RenderSnapshot } from '../gameobjects/PlayerRenderer';
 
 const GRID_SIZE = 40;
 const GRID_COLOR = 0x333333;
@@ -19,8 +17,6 @@ export default class TestVisualizerScene extends Phaser.Scene {
   private msPerTick = 100;
 
   private playerRenderers = new Map<string, PlayerRenderer>();
-  private playerStates = new Map<string, Player>();
-  private dummyBus = new PlayerEventBus();
   private tickText!: Phaser.GameObjects.Text;
   private hintText!: Phaser.GameObjects.Text;
 
@@ -210,19 +206,13 @@ export default class TestVisualizerScene extends Phaser.Scene {
 
   private ensurePlayer(id: string) {
     let renderer = this.playerRenderers.get(id);
-    let state = this.playerStates.get(id);
-
-    if (!state) {
-      state = new Player(this.dummyBus, 0, 0, 0, 0, 0xffffff);
-      this.playerStates.set(id, state);
-    }
 
     if (!renderer) {
-      renderer = new PlayerRenderer(this);
+      renderer = new PlayerRenderer(this, -1, null as any);
       this.playerRenderers.set(id, renderer);
     }
 
-    return { renderer, state };
+    return { renderer };
   }
 
   private renderTick(index: number) {
@@ -231,9 +221,23 @@ export default class TestVisualizerScene extends Phaser.Scene {
 
     for (const dto of tick) {
       activePlayers.add(dto.id);
-      const { renderer, state } = this.ensurePlayer(dto.id);
-      state.load(dto);
-      renderer.renderInterpolated(state, dto.x, dto.y);
+      const { renderer } = this.ensurePlayer(dto.id);
+
+      const snapshot: RenderSnapshot = {
+        tick: index,
+        x: dto.x,
+        y: dto.y,
+        direction: dto.direction,
+        color: dto.color,
+        speedMult: dto.speedMult,
+        rubber: dto.rubber,
+        isAlive: dto.isAlive,
+        trailLength: dto.trail?.length ?? 0,
+        trailXs: dto.trail?.map((p: any) => p.coordinates?.x ?? p.x) ?? [],
+        trailYs: dto.trail?.map((p: any) => p.coordinates?.y ?? p.y) ?? [],
+      };
+
+      renderer.renderAt(snapshot);
     }
 
     for (const [id, renderer] of this.playerRenderers) {

@@ -1,16 +1,24 @@
-import geckos, { ClientChannel } from '@geckos.io/client';
+import geckos, { ClientChannel, Data } from '@geckos.io/client';
 import { trace } from '@opentelemetry/api';
 import { GameEventBus } from '../../../shared/GameEventBus';
 import GameClock from '../../../shared/GameClock';
 import { Logger } from '../../../shared/Logger';
 import ECSGameRoom from '../../../shared/ECSGameRoom';
-import PlayerSystem from '../../../shared/ECSPlayerSystem';
-import { ECSPlayerAdapter } from '../ECSPlayerAdapter';
+import PlayerSystem, { Position, PlayerId } from '../../../shared/ECSPlayerSystem';
 import { decodeMessage, MSG_INIT_STATE, MSG_SYNC_STATE } from '../../../shared/NetworkProtocol';
 
-
-const logger = new Logger('NET');
+const logger = new Logger('NetworkClient');
 const tracer = trace.getTracer('tron-zero-client');
+
+export interface PlayerMeta {
+  eid: number;
+  id: string;
+}
+
+export interface PlayerPosition {
+  x: number;
+  y: number;
+}
 
 export class NetworkClient {
   channel: ClientChannel;
@@ -22,12 +30,12 @@ export class NetworkClient {
   private smoothedOneWayTime: number = 0;
   private static readonly RTT_SMOOTHING_ALPHA = 0.2;
 
-  onInitState?: (humanPlayer: ECSPlayerAdapter | null, allPlayers: ECSPlayerAdapter[]) => void;
-  onPlayerJoined?: (player: ECSPlayerAdapter) => void;
+  onInitState?: (humanPlayer: PlayerMeta | null, allPlayers: PlayerMeta[]) => void;
+  onPlayerJoined?: (player: PlayerMeta) => void;
   onPlayerLeft?: (playerId: string) => void;
-  onPlayerTurn?: (player: ECSPlayerAdapter) => void;
-  onPlayerDeath?: (player: ECSPlayerAdapter) => void;
-  onPlayerSpawn?: (player: ECSPlayerAdapter) => void;
+  onPlayerTurn?: (player: PlayerPosition) => void;
+  onPlayerDeath?: (player: PlayerMeta) => void;
+  onPlayerSpawn?: (player: PlayerMeta) => void;
 
   constructor(bus: GameEventBus, gameRoom: ECSGameRoom, gameClock: GameClock) {
     this.bus = bus;
@@ -41,10 +49,13 @@ export class NetworkClient {
     logger.info(`[SYNC] tick: ${tickStr} | event: ${eventStr} |`);
   }
 
-  private buildPlayerAdapters(): ECSPlayerAdapter[] {
+  private buildPlayerMeta(): PlayerMeta[] {
     const world = this.gameRoom.world;
     const eids = PlayerSystem.getAllPlayerEids(world);
-    return eids.map((eid) => new ECSPlayerAdapter(eid, world));
+    return eids.map((eid) => ({
+      eid,
+      id: PlayerId[eid],
+    }));
   }
 
   private handleInitState(tick: number, snapshot: ArrayBuffer): void {
@@ -56,7 +67,7 @@ export class NetworkClient {
     this.gameRoom.initFromSnapshot(tick, snapshot);
     this.gameClock.setTick(tick);
 
-    const allPlayers = this.buildPlayerAdapters();
+    const allPlayers = this.buildPlayerMeta();
     const humanEid = this.humanPlayerId
       ? PlayerSystem.getPlayerEidByStringId(this.gameRoom.world, this.humanPlayerId)
       : -1;
@@ -121,68 +132,15 @@ export class NetworkClient {
       );
     });
 
-    this.channel.onRaw((raw: any) => {
+    this.channel.onRaw((raw: Data) => {
+      if (!(raw instanceof ArrayBuffer)) {
+        throw new Error('?');
+      }
       const msg = decodeMessage(raw);
       if (msg.type === MSG_INIT_STATE) {
         this.handleInitState(msg.tick, msg.snapshot);
       } else if (msg.type === MSG_SYNC_STATE) {
         this.handleSyncState(msg.tick, msg.data, msg.struct);
-      }
-    });
-
-    this.channel.on('game_add_player', (raw: any) => {
-      const [id] = raw as [string];
-      this.logSync(this.gameClock.tick, 'game_add_player', raw);
-      const eid = PlayerSystem.getPlayerEidByStringId(this.gameRoom.world, id);
-      if (eid >= 0) {
-        const adapter = new ECSPlayerAdapter(eid, this.gameRoom.world);
-        if (this.onPlayerJoined) {
-          this.onPlayerJoined(adapter);
-        }
-      }
-    });
-
-    this.channel.on('game_remove_player', (raw: any) => {
-      const [id] = raw as [string];
-      this.logSync(this.gameClock.tick, 'game_remove_player', id);
-      if (this.onPlayerLeft) {
-        this.onPlayerLeft(id);
-      }
-    });
-
-    this.channel.on('player_turn', (raw: any) => {
-      const [id] = raw as [string];
-      this.logSync(this.gameClock.tick, 'player_turn', raw);
-      const eid = PlayerSystem.getPlayerEidByStringId(this.gameRoom.world, id);
-      if (eid >= 0) {
-        const adapter = new ECSPlayerAdapter(eid, this.gameRoom.world);
-        if (this.onPlayerTurn) {
-          this.onPlayerTurn(adapter);
-        }
-      }
-    });
-
-    this.channel.on('player_death', (raw: any) => {
-      const [id] = raw as [string];
-      this.logSync(this.gameClock.tick, 'player_death', raw);
-      const eid = PlayerSystem.getPlayerEidByStringId(this.gameRoom.world, id);
-      if (eid >= 0) {
-        const adapter = new ECSPlayerAdapter(eid, this.gameRoom.world);
-        if (this.onPlayerDeath) {
-          this.onPlayerDeath(adapter);
-        }
-      }
-    });
-
-    this.channel.on('player_spawn', (raw: any) => {
-      const [id] = raw as [string];
-      this.logSync(this.gameClock.tick, 'player_spawn', raw);
-      const eid = PlayerSystem.getPlayerEidByStringId(this.gameRoom.world, id);
-      if (eid >= 0) {
-        const adapter = new ECSPlayerAdapter(eid, this.gameRoom.world);
-        if (this.onPlayerSpawn) {
-          this.onPlayerSpawn(adapter);
-        }
       }
     });
   }
@@ -192,7 +150,6 @@ export class NetworkClient {
       const turnSpan = tracer.startSpan('player.turn.send');
       turnSpan.setAttribute('tick', tick);
 
-      // Add input to local simulation
       if (this.humanPlayerId) {
         this.gameRoom.addInput(tick, this.humanPlayerId, { turn: direction, break: false });
       }

@@ -172,7 +172,7 @@ export function getClosestIntersectingPoint(
 // ─── Turn execution ──────────────────────────────────────────────────────────
 
 /** Execute a turn: update direction, add trail point, emit nothing (events are outside ECS). */
-export function executeTurn(eid: number, type: 'left' | 'right', tickTimeMs: number): void {
+export function executeTurn(world: ECSGameWorld, eid: number, type: 'left' | 'right', tickTimeMs: number): void {
   let newDirection = Direction[eid];
 
   if (type === 'left') {
@@ -205,6 +205,7 @@ export function executeTurn(eid: number, type: 'left' | 'right', tickTimeMs: num
 
   Direction[eid] = newDirection;
   _setSpeedAndVelocity(eid, SpeedMult[eid], tickTimeMs);
+  world.dirtyEntities.add(eid);
 }
 
 // ─── Detection lines ─────────────────────────────────────────────────────────
@@ -279,15 +280,15 @@ export default class PlayerSystem extends SystemSerializable {
     for (const eid of Array.from(query(world, [Player, PlayerId]))) {
       if (PlayerId[eid] === stringId) return eid;
     }
-    return -1;
+    throw new Error(`Couldn't get eid for player ${stringId}`);
   }
 
   /** Add a new player entity and return its entity id. */
-  static createPlayer(world: ECSGameWorld, id: string): number {
+  static createPlayer(world: ECSGameWorld, playerId: string): number {
     const color = generatePlayerColor();
     const eid = addEntity(world);
     addComponents(world, eid, PLAYER_COMPONENTS);
-    PlayerId[eid] = id;
+    PlayerId[eid] = playerId;
     Color[eid] = color;
 
     // Defaults for lifecycle flags
@@ -372,18 +373,21 @@ export default class PlayerSystem extends SystemSerializable {
 
   static isAlive(world: ECSGameWorld, playerId: string): boolean {
     const eid = PlayerSystem.getPlayerEidByStringId(world, playerId);
-    if (eid < 0) return false;
+    if (!eid || eid < 0) return false;
     return IsAlive[eid] === 1;
   }
 
   static removePlayerById(world: ECSGameWorld, playerId: string) {
     const eid = this.getPlayerEidByStringId(world, playerId);
+    if (!eid) {
+      logger.warn(`${playerId} doesn't exist`);
+      return;
+    }
     if (eid >= 0) {
       removeEntity(world, eid);
       logger.debug('--- Removed player', playerId);
       return;
     }
-    logger.warn(`${playerId} doesn't exist`);
   }
 
   update(world: ECSGameWorld, getInput?: (entityId: string) => any, getEvents?: GetEvents): void {
@@ -412,8 +416,7 @@ export default class PlayerSystem extends SystemSerializable {
       const playerId = PlayerId[eid];
       const input = getInput?.(playerId);
       if (input?.turn) {
-        executeTurn(eid, input.turn, world.tickTimeMs);
-        world.dirtyEntities.add(eid);
+        executeTurn(world, eid, input.turn, world.tickTimeMs);
       }
 
       // Build detection rays

@@ -2,7 +2,7 @@ import { EventBus } from '../EventBus';
 
 export default class DebugHud {
   scene: Phaser.Scene;
-  values: Array<[string, any, string]> = [];
+  values: Array<[string, () => any]> = [];
   private lastUpdate = 0;
   private readonly UPDATE_RATE = 80; // ms (~12 Hz)
 
@@ -10,14 +10,14 @@ export default class DebugHud {
     this.scene = scene;
   }
 
-  add(name: string, debugVar: any, property: string) {
-    this.values.push([name, debugVar, property]);
+  add(name: string, getter: () => any) {
+    this.values.push([name, getter]);
   }
 
   getStructuredData() {
     if (!this.values) return [];
-    return this.values.map(([name, debugVar, property]) => {
-      const val = debugVar[property];
+    return this.values.map(([name, getter]) => {
+      const val = getter();
       let valueString = '';
       if (typeof val === 'number') {
         valueString = val.toFixed(2);

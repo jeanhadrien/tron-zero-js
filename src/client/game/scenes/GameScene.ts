@@ -1,6 +1,6 @@
 import { Scene } from 'phaser';
 import { EventBus } from '../EventBus';
-import PlayerRenderer from '../gameobjects/PlayerRenderer';
+import PlayerRenderer, { RenderSnapshot } from '../gameobjects/PlayerRenderer';
 import DebugHud from '../gameobjects/DebugHud';
 import { GameEventBus } from '../../../shared/GameEventBus';
 import GameArea, { ECSGameAreaSystem } from '../../../shared/GameArea';
@@ -13,11 +13,59 @@ import GameCamera from '../gameobjects/GameCamera';
 import { Logger } from '../../../shared/Logger';
 import { trace } from '@opentelemetry/api';
 import ECSGameRoom from '../../../shared/ECSGameRoom';
-import PlayerSystem from '../../../shared/ECSPlayerSystem';
-import { ECSPlayerAdapter } from '../ECSPlayerAdapter';
+import PlayerSystem, {
+  Position,
+  Velocity,
+  Direction,
+  SpeedMult,
+  Rubber,
+  IsAlive,
+  Color,
+  TrailPoints,
+  PingInTicks,
+} from '../../../shared/ECSPlayerSystem';
+import { ECSGameWorld } from '../../../shared/ECSGameWorld';
 
 const logger = new Logger('Game');
 const tracer = trace.getTracer('tron-zero-client');
+
+class EntityHistory {
+  private snapshots: Map<number, RenderSnapshot[]> = new Map();
+  private maxAge = 60;
+
+  snapshot(world: ECSGameWorld, eids: number[]) {
+    const tick = world.tick;
+    for (const eid of eids) {
+      const snap: RenderSnapshot = {
+        tick,
+        x: Position.x[eid],
+        y: Position.y[eid],
+        direction: Direction[eid],
+        color: Color[eid],
+        speedMult: SpeedMult[eid],
+        rubber: Rubber[eid],
+        isAlive: IsAlive[eid] === 1,
+        trailLength: TrailPoints.xs[eid]?.length ?? 0,
+      };
+      let list = this.snapshots.get(eid);
+      if (!list) {
+        list = [];
+        this.snapshots.set(eid, list);
+      }
+      list.push(snap);
+      while (list.length > 0 && list[0].tick < tick - this.maxAge) list.shift();
+    }
+  }
+
+  lookup(eid: number, targetTick: number): RenderSnapshot | null {
+    const list = this.snapshots.get(eid);
+    if (!list || list.length === 0) return null;
+    for (let i = list.length - 1; i >= 0; i--) {
+      if (list[i].tick <= targetTick) return list[i];
+    }
+    return list[0];
+  }
+}
 
 export class GameScene extends Scene {
   CANVAS_WIDTH: number;
@@ -31,7 +79,7 @@ export class GameScene extends Scene {
 
   playerRenderers: Map<string, PlayerRenderer> = new Map();
 
-  humanPlayer: ECSPlayerAdapter | null = null;
+  humanEid: number = -1;
 
   gameClock: GameClock;
   gameRoom: ECSGameRoom;
@@ -47,6 +95,8 @@ export class GameScene extends Scene {
   gameAreaRenderer: GameAreaRenderer;
   gameCamera: GameCamera;
   audioManager: AudioManager;
+
+  private entityHistory = new EntityHistory();
 
   constructor() {
     super('Game');
@@ -77,7 +127,6 @@ export class GameScene extends Scene {
     this.gameAreaRenderer.draw();
     this.setupSocket();
 
-    // Initialize AudioContext listener
     this.audioManager.initListener(this.CANVAS_WIDTH, this.CANVAS_HEIGHT);
 
     this.scale.on('resize', (gameSize: Phaser.Structs.Size) => {
@@ -85,13 +134,10 @@ export class GameScene extends Scene {
       this.CANVAS_HEIGHT = gameSize.height;
     });
 
-    // Game state
     this.isLocalPlayerAlive = true;
 
-    // Controls
     this.isKeyDown = {};
 
-    // Game Over text (hidden initially)
     this.gameOverText = this.add
       .text(0, 0, 'GAME OVER', {
         fontSize: '48px',
@@ -116,18 +162,14 @@ export class GameScene extends Scene {
       logger.info('game-start');
       this.audioManager.resume();
 
-      // In multiplayer, restart should probably re-join or tell server to respawn
       this.isLocalPlayerAlive = true;
 
-      // Hide game over text
       this.gameOverText.setVisible(false);
       this.restartText.setVisible(false);
 
-      // Reset key states
       this.isKeyDown = {};
     });
 
-    // Add space key for restart
     this.spaceKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
 
     const keyMappings = {
@@ -141,12 +183,11 @@ export class GameScene extends Scene {
       RIGHT: 'right',
     };
 
-    // Bind key down events to controls
     Object.entries(keyMappings).forEach(([key, direction]) => {
       this.input.keyboard?.on(`keydown-${key}`, () => {
         if (!this.isKeyDown[key]) {
           this.isKeyDown[key] = true;
-          if (this.humanPlayer) {
+          if (this.humanEid >= 0) {
             const targetTick = this.gameRoom.world.tick + this._pendingTurnCount;
             this.networkClient.sendTurn(targetTick, direction as 'left' | 'right');
             this._pendingTurnCount++;
@@ -162,25 +203,27 @@ export class GameScene extends Scene {
   }
 
   setupSocket() {
-    this.networkClient.onInitState = (humanPlayer, allPlayers) => {
-      for (const player of allPlayers) {
-        if (!this.playerRenderers.has(player.id)) {
-          this.playerRenderers.set(player.id, new PlayerRenderer(this, this.audioManager));
-        }
+    this.networkClient.onInitState = (humanMeta, allPlayers) => {
+      const world = this.gameRoom.world;
+
+      for (const p of allPlayers) {
+        this.playerRenderers.set(p.id, new PlayerRenderer(this, p.eid, world, this.audioManager));
       }
 
-      if (humanPlayer) {
-        this.humanPlayer = humanPlayer;
-        this.debugHud.add('Rubber', this.humanPlayer, 'rubber');
-        this.debugHud.add('Speed', this.humanPlayer, 'velocity');
-        this.gameCamera.setHumanPlayer(this.humanPlayer);
+      if (humanMeta) {
+        this.humanEid = humanMeta.eid;
+        this.debugHud.add('Rubber', () => Rubber[this.humanEid]);
+        this.debugHud.add('Speed', () => [Velocity.vx[this.humanEid], Velocity.vy[this.humanEid]]);
+        this.gameCamera.setHumanPlayer({ x: Position.x[this.humanEid], y: Position.y[this.humanEid] });
       }
     };
 
     this.networkClient.onPlayerJoined = (player) => {
       if (!this.playerRenderers.has(player.id)) {
-        const playerRenderer = new PlayerRenderer(this, this.audioManager);
-        this.playerRenderers.set(player.id, playerRenderer);
+        this.playerRenderers.set(
+          player.id,
+          new PlayerRenderer(this, player.eid, this.gameRoom.world, this.audioManager)
+        );
       }
     };
 
@@ -199,8 +242,22 @@ export class GameScene extends Scene {
     this.networkClient.connect();
   }
 
+  private buildLiveSnapshot(world: ECSGameWorld, eid: number): RenderSnapshot {
+    return {
+      tick: world.tick,
+      x: Position.x[eid],
+      y: Position.y[eid],
+      direction: Direction[eid],
+      color: Color[eid],
+      speedMult: SpeedMult[eid],
+      rubber: Rubber[eid],
+      isAlive: IsAlive[eid] === 1,
+      trailLength: TrailPoints.xs[eid]?.length ?? 0,
+    };
+  }
+
   update(_time: any, delta: number) {
-    if (this.humanPlayer && !this.humanPlayer.isAlive) {
+    if (this.humanEid >= 0 && IsAlive[this.humanEid] !== 1) {
       const cx = this.cameras.main.worldView.centerX;
       const cy = this.cameras.main.worldView.centerY;
       const zoom = this.cameras.main.zoom;
@@ -221,47 +278,59 @@ export class GameScene extends Scene {
 
     this._pendingTurnCount = 0;
 
+    const world = this.gameRoom.world;
+    const currentTick = world.tick;
+
+    const remoteEids: number[] = [];
     for (const [id, renderer] of this.playerRenderers) {
-      const eid = PlayerSystem.getPlayerEidByStringId(this.gameRoom.world, id);
+      const eid = PlayerSystem.getPlayerEidByStringId(world, id);
       if (eid < 0) {
         renderer.setVisible(false);
         continue;
       }
-      // Reuse a lightweight adapter per frame for rendering — created inline
-      // since ECSPlayerAdapter is just a thin wrapper reading component stores.
-      const adapter = this._adapterCache.get(id) ?? new ECSPlayerAdapter(eid, this.gameRoom.world);
-      if (!this._adapterCache.has(id)) {
-        this._adapterCache.set(id, adapter);
+      if (eid !== this.humanEid) {
+        remoteEids.push(eid);
       }
-      adapter.eid = eid;
+    }
 
-      renderer.renderInterpolated(adapter, adapter.x, adapter.y);
+    this.entityHistory.snapshot(world, remoteEids);
+
+    for (const [id, renderer] of this.playerRenderers) {
+      const eid = PlayerSystem.getPlayerEidByStringId(world, id);
+      if (eid < 0) continue;
+
+      let snapshot: RenderSnapshot;
+
+      if (eid === this.humanEid) {
+        snapshot = this.buildLiveSnapshot(world, eid);
+      } else {
+        const delayTicks = Math.round(PingInTicks[eid]);
+        const targetTick = currentTick - delayTicks;
+        snapshot = this.entityHistory.lookup(eid, targetTick) ?? this.buildLiveSnapshot(world, eid);
+      }
+
+      renderer.renderAt(snapshot);
       renderer.setVisible(true);
     }
 
-    if (this.humanPlayer) {
-      this.gameCamera.update(this.humanPlayer.x, this.humanPlayer.y);
+    if (this.humanEid >= 0) {
+      this.gameCamera.update(Position.x[this.humanEid], Position.y[this.humanEid]);
     }
 
-    // Handle death
-    if (this.humanPlayer && this.humanPlayer.rubber <= 0 && this.humanPlayer.isAlive) {
+    if (this.humanEid >= 0 && Rubber[this.humanEid] <= 0 && IsAlive[this.humanEid] === 1) {
       EventBus.emit('game-over', 'ai');
     }
 
-    // Throttle FPS emit to avoid Reactivity spam in SolidJS
     if (_time - this.lastFpsEmitTime > 50) {
-      // Every 250ms
       this.lastFpsEmitTime = _time;
       EventBus.emit('fps-update', this.game.loop.actualFps);
     }
-    // Debug HUD is throttled internally (~12 Hz) to avoid SolidJS reactivity spam
+
     this.debugHud.update(_time);
   }
-
-  // Cache adapters across frames to avoid allocations
-  private _adapterCache = new Map<string, ECSPlayerAdapter>();
 
   releaseKey(key: string) {
     this.isKeyDown[key] = false;
   }
 }
+
