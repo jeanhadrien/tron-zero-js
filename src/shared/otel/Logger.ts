@@ -1,6 +1,6 @@
 import { logs, SeverityNumber } from '@opentelemetry/api-logs';
 import type { Logger as OtelLogger } from '@opentelemetry/api-logs';
-import type { ECSGameWorld } from '../ECSGameRoom';
+import type { ECSGameRoom, ECSGameWorld } from '../ECSGameRoom';
 
 export enum LogLevel {
   DEBUG = 0,
@@ -102,19 +102,19 @@ export class Logger {
   }
 }
 
-export class TickLogger extends Logger {
-  private world: ECSGameWorld | null = null;
+export class RoomLogger extends Logger {
+  private room: ECSGameRoom | null = null;
 
   constructor(tag: string, attributes?: Record<string, unknown>) {
     super(tag, attributes);
   }
 
-  setWorld(world: ECSGameWorld): void {
-    this.world = world;
+  setRoom(room: ECSGameRoom): void {
+    this.room = room;
   }
 
   private prefixArgs(args: unknown[]): unknown[] {
-    if (this.world) return [`[${this.world.tick}]`, ...args];
+    if (this.room) return [`[${this.room.tick}]`, ...args];
     return args;
   }
 

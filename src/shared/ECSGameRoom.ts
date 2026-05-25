@@ -24,11 +24,11 @@ import { PlayerInputTickRingBuffer } from './PlayerInputBuffer';
 import { GameEvent, GameEventType } from './GameEvent';
 import { GameEventTickRingBuffer } from './GameEventBuffer';
 import { Networked } from './ECSNetworkSystem';
-import { TickLogger } from './otel/Logger';
+import { RoomLogger } from './otel/Logger';
 import PlayerSystem, { PingInTicks } from './systems/ECSPlayerSystem';
 import GameClock from './GameClock';
 
-const logger = new TickLogger('GameRoom');
+const logger = new RoomLogger('GameRoom');
 
 export class ECSGameRoom {
   playerEventBus: PlayerEventBus;
@@ -83,13 +83,7 @@ export class ECSGameRoom {
     });
     this.soaDeserialize = createSoADeserializer(this.components, { diff: false });
 
-    this.world = createWorld(
-      {
-        tick: 0,
-        tickTimeMs: this.gameClock.tickTimeMs,
-      },
-      this.entityIndex
-    );
+    this.world = createWorld({}, this.entityIndex);
     this.components = systems.flatMap((s) => s.getComponents());
     this.snapshotSerialize = createSnapshotSerializer(
       this.world,
@@ -101,7 +95,7 @@ export class ECSGameRoom {
     this.observerSerializeNetwork = createObserverSerializer(this.world, Networked, this.components);
     this.observerDeserializeNetwork = createObserverDeserializer(this.world, Networked, this.components);
 
-    logger.setWorld(this.world);
+    logger.setRoom(this);
 
     // Initialize all systems before anything else runs
     for (const sys of this.systems) {

@@ -1,12 +1,12 @@
 import { ClientChannel, geckos } from '@geckos.io/client';
 import { eventGetter, inputGetter, System } from '../../../shared/ECSSystem';
-import { Logger, TickLogger } from '../../../shared/otel/Logger';
+import { Logger, RoomLogger } from '../../../shared/otel/Logger';
 import { ConnectionError, Data } from '@geckos.io/common/lib/types';
 import { decodeMessage, MSG_INIT_STATE, MSG_SYNC_STATE } from '../../../shared/NetworkProtocol';
 import { ECSGameRoom } from '../../../shared/ECSGameRoom';
 import PlayerSystem from '../../../shared/systems/ECSPlayerSystem';
 
-export const logger = new TickLogger('ClientNetworkSystem');
+export const logger = new RoomLogger('ClientNetworkSystem');
 
 export class ClientNetworkSystem extends System {
   readonly key = 'client-network';
@@ -33,11 +33,11 @@ export class ClientNetworkSystem extends System {
 
   init?(room: ECSGameRoom): void {
     this.room = room;
-    logger.setWorld(room.world);
+    logger.setRoom(room.world);
 
     this.channel.onConnect((error) => this.onConnection(error));
-    this.channel.on('pong', this.onPong);
-    this.channel.onRaw(this.onRaw);
+    this.channel.on('pong', (data) => this.onPong(data));
+    this.channel.onRaw((data) => this.onRaw(data));
     setInterval(() => {
       this.channel.emit('ping', performance.now());
     }, 3000);
@@ -61,7 +61,12 @@ export class ClientNetworkSystem extends System {
   }
 
   private onSyncState(tick: number, data: ArrayBuffer, struct: ArrayBuffer) {
-    throw new Error('Method not implemented.');
+    logger.debug('Received sync state');
+    this.room.addNetworkDiffPayload({
+      tick,
+      data,
+      struct,
+    });
   }
 
   private onInitState(tick: number, snapshot: ArrayBuffer) {
@@ -72,10 +77,6 @@ export class ClientNetworkSystem extends System {
 
     this.clientPlayerEid = PlayerSystem.getPlayerEidByStringId(this.room, this.channel.id!);
     this.clientPlayerId = this.channel.id!;
-  }
-
-  update?(getInput: inputGetter, getEvents: eventGetter): void {
-    throw new Error('Method not implemented.');
   }
 
   private onPong(data: Data) {
