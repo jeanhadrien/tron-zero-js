@@ -165,7 +165,12 @@ export default class BotSystem extends System {
         } else {
           turn = Math.random() > 0.5 ? 'left' : 'right';
         }
-        this.inputBuffer.record(tick, playerId, { turn, break: false });
+        this.room.addInput({
+          tick,
+          playerId,
+          break: false,
+          turn,
+        });
         this.lastActionTick.set(eid, tick);
         continue;
       }
@@ -176,11 +181,21 @@ export default class BotSystem extends System {
         if (wantsToSlide && distLeft > 20 && distRight > 20) {
           if (distFront > 50) {
             if (distLeft < distRight && distLeft < 400) {
-              this.inputBuffer.record(tick, playerId, { turn: 'left', break: false });
+              this.room.addInput({
+                tick,
+                playerId,
+                break: false,
+                turn: 'left',
+              });
               this.lastActionTick.set(eid, tick + 18);
               continue;
             } else if (distRight < distLeft && distRight < 400) {
-              this.inputBuffer.record(tick, playerId, { turn: 'right', break: false });
+              this.room.addInput({
+                tick,
+                playerId,
+                break: false,
+                turn: 'right',
+              });
               this.lastActionTick.set(eid, tick + 18);
               continue;
             }
@@ -274,11 +289,21 @@ export default class BotSystem extends System {
     // General tracking
     if (!relPos.isAhead) {
       if (relPos.isLeft && leftDist > 40) {
-        this.inputBuffer!.record(tick, playerId, { turn: 'left', break: false });
+        this.room.addInput({
+          tick,
+          playerId,
+          break: false,
+          turn: 'left',
+        });
         this.lastActionTick.set(eid, tick);
         return;
       } else if (!relPos.isLeft && rightDist > 40) {
-        this.inputBuffer!.record(tick, playerId, { turn: 'right', break: false });
+        this.room.addInput({
+          tick,
+          playerId,
+          break: false,
+          turn: 'right',
+        });
         this.lastActionTick.set(eid, tick);
         return;
       }
@@ -288,18 +313,38 @@ export default class BotSystem extends System {
       case 'CUT_OFF':
         if (relHeading === 'PARALLEL' && !relPos.isAhead && relPos.distance < 150) {
           if (relPos.isLeft && leftDist > 50) {
-            this.inputBuffer!.record(tick, playerId, { turn: 'left', break: false });
+            this.room.addInput({
+              tick,
+              playerId,
+              break: false,
+              turn: 'left',
+            });
             this.lastActionTick.set(eid, tick);
           } else if (!relPos.isLeft && rightDist > 50) {
-            this.inputBuffer!.record(tick, playerId, { turn: 'right', break: false });
+            this.room.addInput({
+              tick,
+              playerId,
+              break: false,
+              turn: 'right',
+            });
             this.lastActionTick.set(eid, tick);
           }
         } else if (relHeading === 'PERPENDICULAR' && relPos.isAhead && relPos.distance < 150) {
           if (relPos.isLeft && leftDist > 50) {
-            this.inputBuffer!.record(tick, playerId, { turn: 'left', break: false });
+            this.room.addInput({
+              tick,
+              playerId,
+              break: false,
+              turn: 'left',
+            });
             this.lastActionTick.set(eid, tick);
           } else if (!relPos.isLeft && rightDist > 50) {
-            this.inputBuffer!.record(tick, playerId, { turn: 'right', break: false });
+            this.room.addInput({
+              tick,
+              playerId,
+              break: false,
+              turn: 'right',
+            });
             this.lastActionTick.set(eid, tick);
           }
         }
@@ -309,19 +354,39 @@ export default class BotSystem extends System {
         if (relHeading === 'PARALLEL' && relPos.distance < 200) {
           if (relPos.distance > 100 && relPos.distance < 150) {
             if (relPos.isLeft && leftDist > 100) {
-              this.inputBuffer!.record(tick, playerId, { turn: 'left', break: false });
+              this.room.addInput({
+                tick,
+                playerId,
+                break: false,
+                turn: 'left',
+              });
               this.lastActionTick.set(eid, tick);
             } else if (!relPos.isLeft && rightDist > 100) {
-              this.inputBuffer!.record(tick, playerId, { turn: 'right', break: false });
+              this.room.addInput({
+                tick,
+                playerId,
+                break: false,
+                turn: 'right',
+              });
               this.lastActionTick.set(eid, tick);
             }
           }
         } else if (relHeading === 'PERPENDICULAR' && relPos.distance < 150) {
           if (relPos.isLeft && leftDist > 30) {
-            this.inputBuffer!.record(tick, playerId, { turn: 'left', break: false });
+            this.room.addInput({
+              tick,
+              playerId,
+              break: false,
+              turn: 'left',
+            });
             this.lastActionTick.set(eid, tick);
           } else if (!relPos.isLeft && rightDist > 30) {
-            this.inputBuffer!.record(tick, playerId, { turn: 'right', break: false });
+            this.room.addInput({
+              tick,
+              playerId,
+              break: false,
+              turn: 'right',
+            });
             this.lastActionTick.set(eid, tick);
           }
         }
@@ -330,10 +395,20 @@ export default class BotSystem extends System {
       case 'SPEED_DEMON':
         if (TargetSpeedMult[eid] > 1.2 && relPos.distance < 200) {
           if (relPos.isLeft && leftDist > 20) {
-            this.inputBuffer!.record(tick, playerId, { turn: 'left', break: false });
+            this.room.addInput({
+              tick,
+              playerId,
+              break: false,
+              turn: 'left',
+            });
             this.lastActionTick.set(eid, tick);
           } else if (!relPos.isLeft && rightDist > 20) {
-            this.inputBuffer!.record(tick, playerId, { turn: 'right', break: false });
+            this.room.addInput({
+              tick,
+              playerId,
+              break: false,
+              turn: 'right',
+            });
             this.lastActionTick.set(eid, tick);
           }
         }
@@ -342,19 +417,49 @@ export default class BotSystem extends System {
       case 'TRAPPER':
         if (relHeading === 'PARALLEL' && !relPos.isAhead && relPos.distance < 80) {
           if (leftDist > rightDist && leftDist > 50) {
-            this.inputBuffer!.record(tick, playerId, { turn: 'left', break: false });
-            this.inputBuffer!.record(tick + 1, playerId, { turn: 'left', break: false });
+            this.room.addInput({
+              tick,
+              playerId,
+              break: false,
+              turn: 'left',
+            });
+            this.room.addInput({
+              tick: tick + 1,
+              playerId,
+              break: false,
+              turn: 'left',
+            });
           } else if (rightDist > 50) {
-            this.inputBuffer!.record(tick, playerId, { turn: 'right', break: false });
-            this.inputBuffer!.record(tick + 1, playerId, { turn: 'right', break: false });
+            this.room.addInput({
+              tick,
+              playerId,
+              break: false,
+              turn: 'right',
+            });
+            this.room.addInput({
+              tick: tick + 1,
+              playerId,
+              break: false,
+              turn: 'right',
+            });
           }
           this.lastActionTick.set(eid, tick + 30);
         } else if (relPos.isAhead && relPos.distance > 150) {
           if (relPos.isLeft && leftDist > 50) {
-            this.inputBuffer!.record(tick, playerId, { turn: 'left', break: false });
+            this.room.addInput({
+              tick: tick + 1,
+              playerId,
+              break: false,
+              turn: 'left',
+            });
             this.lastActionTick.set(eid, tick);
           } else if (!relPos.isLeft && rightDist > 50) {
-            this.inputBuffer!.record(tick, playerId, { turn: 'right', break: false });
+            this.room.addInput({
+              tick,
+              playerId,
+              break: false,
+              turn: 'right',
+            });
             this.lastActionTick.set(eid, tick);
           }
         }

@@ -1,71 +1,22 @@
 import { Scene } from 'phaser';
 import { EventBus } from '../EventBus';
-import PlayerRenderer, { RenderSnapshot } from '../gameobjects/PlayerRenderer';
 import DebugHud from '../gameobjects/DebugHud';
 import { GameEventBus } from '../../../shared/GameEventBus';
 import GameClock from '../../../shared/GameClock';
 import GameAreaRenderer from '../gameobjects/GameAreaRenderer';
 import AudioManager from '../gameobjects/AudioManager';
 
-import { NetworkClient } from '../network/NetworkClient';
 import GameCamera from '../gameobjects/GameCamera';
 import { Logger } from '../../../shared/Logger';
 import { trace } from '@opentelemetry/api';
-import PlayerSystem, {
-  Position,
-  Velocity,
-  Direction,
-  SpeedMult,
-  Rubber,
-  IsAlive,
-  Color,
-  TrailPoints,
-  PingInTicks,
-} from '../../../shared/systems/ECSPlayerSystem';
+import PlayerSystem, { Position, Rubber, IsAlive } from '../../../shared/systems/ECSPlayerSystem';
 import { ECSGameRoom } from '../../../shared/ECSGameRoom';
 import GameArea, { ECSGameAreaSystem } from '../../../shared/systems/ECSGameArea';
 import { ClientNetworkSystem } from '../systems/ClientNetworkSystem';
+import { PlayerRenderSystem } from '../systems/PlayerRenderSystem';
 
 const logger = new Logger('Game');
 const tracer = trace.getTracer('tron-zero-client');
-
-class EntityHistory {
-  private snapshots: Map<number, RenderSnapshot[]> = new Map();
-  private maxAge = 60;
-
-  snapshot(room: ECSGameRoom, eids: number[]) {
-    const tick = room.tick;
-    for (const eid of eids) {
-      const snap: RenderSnapshot = {
-        tick,
-        x: Position.x[eid],
-        y: Position.y[eid],
-        direction: Direction[eid],
-        color: Color[eid],
-        speedMult: SpeedMult[eid],
-        rubber: Rubber[eid],
-        isAlive: IsAlive[eid] === 1,
-        trailLength: TrailPoints.xs[eid]?.length ?? 0,
-      };
-      let list = this.snapshots.get(eid);
-      if (!list) {
-        list = [];
-        this.snapshots.set(eid, list);
-      }
-      list.push(snap);
-      while (list.length > 0 && list[0].tick < tick - this.maxAge) list.shift();
-    }
-  }
-
-  lookup(eid: number, targetTick: number): RenderSnapshot | null {
-    const list = this.snapshots.get(eid);
-    if (!list || list.length === 0) return null;
-    for (let i = list.length - 1; i >= 0; i--) {
-      if (list[i].tick <= targetTick) return list[i];
-    }
-    return list[0];
-  }
-}
 
 export class GameScene extends Scene {
   CANVAS_WIDTH: number;
@@ -76,8 +27,6 @@ export class GameScene extends Scene {
   gameOverText: Phaser.GameObjects.Text;
   restartText: Phaser.GameObjects.Text;
   spaceKey: Phaser.Input.Keyboard.Key;
-
-  playerRenderers: Map<string, PlayerRenderer> = new Map();
 
   humanEid: number = -1;
 
@@ -95,7 +44,7 @@ export class GameScene extends Scene {
   gameCamera: GameCamera;
   audioManager: AudioManager;
 
-  private entityHistory = new EntityHistory();
+  renderSystem: PlayerRenderSystem;
   networkClient: ClientNetworkSystem;
 
   constructor() {
@@ -112,11 +61,13 @@ export class GameScene extends Scene {
     this.audioManager = new AudioManager(this);
 
     this.networkClient = new ClientNetworkSystem(this.room);
+    this.renderSystem = new PlayerRenderSystem(this);
 
     this.room = new ECSGameRoom(new GameEventBus(), this.gameClock, [
       new ECSGameAreaSystem(),
       new PlayerSystem(),
       this.networkClient,
+      this.renderSystem,
     ]);
 
     this.gameAreaRenderer = new GameAreaRenderer(this, this.gameArea);
@@ -244,20 +195,6 @@ export class GameScene extends Scene {
   //     this.networkClient.connect();
   //   }
 
-  private buildLiveSnapshot(room: ECSGameRoom, eid: number): RenderSnapshot {
-    return {
-      tick: room.tick,
-      x: Position.x[eid],
-      y: Position.y[eid],
-      direction: Direction[eid],
-      color: Color[eid],
-      speedMult: SpeedMult[eid],
-      rubber: Rubber[eid],
-      isAlive: IsAlive[eid] === 1,
-      trailLength: TrailPoints.xs[eid]?.length ?? 0,
-    };
-  }
-
   update(_time: any, delta: number) {
     if (this.humanEid >= 0 && IsAlive[this.humanEid] !== 1) {
       const cx = this.cameras.main.worldView.centerX;
@@ -280,39 +217,12 @@ export class GameScene extends Scene {
 
     this._pendingTurnCount = 0;
 
-    const currentTick = this.room.tick;
-
-    const remoteEids: number[] = [];
-    for (const [id, renderer] of this.playerRenderers) {
-      const eid = PlayerSystem.getPlayerEidByStringId(this.room, id);
-      if (eid < 0) {
-        renderer.setVisible(false);
-        continue;
-      }
-      if (eid !== this.humanEid) {
-        remoteEids.push(eid);
-      }
+    if (this.humanEid < 0) {
+      this.humanEid = this.networkClient.clientPlayerEid;
     }
 
-    this.entityHistory.snapshot(this.room, remoteEids);
-
-    for (const [id, renderer] of this.playerRenderers) {
-      const eid = PlayerSystem.getPlayerEidByStringId(this.room, id);
-      if (eid < 0) continue;
-
-      let snapshot: RenderSnapshot;
-
-      if (eid === this.humanEid) {
-        snapshot = this.buildLiveSnapshot(this.room, eid);
-      } else {
-        const delayTicks = Math.round(PingInTicks[eid]);
-        const targetTick = currentTick - delayTicks;
-        snapshot = this.entityHistory.lookup(eid, targetTick) ?? this.buildLiveSnapshot(this.room, eid);
-      }
-
-      renderer.renderAt(snapshot);
-      renderer.setVisible(true);
-    }
+    this.renderSystem.localPlayerEid = this.humanEid;
+    this.renderSystem.render();
 
     if (this.humanEid >= 0) {
       this.gameCamera.update(Position.x[this.humanEid], Position.y[this.humanEid]);
