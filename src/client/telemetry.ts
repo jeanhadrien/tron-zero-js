@@ -6,26 +6,30 @@ import { LoggerProvider, BatchLogRecordProcessor } from '@opentelemetry/sdk-logs
 import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-proto';
 import { logs } from '@opentelemetry/api-logs';
 
-const resource = resourceFromAttributes({
-  [ATTR_SERVICE_NAME]: 'tron-zero-client',
-});
+const OTEL_ENABLED = import.meta.env.VITE_OTEL_ENABLED !== 'false';
 
-const traceExporter = new OTLPTraceExporter({
-  url: 'http://localhost:4318/v1/traces',
-});
+if (OTEL_ENABLED) {
+  const resource = resourceFromAttributes({
+    [ATTR_SERVICE_NAME]: 'tron-zero-client',
+  });
 
-const tracerProvider = new WebTracerProvider({
-  resource,
-  spanProcessors: [new BatchSpanProcessor(traceExporter)],
-});
-tracerProvider.register();
+  const traceExporter = new OTLPTraceExporter({
+    url: 'http://localhost:4318/v1/traces',
+  });
 
-const logExporter = new OTLPLogExporter({
-  url: 'http://localhost:4318/v1/logs',
-});
+  const tracerProvider = new WebTracerProvider({
+    resource,
+    spanProcessors: [new BatchSpanProcessor(traceExporter)],
+  });
+  tracerProvider.register();
 
-const loggerProvider = new LoggerProvider({
-  resource,
-  processors: [new BatchLogRecordProcessor(logExporter)],
-});
-logs.setGlobalLoggerProvider(loggerProvider);
+  const logExporter = new OTLPLogExporter({
+    url: 'http://localhost:4318/v1/logs',
+  });
+
+  const loggerProvider = new LoggerProvider({
+    resource,
+    processors: [new BatchLogRecordProcessor(logExporter)],
+  });
+  logs.setGlobalLoggerProvider(loggerProvider);
+}

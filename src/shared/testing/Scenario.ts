@@ -1,6 +1,6 @@
 import Player from '../Player';
 import { PlayerEventBus } from '../PlayerStateEventBus';
-import GameArea from '../GameArea';
+import GameArea from '../ECSGameArea';
 import GameClock from '../GameClock';
 import { PlayerDriver, directionToRad, type Action } from './PlayerDriver';
 import type { PlayerSnapshot } from './PlayerSnapshot';
@@ -26,9 +26,7 @@ export class ScenarioResults {
   player(name: string): PlayerSnapshot {
     const s = this.snapshots.get(name);
     if (!s) {
-      throw new Error(
-        `No player named "${name}". Available: ${[...this.snapshots.keys()].join(', ')}`
-      );
+      throw new Error(`No player named "${name}". Available: ${[...this.snapshots.keys()].join(', ')}`);
     }
     return s;
   }
@@ -39,11 +37,7 @@ export default class Scenario {
   private gameClock: GameClock;
   private drivers = new Map<string, PlayerDriver>();
 
-  constructor(options?: {
-    width?: number;
-    height?: number;
-    tickTimeMs?: number;
-  }) {
+  constructor(options?: { width?: number; height?: number; tickTimeMs?: number }) {
     this.gameArea = new GameArea(options?.width, options?.height);
     this.gameClock = new GameClock(options?.tickTimeMs);
   }
@@ -63,14 +57,7 @@ export default class Scenario {
 
     for (const driver of this.drivers.values()) {
       const bus = new PlayerEventBus();
-      const player = new Player(
-        bus,
-        0,
-        0,
-        0,
-        0,
-        COLORS[colorIdx++ % COLORS.length]
-      );
+      const player = new Player(bus, 0, 0, 0, 0, COLORS[colorIdx++ % COLORS.length]);
       runStates.push({
         name: driver.name,
         player,
@@ -101,10 +88,7 @@ export default class Scenario {
           if (action.type === 'speed') {
             rs.player.speedMult = action.mult;
             rs.player.targetSpeedMult = action.mult;
-            rs.player._setSpeedAndVelocity(
-              action.mult,
-              this.gameClock.tickTimeMs
-            );
+            rs.player._setSpeedAndVelocity(action.mult, this.gameClock.tickTimeMs);
             rs.actionIndex++;
             continue;
           }
@@ -145,10 +129,7 @@ export default class Scenario {
         const prevY = rs.player.y;
 
         const otherPlayers = allPlayers.filter((p) => p.id !== rs.player.id);
-        const sharedObstacles = Player.buildSharedCollidableLines(
-          otherPlayers,
-          this.gameArea
-        );
+        const sharedObstacles = Player.buildSharedCollidableLines(otherPlayers, this.gameArea);
         rs.player.update(tick, this.gameArea, this.gameClock, sharedObstacles);
 
         if (action.type === 'move') {

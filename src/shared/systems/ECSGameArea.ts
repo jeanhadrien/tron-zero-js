@@ -1,7 +1,8 @@
 import { array, f32 } from 'bitecs/serialization';
-import { ECSGameWorld } from './ECSGameWorld';
+
 import { addComponents, addEntity } from 'bitecs';
-import { GetInput, System } from './ECSSystem';
+import { System } from '../ECSSystem';
+import { ECSGameRoom } from '../ECSGameRoom';
 
 export default class GameArea {
   width: number;
@@ -27,7 +28,6 @@ export const Lines = {
 
 export class ECSGameAreaSystem implements System {
   readonly key = 'area';
-  initialized: boolean = false;
   width: number;
   height: number;
 
@@ -36,17 +36,13 @@ export class ECSGameAreaSystem implements System {
     this.height = height;
   }
 
-  update(_world: ECSGameWorld, _getInput?: GetInput): void {
-    return;
-  }
-
-  getComponents(): {}[] {
+  getComponents(): object[] {
     return [Arena, AreaWidth, AreaHeight, Lines];
   }
 
-  init(world: ECSGameWorld): void {
-    const eid = addEntity(world);
-    addComponents(world, eid, this.getComponents());
+  init(room: ECSGameRoom): void {
+    const eid = addEntity(room.world);
+    addComponents(room.world, eid, this.getComponents());
     AreaWidth[eid] = this.width;
     AreaHeight[eid] = this.height;
 

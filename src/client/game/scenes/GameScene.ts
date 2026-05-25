@@ -3,7 +3,6 @@ import { EventBus } from '../EventBus';
 import PlayerRenderer, { RenderSnapshot } from '../gameobjects/PlayerRenderer';
 import DebugHud from '../gameobjects/DebugHud';
 import { GameEventBus } from '../../../shared/GameEventBus';
-import GameArea, { ECSGameAreaSystem } from '../../../shared/GameArea';
 import GameClock from '../../../shared/GameClock';
 import GameAreaRenderer from '../gameobjects/GameAreaRenderer';
 import AudioManager from '../gameobjects/AudioManager';
@@ -12,7 +11,6 @@ import { NetworkClient } from '../network/NetworkClient';
 import GameCamera from '../gameobjects/GameCamera';
 import { Logger } from '../../../shared/Logger';
 import { trace } from '@opentelemetry/api';
-import ECSGameRoom from '../../../shared/ECSGameRoom';
 import PlayerSystem, {
   Position,
   Velocity,
@@ -23,8 +21,10 @@ import PlayerSystem, {
   Color,
   TrailPoints,
   PingInTicks,
-} from '../../../shared/ECSPlayerSystem';
-import { ECSGameWorld } from '../../../shared/ECSGameWorld';
+} from '../../../shared/systems/ECSPlayerSystem';
+import { ECSGameRoom } from '../../../shared/ECSGameRoom';
+import GameArea, { ECSGameAreaSystem } from '../../../shared/systems/ECSGameArea';
+import { ClientNetworkSystem } from '../systems/ClientNetworkSystem';
 
 const logger = new Logger('Game');
 const tracer = trace.getTracer('tron-zero-client');
@@ -33,8 +33,8 @@ class EntityHistory {
   private snapshots: Map<number, RenderSnapshot[]> = new Map();
   private maxAge = 60;
 
-  snapshot(world: ECSGameWorld, eids: number[]) {
-    const tick = world.tick;
+  snapshot(room: ECSGameRoom, eids: number[]) {
+    const tick = room.tick;
     for (const eid of eids) {
       const snap: RenderSnapshot = {
         tick,
@@ -82,11 +82,10 @@ export class GameScene extends Scene {
   humanEid: number = -1;
 
   gameClock: GameClock;
-  gameRoom: ECSGameRoom;
+  room: ECSGameRoom;
 
   debugHud: DebugHud;
   gameArea: GameArea;
-  networkClient: NetworkClient;
 
   tickOffset: number = 1;
   private _pendingTurnCount: number = 0;
@@ -97,6 +96,7 @@ export class GameScene extends Scene {
   audioManager: AudioManager;
 
   private entityHistory = new EntityHistory();
+  networkClient: ClientNetworkSystem;
 
   constructor() {
     super('Game');
@@ -110,10 +110,16 @@ export class GameScene extends Scene {
     this.gameClock = new GameClock();
     this.debugHud = new DebugHud(this);
     this.audioManager = new AudioManager(this);
-    this.gameRoom = new ECSGameRoom(new GameEventBus(), this.gameClock, [new ECSGameAreaSystem(), new PlayerSystem()]);
+
+    this.networkClient = new ClientNetworkSystem(this.room);
+
+    this.room = new ECSGameRoom(new GameEventBus(), this.gameClock, [
+      new ECSGameAreaSystem(),
+      new PlayerSystem(),
+      this.networkClient,
+    ]);
 
     this.gameAreaRenderer = new GameAreaRenderer(this, this.gameArea);
-    this.networkClient = new NetworkClient(bus, this.gameRoom, this.gameClock);
     this.gameCamera = new GameCamera(this, this.gameArea, this.audioManager);
   }
 
@@ -125,7 +131,6 @@ export class GameScene extends Scene {
     const span = tracer.startSpan('game.scene.create');
 
     this.gameAreaRenderer.draw();
-    this.setupSocket();
 
     this.audioManager.initListener(this.CANVAS_WIDTH, this.CANVAS_HEIGHT);
 
@@ -188,7 +193,7 @@ export class GameScene extends Scene {
         if (!this.isKeyDown[key]) {
           this.isKeyDown[key] = true;
           if (this.humanEid >= 0) {
-            const targetTick = this.gameRoom.world.tick + this._pendingTurnCount;
+            const targetTick = this.room.tick + this._pendingTurnCount;
             this.networkClient.sendTurn(targetTick, direction as 'left' | 'right');
             this._pendingTurnCount++;
           }
@@ -202,49 +207,46 @@ export class GameScene extends Scene {
     span.end();
   }
 
-  setupSocket() {
-    this.networkClient.onInitState = (humanMeta, allPlayers) => {
-      const world = this.gameRoom.world;
+  //   setupSocket() {
+  //     this.networkClient.onInitState = (humanMeta, allPlayers) => {
+  //       const world = this.room.world;
 
-      for (const p of allPlayers) {
-        this.playerRenderers.set(p.id, new PlayerRenderer(this, p.eid, world, this.audioManager));
-      }
+  //       for (const p of allPlayers) {
+  //         this.playerRenderers.set(p.id, new PlayerRenderer(this, p.eid, world, this.audioManager));
+  //       }
 
-      if (humanMeta) {
-        this.humanEid = humanMeta.eid;
-        this.debugHud.add('Rubber', () => Rubber[this.humanEid]);
-        this.debugHud.add('Speed', () => [Velocity.vx[this.humanEid], Velocity.vy[this.humanEid]]);
-        this.gameCamera.setHumanPlayer({ x: Position.x[this.humanEid], y: Position.y[this.humanEid] });
-      }
-    };
+  //       if (humanMeta) {
+  //         this.humanEid = humanMeta.eid;
+  //         this.debugHud.add('Rubber', () => Rubber[this.humanEid]);
+  //         this.debugHud.add('Speed', () => [Velocity.vx[this.humanEid], Velocity.vy[this.humanEid]]);
+  //         this.gameCamera.setHumanPlayer({ x: Position.x[this.humanEid], y: Position.y[this.humanEid] });
+  //       }
+  //     };
 
-    this.networkClient.onPlayerJoined = (player) => {
-      if (!this.playerRenderers.has(player.id)) {
-        this.playerRenderers.set(
-          player.id,
-          new PlayerRenderer(this, player.eid, this.gameRoom.world, this.audioManager)
-        );
-      }
-    };
+  //     this.networkClient.onPlayerJoined = (player) => {
+  //       if (!this.playerRenderers.has(player.id)) {
+  //         this.playerRenderers.set(player.id, new PlayerRenderer(this, player.eid, this.room.world, this.audioManager));
+  //       }
+  //     };
 
-    this.networkClient.onPlayerLeft = (playerId) => {
-      const renderer = this.playerRenderers.get(playerId);
-      if (renderer) {
-        renderer.destroy();
-        this.playerRenderers.delete(playerId);
-      }
-    };
+  //     this.networkClient.onPlayerLeft = (playerId) => {
+  //       const renderer = this.playerRenderers.get(playerId);
+  //       if (renderer) {
+  //         renderer.destroy();
+  //         this.playerRenderers.delete(playerId);
+  //       }
+  //     };
 
-    this.networkClient.onPlayerTurn = (player) => {
-      this.audioManager.playTurnSound(player.x, player.y);
-    };
+  //     this.networkClient.onPlayerTurn = (player) => {
+  //       this.audioManager.playTurnSound(player.x, player.y);
+  //     };
 
-    this.networkClient.connect();
-  }
+  //     this.networkClient.connect();
+  //   }
 
-  private buildLiveSnapshot(world: ECSGameWorld, eid: number): RenderSnapshot {
+  private buildLiveSnapshot(room: ECSGameRoom, eid: number): RenderSnapshot {
     return {
-      tick: world.tick,
+      tick: room.tick,
       x: Position.x[eid],
       y: Position.y[eid],
       direction: Direction[eid],
@@ -274,16 +276,15 @@ export class GameScene extends Scene {
       }
     }
 
-    this.gameRoom.updateFixed(delta);
+    this.room.updateFixed(delta);
 
     this._pendingTurnCount = 0;
 
-    const world = this.gameRoom.world;
-    const currentTick = world.tick;
+    const currentTick = this.room.tick;
 
     const remoteEids: number[] = [];
     for (const [id, renderer] of this.playerRenderers) {
-      const eid = PlayerSystem.getPlayerEidByStringId(world, id);
+      const eid = PlayerSystem.getPlayerEidByStringId(this.room, id);
       if (eid < 0) {
         renderer.setVisible(false);
         continue;
@@ -293,20 +294,20 @@ export class GameScene extends Scene {
       }
     }
 
-    this.entityHistory.snapshot(world, remoteEids);
+    this.entityHistory.snapshot(this.room, remoteEids);
 
     for (const [id, renderer] of this.playerRenderers) {
-      const eid = PlayerSystem.getPlayerEidByStringId(world, id);
+      const eid = PlayerSystem.getPlayerEidByStringId(this.room, id);
       if (eid < 0) continue;
 
       let snapshot: RenderSnapshot;
 
       if (eid === this.humanEid) {
-        snapshot = this.buildLiveSnapshot(world, eid);
+        snapshot = this.buildLiveSnapshot(this.room, eid);
       } else {
         const delayTicks = Math.round(PingInTicks[eid]);
         const targetTick = currentTick - delayTicks;
-        snapshot = this.entityHistory.lookup(eid, targetTick) ?? this.buildLiveSnapshot(world, eid);
+        snapshot = this.entityHistory.lookup(eid, targetTick) ?? this.buildLiveSnapshot(this.room, eid);
       }
 
       renderer.renderAt(snapshot);
@@ -333,4 +334,3 @@ export class GameScene extends Scene {
     this.isKeyDown[key] = false;
   }
 }
-

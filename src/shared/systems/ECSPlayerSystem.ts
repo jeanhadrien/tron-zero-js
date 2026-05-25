@@ -6,15 +6,15 @@
  * createSnapshotSerializer / createSnapshotDeserializer.
  */
 
-import { addEntity, addComponents, hasComponent, query, resetWorld, removeEntity } from 'bitecs';
+import { addEntity, addComponents, hasComponent, query, removeEntity } from 'bitecs';
 import { createSnapshotSerializer, createSnapshotDeserializer, f32, u8, u32, str, array } from 'bitecs/serialization';
-import { SharedLine, lineToLineIntersection, distanceBetween, clamp, aabbOverlapsRay } from './math';
-import { Arena, AreaWidth, AreaHeight, Lines } from './GameArea';
-import { Logger } from './Logger';
-import { ECSGameWorld } from './ECSGameWorld';
-import { SystemSerializable, GetEvents } from './ECSSystem';
-import { Networked } from './ECSNetworkSystem';
-import { GameEventType } from './GameEvent';
+import { SharedLine, lineToLineIntersection, distanceBetween, clamp, aabbOverlapsRay } from '../math';
+import { Arena, AreaWidth, AreaHeight, Lines } from './ECSGameArea';
+import { Logger } from '../Logger';
+import { SystemSerializable, eventGetter, inputGetter } from '../ECSSystem';
+import { Networked } from '../ECSNetworkSystem';
+import { GameEventType } from '../GameEvent';
+import { ECSGameRoom } from '../ECSGameRoom';
 
 const logger = new Logger('PlayerSystem');
 
@@ -172,7 +172,7 @@ export function getClosestIntersectingPoint(
 // ─── Turn execution ──────────────────────────────────────────────────────────
 
 /** Execute a turn: update direction, add trail point, emit nothing (events are outside ECS). */
-export function executeTurn(world: ECSGameWorld, eid: number, type: 'left' | 'right', tickTimeMs: number): void {
+export function executeTurn(room: ECSGameRoom, eid: number, type: 'left' | 'right', tickTimeMs: number): void {
   let newDirection = Direction[eid];
 
   if (type === 'left') {
@@ -205,7 +205,7 @@ export function executeTurn(world: ECSGameWorld, eid: number, type: 'left' | 'ri
 
   Direction[eid] = newDirection;
   _setSpeedAndVelocity(eid, SpeedMult[eid], tickTimeMs);
-  world.dirtyEntities.add(eid);
+  room.dirtyEntities.add(eid);
 }
 
 // ─── Detection lines ─────────────────────────────────────────────────────────
@@ -220,10 +220,10 @@ export function buildDetectionLines(eid: number, front: SharedLine, left: Shared
 }
 
 /** Build obstacle lines from arena boundaries + all player trails except selfEid. */
-export function buildObstacleLinesExcluding(world: ECSGameWorld, selfEid: number): SharedLine[] {
+export function buildObstacleLinesExcluding(room: ECSGameRoom, selfEid: number): SharedLine[] {
   const lines: SharedLine[] = [];
 
-  const [arenaEid] = query(world, [Arena]);
+  const [arenaEid] = query(room.world, [Arena]);
   if (arenaEid !== undefined) {
     for (let i = 0; i < Lines.x1[arenaEid].length; i++) {
       lines.push(
@@ -232,7 +232,7 @@ export function buildObstacleLinesExcluding(world: ECSGameWorld, selfEid: number
     }
   }
 
-  for (const eid of Array.from(query(world, [Player]))) {
+  for (const eid of Array.from(query(room.world, [Player]))) {
     if (eid === selfEid) continue;
     const xs = TrailPoints.xs[eid];
     const ys = TrailPoints.ys[eid];
@@ -258,36 +258,41 @@ function generatePlayerColor(): number {
 export default class PlayerSystem extends SystemSerializable {
   readonly key = 'player';
 
-  private _serializers = new Map<ECSGameWorld, ReturnType<typeof createSnapshotSerializer>>();
-  private _deserializers = new Map<ECSGameWorld, ReturnType<typeof createSnapshotDeserializer>>();
+  private _serializers = new Map<ECSGameRoom, ReturnType<typeof createSnapshotSerializer>>();
+  private _deserializers = new Map<ECSGameRoom, ReturnType<typeof createSnapshotDeserializer>>();
+  room: ECSGameRoom;
 
   getComponents(): object[] {
     return PLAYER_COMPONENTS;
   }
 
+  init(room: ECSGameRoom) {
+    this.room = room;
+  }
+
   /** Return true if the entity is a player. */
-  static isPlayer(world: ECSGameWorld, eid: number): boolean {
-    return hasComponent(world, eid, Player);
+  static isPlayer(room: ECSGameRoom, eid: number): boolean {
+    return hasComponent(room.world, eid, Player);
   }
 
   /** Return the eids of all player entities. */
-  static getAllPlayerEids(world: ECSGameWorld): number[] {
-    return Array.from(query(world, [Player]));
+  static getAllPlayerEids(room: ECSGameRoom): number[] {
+    return Array.from(query(room.world, [Player]));
   }
 
   /** Get the entity id for a given player string id. Returns -1 if not found. */
-  static getPlayerEidByStringId(world: ECSGameWorld, stringId: string): number {
-    for (const eid of Array.from(query(world, [Player, PlayerId]))) {
+  static getPlayerEidByStringId(room: ECSGameRoom, stringId: string): number {
+    for (const eid of Array.from(query(room.world, [Player, PlayerId]))) {
       if (PlayerId[eid] === stringId) return eid;
     }
     throw new Error(`Couldn't get eid for player ${stringId}`);
   }
 
   /** Add a new player entity and return its entity id. */
-  static createPlayer(world: ECSGameWorld, playerId: string): number {
+  static createPlayer(room: ECSGameRoom, playerId: string): number {
     const color = generatePlayerColor();
-    const eid = addEntity(world);
-    addComponents(world, eid, PLAYER_COMPONENTS);
+    const eid = addEntity(room.world);
+    addComponents(room.world, eid, PLAYER_COMPONENTS);
     PlayerId[eid] = playerId;
     Color[eid] = color;
 
@@ -317,15 +322,15 @@ export default class PlayerSystem extends SystemSerializable {
     return eid;
   }
 
-  static spawnPlayer(world: ECSGameWorld, eid: number) {
-    logger.info('&&& Spawning entity ', eid);
+  static spawnPlayer(room: ECSGameRoom, eid: number) {
+    logger.info('&&& Spawning entity', eid);
 
     if (IsAlive[eid]) {
       logger.warn(`Entity ${eid} is already alive, cannot spawn.`);
       return;
     }
 
-    const [arenaEid] = query(world, [Arena]);
+    const [arenaEid] = query(room.world, [Arena]);
     const width = AreaWidth[arenaEid];
     const height = AreaHeight[arenaEid];
 
@@ -342,19 +347,19 @@ export default class PlayerSystem extends SystemSerializable {
     IsSliding[eid] = 0;
     IsColliding[eid] = 0;
 
-    _setSpeedAndVelocity(eid, 1, world.tickTimeMs);
+    _setSpeedAndVelocity(eid, 1, room.tickTimeMs);
 
     // Single initial trail point at spawn location
 
     TrailPoints.xs[eid] = [x];
     TrailPoints.ys[eid] = [y];
     TrailPoints.dirs[eid] = [direction];
-    world.dirtyEntities.add(eid);
+    room.dirtyEntities.add(eid);
     logger.debug(PlayerId[eid], 'spawnPlayer()');
   }
 
   /** Immediately kill a player (zero speed, zero rubber, clear trail). */
-  static disablePlayer(world: ECSGameWorld, eid: number): void {
+  static disablePlayer(room: ECSGameRoom, eid: number): void {
     SpeedMult[eid] = 0;
     TargetSpeedMult[eid] = 0;
     Velocity.vx[eid] = 0;
@@ -367,47 +372,50 @@ export default class PlayerSystem extends SystemSerializable {
     TrailPoints.xs[eid] = [];
     TrailPoints.ys[eid] = [];
     TrailPoints.dirs[eid] = [];
-    world.dirtyEntities.add(eid);
+    room.dirtyEntities.add(eid);
     logger.debug(PlayerId[eid], 'disable()');
   }
 
-  static isAlive(world: ECSGameWorld, playerId: string): boolean {
-    const eid = PlayerSystem.getPlayerEidByStringId(world, playerId);
+  static isAlive(room: ECSGameRoom, playerId: string): boolean {
+    const eid = PlayerSystem.getPlayerEidByStringId(room, playerId);
     if (!eid || eid < 0) return false;
     return IsAlive[eid] === 1;
   }
 
-  static removePlayerById(world: ECSGameWorld, playerId: string) {
-    const eid = this.getPlayerEidByStringId(world, playerId);
+  static removePlayerById(room: ECSGameRoom, playerId: string) {
+    const eid = this.getPlayerEidByStringId(room, playerId);
     if (!eid) {
       logger.warn(`${playerId} doesn't exist`);
       return;
     }
     if (eid >= 0) {
-      removeEntity(world, eid);
+      removeEntity(room.world, eid);
       logger.debug('--- Removed player', playerId);
       return;
     }
   }
 
-  update(world: ECSGameWorld, getInput?: (entityId: string) => any, getEvents?: GetEvents): void {
+  update(getInput: inputGetter, getEvents: eventGetter): void {
     if (getEvents) {
       for (const event of getEvents()) {
+        if (event.type === GameEventType.PlayerJoined) {
+          PlayerSystem.createPlayer(this.room, event.playerId!);
+        }
         if (event.type === GameEventType.PlayerSpawn && event.entityId) {
-          PlayerSystem.spawnPlayer(world, event.entityId);
+          PlayerSystem.spawnPlayer(this.room, event.entityId);
         }
         if (event.type === GameEventType.PlayerLeft && event.entityId) {
-          removeEntity(world, event.entityId);
-          world.dirtyEntities.add(event.entityId);
+          removeEntity(this.room.world, event.entityId);
+          this.room.dirtyEntities.add(event.entityId);
         }
       }
     }
 
-    for (const eid of Array.from(query(world, [Player]))) {
+    for (const eid of Array.from(query(this.room.world, [Player]))) {
       // Check for death
       if (!IsAlive[eid] || Rubber[eid] <= 0) {
         if (ShouldHandleDeath[eid]) {
-          PlayerSystem.disablePlayer(world, eid);
+          PlayerSystem.disablePlayer(this.room, eid);
         }
         continue;
       }
@@ -416,7 +424,7 @@ export default class PlayerSystem extends SystemSerializable {
       const playerId = PlayerId[eid];
       const input = getInput?.(playerId);
       if (input?.turn) {
-        executeTurn(world, eid, input.turn, world.tickTimeMs);
+        executeTurn(this.room, eid, input.turn, this.room.tickTimeMs);
       }
 
       // Build detection rays
@@ -427,7 +435,7 @@ export default class PlayerSystem extends SystemSerializable {
 
       // Combine obstacle lines with self-trail for collision check
       const selfLines = getPlayerTrailLines(eid);
-      const obstacleLines = buildObstacleLinesExcluding(world, eid);
+      const obstacleLines = buildObstacleLinesExcluding(this.room, eid);
       const collisionLines = [...obstacleLines, ...selfLines];
 
       // Find closest intersections
@@ -446,7 +454,7 @@ export default class PlayerSystem extends SystemSerializable {
         IsColliding[eid] = 1;
 
         const speedRatio = (distFront * distFront) / (SLOW_DOWN_DISTANCE * SLOW_DOWN_DISTANCE);
-        _setSpeedAndVelocity(eid, TargetSpeedMult[eid] * speedRatio, world.tickTimeMs);
+        _setSpeedAndVelocity(eid, TargetSpeedMult[eid] * speedRatio, this.room.tickTimeMs);
 
         // Drain rubber — faster at higher speeds
         Rubber[eid] -= DELTA_STUFF * 0.03 * (2 + TargetSpeedMult[eid]) ** 2;
@@ -456,7 +464,7 @@ export default class PlayerSystem extends SystemSerializable {
           Rubber[eid] += 0.006 * DELTA_STUFF;
         }
         // Restore normal speed
-        _setSpeedAndVelocity(eid, TargetSpeedMult[eid], world.tickTimeMs);
+        _setSpeedAndVelocity(eid, TargetSpeedMult[eid], this.room.tickTimeMs);
       }
 
       // ─── Slide boost ─────────────────────────────────────────────────────────
@@ -478,20 +486,20 @@ export default class PlayerSystem extends SystemSerializable {
     }
   }
 
-  serialize(world: ECSGameWorld, eids: readonly number[]): ArrayBuffer {
-    let serializer = this._serializers.get(world);
+  serialize(room: ECSGameRoom, eids: readonly number[]): ArrayBuffer {
+    let serializer = this._serializers.get(room);
     if (!serializer) {
-      serializer = createSnapshotSerializer(world, PLAYER_COMPONENTS);
-      this._serializers.set(world, serializer);
+      serializer = createSnapshotSerializer(room.world, PLAYER_COMPONENTS);
+      this._serializers.set(room, serializer);
     }
     return serializer(eids);
   }
 
-  deserialize(world: ECSGameWorld, buffer: ArrayBuffer): Map<number, number> {
-    let deserializer = this._deserializers.get(world);
+  deserialize(room: ECSGameRoom, buffer: ArrayBuffer): Map<number, number> {
+    let deserializer = this._deserializers.get(room);
     if (!deserializer) {
-      deserializer = createSnapshotDeserializer(world, PLAYER_COMPONENTS);
-      this._deserializers.set(world, deserializer);
+      deserializer = createSnapshotDeserializer(room.world, PLAYER_COMPONENTS);
+      this._deserializers.set(room, deserializer);
     }
     return deserializer(buffer);
   }

@@ -1,9 +1,8 @@
-import { Data, ServerChannel } from '@geckos.io/server';
+import { Data, GeckosServer, ServerChannel } from '@geckos.io/server';
 import { trace } from '@opentelemetry/api';
 import GameClock from '../../shared/GameClock';
 import { Logger } from '../../shared/Logger';
 import ECSGameRoom from '../../shared/ECSGameRoom';
-import PlayerSystem, { PlayerId } from '../../shared/ECSPlayerSystem';
 import { GameEventType } from '../../shared/GameEvent';
 import type { NetworkDiffPayload } from '../../shared/ECSNetworkSystem';
 import { encodeInitState, encodeSyncState } from '../../shared/NetworkProtocol';
@@ -12,15 +11,13 @@ const logger = new Logger('NET');
 const tracer = trace.getTracer('tron-zero-server');
 
 export class NetworkServer {
-  io: any;
+  io: GeckosServer;
   ecsRoom: ECSGameRoom;
-  gameClock: GameClock;
   channels: Map<string, ServerChannel> = new Map();
 
-  constructor(io: any, ecsRoom: ECSGameRoom, gameClock: GameClock) {
+  constructor(io: GeckosServer, ecsRoom: ECSGameRoom, gameClock: GameClock) {
     this.io = io;
     this.ecsRoom = ecsRoom;
-    this.gameClock = gameClock;
 
     // Delta broadcast — sends changed entity states to all clients after resimulation.
     ecsRoom.onNetworkDiff((diff) => this.broadcastDeltas(diff));
@@ -47,7 +44,7 @@ export class NetworkServer {
       });
 
       // Send full serialized world snapshot as raw binary
-      const packet = encodeInitState(this.gameClock.tick, this.ecsRoom.worldSnapshotSerialize());
+      const packet = encodeInitState(this.ecsRoom.world.tick, this.ecsRoom.snapshotSerialize());
       channel.raw.emit(packet);
 
       // Client sends raw turn inputs (sliding window of { tick, turn } pairs)
@@ -61,13 +58,13 @@ export class NetworkServer {
           //     input.tick = this.gameClock.tick + MAX_FUTURE_OFFSET;
           //   }
           logger.warn('in', channelId, input);
-          this.ecsRoom.addInput(input.tick, channelId, { turn: input.turn, break: false });
+          this.ecsRoom.addInput({ tick: input.tick, turn: input.turn, break: false });
         }
       });
 
       // Handle manual respawn requests from clients
       channel.on('respawn', () => {
-        this.ecsRoom.addEvent(this.gameClock.tick + 1, { type: GameEventType.PlayerSpawn, playerId: channelId });
+        this.ecsRoom.addEvent(this.ecsRoom.world.tick + 1, { type: GameEventType.PlayerSpawn, playerId: channelId });
       });
 
       channel.onDisconnect(() => {
@@ -77,7 +74,7 @@ export class NetworkServer {
         disconnectSpan.setAttribute('player.id', channelId);
 
         logger.info(`Player disconnected: ${channelId}`);
-        this.ecsRoom.addEvent(this.gameClock.tick + 1, { type: GameEventType.PlayerLeft, playerId: channelId });
+        this.ecsRoom.addEvent(this.ecsRoom.world.tick + 1, { type: GameEventType.PlayerLeft, playerId: channelId });
 
         disconnectSpan.end();
       });

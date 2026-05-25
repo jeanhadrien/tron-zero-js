@@ -1,5 +1,5 @@
 import { Scene } from 'phaser';
-import GameArea from '../../../shared/GameArea';
+import GameArea from '../../../shared/ECSGameArea';
 import { EventBus } from '../EventBus';
 import AudioManager from './AudioManager';
 
@@ -41,23 +41,14 @@ export default class GameCamera {
     const canvasHeight = this.scene.scale.height;
 
     if (this.isCameraFollowing) {
-      this.scene.cameras.main.setBounds(
-        0,
-        0,
-        this.gameArea.width,
-        this.gameArea.height,
-        true
-      );
+      this.scene.cameras.main.setBounds(0, 0, this.gameArea.width, this.gameArea.height, true);
       this.scene.cameras.main.setZoom(canvasWidth / this.PLAYER_VIEW_WIDTH);
     } else {
       this.scene.cameras.main.removeBounds();
       const zoomX = canvasWidth / this.gameArea.width;
       const zoomY = canvasHeight / this.gameArea.height;
       this.scene.cameras.main.setZoom(Math.min(zoomX, zoomY));
-      this.scene.cameras.main.centerOn(
-        this.gameArea.width / 2,
-        this.gameArea.height / 2
-      );
+      this.scene.cameras.main.centerOn(this.gameArea.width / 2, this.gameArea.height / 2);
     }
   }
 

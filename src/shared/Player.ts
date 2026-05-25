@@ -2,15 +2,9 @@ import { PlayerTrail } from './PlayerTrail';
 import { PlayerPoint } from './PlayerPoint';
 import { PlayerInput } from './PlayerInput';
 import { PlayerEventBus } from './PlayerStateEventBus';
-import GameArea from './GameArea';
+import GameArea from './ECSGameArea';
 import GameClock from './GameClock';
-import {
-  SharedLine,
-  lineToLineIntersection,
-  distanceBetween,
-  clamp,
-  aabbOverlapsRay,
-} from './math';
+import { SharedLine, lineToLineIntersection, distanceBetween, clamp, aabbOverlapsRay } from './math';
 import PlayerTrailDTO from './PlayerTrailDTO';
 import { Logger } from './Logger';
 
@@ -78,14 +72,7 @@ export default class Player {
   collisionDistanceLeft: number = Infinity;
   collisionDistanceRight: number = Infinity;
 
-  constructor(
-    bus: PlayerEventBus,
-    tick: number,
-    x: number,
-    y: number,
-    direction: number,
-    color: number
-  ) {
+  constructor(bus: PlayerEventBus, tick: number, x: number, y: number, direction: number, color: number) {
     this.eventBus = bus;
     this.id = Math.random().toString(36).substring(7);
     this.x = x;
@@ -121,15 +108,7 @@ export default class Player {
     this.targetSpeedMult = this.speedMult;
     this.shouldHandleDeath = true;
     this.trail.clear();
-    this.trail.addTurn(
-      new PlayerPoint(
-        { x, y },
-        direction,
-        this.velocity,
-        this.speedMult,
-        this.currentTick
-      )
-    );
+    this.trail.addTurn(new PlayerPoint({ x, y }, direction, this.velocity, this.speedMult, this.currentTick));
     this._updateDetectionLines();
     this.eventBus.emit('player_spawn', this);
     logger.debug(this.currentTick, this.id, 'spawn()');
@@ -185,10 +164,7 @@ export default class Player {
     this.direction = angle;
   }
 
-  static buildSharedCollidableLines(
-    players: Player[],
-    gameArea: GameArea
-  ): SharedLine[] {
+  static buildSharedCollidableLines(players: Player[], gameArea: GameArea): SharedLine[] {
     const lines: SharedLine[] = [
       new SharedLine(0, 0, gameArea.width, 0),
       new SharedLine(gameArea.width, 0, gameArea.width, gameArea.height),
@@ -208,9 +184,7 @@ export default class Player {
 
       if (points.length > 0) {
         const lastPoint = points[points.length - 1].coordinates;
-        lines.push(
-          new SharedLine(lastPoint.x, lastPoint.y, player.x, player.y)
-        );
+        lines.push(new SharedLine(lastPoint.x, lastPoint.y, player.x, player.y));
       }
     }
 
@@ -235,10 +209,7 @@ export default class Player {
     return lines;
   }
 
-  getClosestIntersectingPoint(
-    sensorLine: SharedLine,
-    obstacleLines: SharedLine[]
-  ) {
+  getClosestIntersectingPoint(sensorLine: SharedLine, obstacleLines: SharedLine[]) {
     let point: { x: number; y: number };
     let closestPoint = { x: Infinity, y: Infinity };
     let pointDistance;
@@ -256,10 +227,7 @@ export default class Player {
           continue;
         }
 
-        if (
-          pointDistance <
-          distanceBetween(this.x, this.y, closestPoint.x, closestPoint.y)
-        ) {
+        if (pointDistance < distanceBetween(this.x, this.y, closestPoint.x, closestPoint.y)) {
           closestPoint = point;
         }
       }
@@ -269,38 +237,18 @@ export default class Player {
 
   _updateDetectionLines() {
     const currentSpeed = this.speedMult || 0;
-    const lookAheadLength = Math.max(
-      2000,
-      Player.BASE_SPEED * currentSpeed * 0.5
-    );
+    const lookAheadLength = Math.max(2000, Player.BASE_SPEED * currentSpeed * 0.5);
 
-    this.detectionLine.setToAngle(
-      this.x,
-      this.y,
-      this.direction,
-      lookAheadLength
-    );
+    this.detectionLine.setToAngle(this.x, this.y, this.direction, lookAheadLength);
 
-    this.detectionLineLeft.setToAngle(
-      this.x,
-      this.y,
-      this.direction - Math.PI / 2,
-      lookAheadLength
-    );
+    this.detectionLineLeft.setToAngle(this.x, this.y, this.direction - Math.PI / 2, lookAheadLength);
 
-    this.detectionLineRight.setToAngle(
-      this.x,
-      this.y,
-      this.direction + Math.PI / 2,
-      lookAheadLength
-    );
+    this.detectionLineRight.setToAngle(this.x, this.y, this.direction + Math.PI / 2, lookAheadLength);
   }
 
   _setSpeedAndVelocity(speedMult: number, tickTimeMs: number) {
-    let vx =
-      Math.cos(this.direction) * Player.BASE_SPEED * speedMult * tickTimeMs;
-    let vy =
-      Math.sin(this.direction) * Player.BASE_SPEED * speedMult * tickTimeMs;
+    let vx = Math.cos(this.direction) * Player.BASE_SPEED * speedMult * tickTimeMs;
+    let vy = Math.sin(this.direction) * Player.BASE_SPEED * speedMult * tickTimeMs;
 
     if (Math.abs(vx) <= EPSILON) {
       vx = 0;
@@ -377,22 +325,12 @@ export default class Player {
     this.eventBus.emit('player_turn', this, turnPoint);
   }
 
-  update(
-    targetTick: number,
-    gameClock: GameClock,
-    otherObstacles: SharedLine[]
-  ) {
+  update(targetTick: number, gameClock: GameClock, otherObstacles: SharedLine[]) {
     if (this.currentTick === null || this.currentTick === undefined) {
       throw new Error('Null tick');
     }
     if (targetTick > this.currentTick + 1) {
-      logger.warn(
-        '???',
-        this.id,
-        'skipping',
-        targetTick - this.currentTick + 1,
-        'ticks'
-      );
+      logger.warn('???', this.id, 'skipping', targetTick - this.currentTick + 1, 'ticks');
       logger.warn('Updating player in the past or twice, returning early');
       return;
     }
@@ -418,39 +356,15 @@ export default class Player {
 
     let collisionLines = [...otherObstacles, ...this.getSelfLines()];
 
-    let pointFront = this.getClosestIntersectingPoint(
-      this.detectionLine,
-      collisionLines
-    );
-    let pointLeft = this.getClosestIntersectingPoint(
-      this.detectionLineLeft,
-      collisionLines
-    );
-    let pointRight = this.getClosestIntersectingPoint(
-      this.detectionLineRight,
-      collisionLines
-    );
+    let pointFront = this.getClosestIntersectingPoint(this.detectionLine, collisionLines);
+    let pointLeft = this.getClosestIntersectingPoint(this.detectionLineLeft, collisionLines);
+    let pointRight = this.getClosestIntersectingPoint(this.detectionLineRight, collisionLines);
 
-    this.collisionDistanceFront = distanceBetween(
-      this.x,
-      this.y,
-      pointFront.x,
-      pointFront.y
-    );
+    this.collisionDistanceFront = distanceBetween(this.x, this.y, pointFront.x, pointFront.y);
 
-    this.collisionDistanceLeft = distanceBetween(
-      this.x,
-      this.y,
-      pointLeft.x,
-      pointLeft.y
-    );
+    this.collisionDistanceLeft = distanceBetween(this.x, this.y, pointLeft.x, pointLeft.y);
 
-    this.collisionDistanceRight = distanceBetween(
-      this.x,
-      this.y,
-      pointRight.x,
-      pointRight.y
-    );
+    this.collisionDistanceRight = distanceBetween(this.x, this.y, pointRight.x, pointRight.y);
 
     const deltaStuff = 12;
     const slowDownDistance = 10;
@@ -464,13 +378,9 @@ export default class Player {
       this.isColliding = true;
 
       let speedRatio =
-        (this.collisionDistanceFront * this.collisionDistanceFront) /
-        (slowDownDistance * slowDownDistance);
+        (this.collisionDistanceFront * this.collisionDistanceFront) / (slowDownDistance * slowDownDistance);
 
-      this._setSpeedAndVelocity(
-        Math.min(this.targetSpeedMult * speedRatio),
-        gameClock.tickTimeMs
-      );
+      this._setSpeedAndVelocity(Math.min(this.targetSpeedMult * speedRatio), gameClock.tickTimeMs);
 
       this.rubber -= deltaStuff * 0.03 * ((2 + this.targetSpeedMult) ^ 2);
     } else {
@@ -488,10 +398,7 @@ export default class Player {
       this.targetSpeedMult *= Math.pow(1.003, deltaStuff / 16.666);
       this.isSliding = true;
     } else if (!this.isColliding && this.targetSpeedMult > 1) {
-      this.targetSpeedMult = Math.max(
-        1,
-        this.targetSpeedMult - 0.0003 * deltaStuff
-      );
+      this.targetSpeedMult = Math.max(1, this.targetSpeedMult - 0.0003 * deltaStuff);
     }
 
     // This actually moves the player

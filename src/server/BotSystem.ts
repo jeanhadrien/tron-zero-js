@@ -1,6 +1,5 @@
 import { query } from 'bitecs';
-import { System, GetInput, GetEvents } from '../shared/ECSSystem';
-import { ECSGameWorld } from '../shared/ECSGameWorld';
+import { eventGetter, inputGetter, System } from '../shared/ECSSystem';
 import { PlayerInputTickRingBuffer } from '../shared/PlayerInputBuffer';
 import PlayerSystem, {
   buildDetectionLines,
@@ -13,9 +12,11 @@ import PlayerSystem, {
   IsAlive,
   PlayerId,
   Player,
-} from '../shared/ECSPlayerSystem';
+} from '../shared/systems/ECSPlayerSystem';
 import { SharedLine, distanceBetween, angleBetween, wrapAngle } from '../shared/math';
 import { Logger } from '../shared/Logger';
+import { ECSGameRoom } from '../shared/ECSGameRoom';
+import { GameEvent, GameEventType } from '../shared/GameEvent';
 
 const logger = new Logger('BotSystem');
 
@@ -75,22 +76,20 @@ export default class BotSystem extends System {
   private sightDistance = 100;
   private strategies = new Map<number, Strategy>();
   private botEids: number[] = [];
+  private botIds: string[] = [];
+  private room: ECSGameRoom;
 
-  getComponents(): {}[] {
+  getComponents(): object[] {
     return [];
   }
 
-  init(world: ECSGameWorld): void {
+  init(room: ECSGameRoom): void {
+    this.room = room;
     for (let i = 1; i <= BOT_COUNT; i++) {
       const botId = `bot${i}`;
-      const eid = PlayerSystem.createPlayer(world, botId);
-      PlayerSystem.spawnPlayer(world, eid);
-      this.botEids.push(eid);
-
-      const strategy = randomStrategy();
-      this.strategies.set(eid, strategy);
-
-      logger.info(`Bot created: ${randomName(strategy)} (Strategy: ${strategy})`);
+      this.room.addEvent({ type: GameEventType.PlayerJoined, tick: this.room.tick, playerId: botId });
+      this.room.addEvent({ type: GameEventType.PlayerSpawn, tick: this.room.tick, playerId: botId });
+      this.botIds.push(botId);
     }
   }
 
@@ -98,14 +97,32 @@ export default class BotSystem extends System {
     this.inputBuffer = buffer;
   }
 
-  update(world: ECSGameWorld, getInput?: GetInput, _getEvents?: GetEvents): void {
+  update(getInput?: inputGetter, _getEvents?: eventGetter): void {
+    if (_getEvents) {
+      for (const event of _getEvents()) {
+        switch (event.type) {
+          case GameEventType.PlayerJoined:
+            if (event.playerId && this.botIds.includes(event.playerId)) {
+              const eid = PlayerSystem.getPlayerEidByStringId(this.room, event.playerId);
+              const strategy = randomStrategy();
+              this.botEids.push(eid);
+              this.strategies.set(eid, strategy);
+              logger.info(`Bot initialized: ${randomName(strategy)} (Strategy: ${strategy})`);
+            }
+            break;
+          default:
+            break;
+        }
+      }
+    }
+
     if (!this.inputBuffer) return;
 
-    const tick = world.tick;
+    const tick = this.room.tick;
 
     for (const eid of this.botEids) {
       if (!IsAlive[eid]) {
-        PlayerSystem.spawnPlayer(world, eid);
+        this.room.addEvent({ type: GameEventType.PlayerSpawn, tick: this.room.tick + 1, entityId: eid });
         continue;
       }
 
@@ -116,9 +133,9 @@ export default class BotSystem extends System {
       const lastTick = this.lastActionTick.get(eid) ?? 0;
       if (tick - lastTick < this.actionCooldownTicks) continue;
 
-      const { distFront, distLeft, distRight } = this.computeDistances(world, eid);
+      const { distFront, distLeft, distRight } = this.computeDistances(eid);
 
-      const nearestEnemyEid = this.getNearestEnemy(world, eid);
+      const nearestEnemyEid = this.getNearestEnemy(this.room, eid);
       const relPos = nearestEnemyEid !== null ? this.getRelativePosition(eid, nearestEnemyEid) : null;
 
       const strategy = this.strategies.get(eid) || 'CUT_OFF';
@@ -177,14 +194,14 @@ export default class BotSystem extends System {
 
   // ─── Helpers ────────────────────────────────────────────────────────────────
 
-  private computeDistances(world: ECSGameWorld, eid: number) {
+  private computeDistances(eid: number) {
     const sensorFront = new SharedLine();
     const sensorLeft = new SharedLine();
     const sensorRight = new SharedLine();
     buildDetectionLines(eid, sensorFront, sensorLeft, sensorRight);
 
     const selfLines = getPlayerTrailLines(eid);
-    const obstacleLines = buildObstacleLinesExcluding(world, eid);
+    const obstacleLines = buildObstacleLinesExcluding(this.room, eid);
     const collisionLines = [...obstacleLines, ...selfLines];
 
     const pointFront = getClosestIntersectingPoint(sensorFront, collisionLines, Position.x[eid], Position.y[eid]);
@@ -198,11 +215,11 @@ export default class BotSystem extends System {
     };
   }
 
-  private getNearestEnemy(world: ECSGameWorld, selfEid: number): number | null {
+  private getNearestEnemy(room: ECSGameRoom, selfEid: number): number | null {
     let nearest: number | null = null;
     let minDistance = Infinity;
 
-    for (const eid of Array.from(query(world, [Player]))) {
+    for (const eid of Array.from(query(room.world, [Player]))) {
       if (eid === selfEid || !IsAlive[eid]) continue;
       const dist = distanceBetween(Position.x[selfEid], Position.y[selfEid], Position.x[eid], Position.y[eid]);
       if (dist < minDistance) {

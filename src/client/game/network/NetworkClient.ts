@@ -4,7 +4,7 @@ import { GameEventBus } from '../../../shared/GameEventBus';
 import GameClock from '../../../shared/GameClock';
 import { Logger } from '../../../shared/Logger';
 import ECSGameRoom from '../../../shared/ECSGameRoom';
-import PlayerSystem, { Position, PlayerId } from '../../../shared/ECSPlayerSystem';
+import PlayerSystem, { Position, PlayerId } from '../../../shared/systems/ECSPlayerSystem';
 import { decodeMessage, MSG_INIT_STATE, MSG_SYNC_STATE } from '../../../shared/NetworkProtocol';
 
 const logger = new Logger('NetworkClient');
@@ -114,8 +114,8 @@ export class NetworkClient {
       }
     }, 3000);
 
-    this.channel.on('pong', (data: any) => {
-      const oldTime = data;
+    this.channel.on('pong', (data: Data) => {
+      const oldTime = data as number;
       const pingDifferenceTime = performance.now() - oldTime;
       const oneWayTime = pingDifferenceTime / 2;
 

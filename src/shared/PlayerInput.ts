@@ -1,4 +1,6 @@
 export interface PlayerInput {
-  turn: 'left' | 'right';
-  break: boolean;
+  tick: number;
+  playerId: string;
+  turn?: 'left' | 'right';
+  break?: boolean;
 }

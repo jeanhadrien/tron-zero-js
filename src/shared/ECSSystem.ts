@@ -1,18 +1,18 @@
-import { ECSGameWorld } from './ECSGameWorld';
+import { ECSGameRoom } from './ECSGameRoom';
 import { GameEvent } from './GameEvent';
+import { PlayerInput } from './PlayerInput';
 
-export type GetInput = (entityId: string) => any;
-
-export type GetEvents = () => readonly GameEvent[];
+export type inputGetter = (entityId: string) => PlayerInput | null;
+export type eventGetter = () => readonly GameEvent[] | [];
 
 export abstract class System {
   key: string;
-  abstract getComponents(): {}[];
-  abstract update(world: ECSGameWorld, getInput?: GetInput, getEvents?: GetEvents): void;
-  init?(world: ECSGameWorld): void;
+  abstract getComponents(): object[];
+  abstract update?(getInput: inputGetter, getEvents: eventGetter): void;
+  abstract init?(room: ECSGameRoom): void;
 }
 
 export abstract class SystemSerializable extends System {
-  abstract serialize(world: ECSGameWorld, eids: readonly number[]): ArrayBuffer;
-  abstract deserialize(world: ECSGameWorld, buffer: ArrayBuffer): Map<number, number>;
+  abstract serialize(room: ECSGameRoom, eids: readonly number[]): ArrayBuffer;
+  abstract deserialize(room: ECSGameRoom, buffer: ArrayBuffer): Map<number, number>;
 }

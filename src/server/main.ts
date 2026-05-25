@@ -5,13 +5,13 @@ import geckos from '@geckos.io/server';
 import path from 'path';
 import { trace } from '@opentelemetry/api';
 import { GameEventBus } from '../shared/GameEventBus';
-import { ECSGameAreaSystem } from '../shared/GameArea';
+import { ECSGameAreaSystem } from '../shared/systems/ECSGameArea';
 import GameClock from '../shared/GameClock';
-import { NetworkServer } from './network/NetworkServer';
 import { Logger } from '../shared/Logger';
-import ECSGameRoom from '../shared/ECSGameRoom';
-import PlayerSystem from '../shared/ECSPlayerSystem';
+import { ECSGameRoom } from '../shared/ECSGameRoom';
+import PlayerSystem from '../shared/systems/ECSPlayerSystem';
 import BotSystem from './BotSystem';
+import { ServerNetworkSystem } from './systems/ServerNetworkSystem';
 
 const logger = new Logger('Server');
 const tracer = trace.getTracer('tron-zero-server');
@@ -40,10 +40,18 @@ const gameClock = new GameClock();
 const playerSystem = new PlayerSystem();
 const areaSystem = new ECSGameAreaSystem();
 const botSystem = new BotSystem();
-const ecsRoom = new ECSGameRoom(new GameEventBus(), gameClock, [areaSystem, botSystem, playerSystem]);
+const networkServerSystem = new ServerNetworkSystem(io);
+
+const ecsRoom = new ECSGameRoom(new GameEventBus(), gameClock, [
+  areaSystem,
+  playerSystem,
+  botSystem,
+  networkServerSystem,
+]);
+
 botSystem.setInputBuffer(ecsRoom.playerInputBuffer);
 
-new NetworkServer(io, ecsRoom, gameClock);
+// new NetworkServer(io, ecsRoom, gameClock);
 
 const TICK_RATE = 1000 / 60;
 let lastTime = performance.now();

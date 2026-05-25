@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'vitest';
 import Player from '../Player';
 
 import { PlayerEventBus } from '../PlayerStateEventBus';
-import GameArea from '../GameArea';
+import GameArea from '../ECSGameArea';
 import GameClock from '../GameClock';
 
 describe('Player Logic', () => {
@@ -22,12 +22,7 @@ describe('Player Logic', () => {
 
     const updateFrame = () => {
       tick++;
-      state.update(
-        tick,
-        new GameArea(),
-        gameClock,
-        Player.buildSharedCollidableLines([], new GameArea())
-      );
+      state.update(tick, new GameArea(), gameClock, Player.buildSharedCollidableLines([], new GameArea()));
     };
 
     state.queueTurn('right');
@@ -48,10 +43,7 @@ describe('Player Logic', () => {
     state._setSpeedAndVelocity(state.speedMult, 16.66);
 
     // Velocity should be [BASE_SPEED, 0]
-    expect(state.velocity[0]).toBeCloseTo(
-      state.speedMult * Player.BASE_SPEED * 16.66,
-      4
-    );
+    expect(state.velocity[0]).toBeCloseTo(state.speedMult * Player.BASE_SPEED * 16.66, 4);
     expect(state.velocity[1]).toBeCloseTo(0, 4);
 
     // Turn right (down)
@@ -59,18 +51,10 @@ describe('Player Logic', () => {
     const gameClock = new GameClock();
     // @ts-ignore
     gameClock.tickTimeMs = 16.66;
-    state.update(
-      1,
-      new GameArea(),
-      gameClock,
-      Player.buildSharedCollidableLines([], new GameArea())
-    );
+    state.update(1, new GameArea(), gameClock, Player.buildSharedCollidableLines([], new GameArea()));
 
     // Velocity should immediately be updated to [0, BASE_SPEED]
     expect(state.velocity[0]).toBeCloseTo(0, 4);
-    expect(state.velocity[1]).toBeCloseTo(
-      state.speedMult * Player.BASE_SPEED * 16.66,
-      4
-    );
+    expect(state.velocity[1]).toBeCloseTo(state.speedMult * Player.BASE_SPEED * 16.66, 4);
   });
 });

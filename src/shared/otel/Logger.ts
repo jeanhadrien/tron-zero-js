@@ -1,6 +1,6 @@
 import { logs, SeverityNumber } from '@opentelemetry/api-logs';
 import type { Logger as OtelLogger } from '@opentelemetry/api-logs';
-import type { ECSGameWorld } from '../ECSGameWorld';
+import type { ECSGameWorld } from '../ECSGameRoom';
 
 export enum LogLevel {
   DEBUG = 0,
@@ -138,4 +138,3 @@ export class TickLogger extends Logger {
     super.error(...this.prefixArgs(args));
   }
 }
-
