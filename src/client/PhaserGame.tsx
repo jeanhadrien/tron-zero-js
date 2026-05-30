@@ -40,7 +40,17 @@ export const PhaserGame = (props: IProps) => {
 
         });
 
+        const handleVisibility = () => {
+            if (document.hidden) {
+                EventBus.emit('game-pause');
+            } else {
+                EventBus.emit('game-resume');
+            }
+        };
+        document.addEventListener('visibilitychange', handleVisibility);
+
         onCleanup(() => {
+            document.removeEventListener('visibilitychange', handleVisibility);
 
             if (instance.game) {
                 instance.game.destroy(true);

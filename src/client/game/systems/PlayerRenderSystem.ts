@@ -1,7 +1,7 @@
 import { GameObjects } from 'phaser';
 import { query } from 'bitecs';
 import { ECSGameRoom } from '../../../shared/ECSGameRoom';
-import { eventGetter, inputGetter, System } from '../../../shared/ECSSystem';
+import { eventGetter, inputGetter, System } from '../../../shared/interfaces/System';
 import PlayerSystem, {
   Position,
   Direction,
@@ -12,8 +12,8 @@ import PlayerSystem, {
   Player,
   PlayerId,
   PingInTicks,
-} from '../../../shared/systems/ECSPlayerSystem';
-import { GameEventType } from '../../../shared/GameEvent';
+} from '../../../shared/systems/PlayerSystem';
+import { GameEventType } from '../../../shared/interfaces/GameEvent';
 
 interface PlayerStateSnapshot {
   tick: number;
@@ -215,13 +215,7 @@ export class PlayerRenderSystem extends System {
     this.driverGraphics.fillTriangle(x0, y0, x1, y1, x2, y2);
   }
 
-  private _drawActiveTrail(
-    lastX: number,
-    lastY: number,
-    currentX: number,
-    currentY: number,
-    color: number
-  ): void {
+  private _drawActiveTrail(lastX: number, lastY: number, currentX: number, currentY: number, color: number): void {
     this.activeTrailGraphics.lineStyle(TRAIL_WIDTH, color, 0.5);
     this.activeTrailGraphics.beginPath();
     this.activeTrailGraphics.moveTo(lastX, lastY);

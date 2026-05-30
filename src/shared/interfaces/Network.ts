@@ -1,4 +1,4 @@
-import { TickRingBuffer } from './TickRingBuffer';
+import { TickRingBuffer } from '../TickRingBuffer';
 
 export const Networked = {};
 

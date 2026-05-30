@@ -1,6 +1,6 @@
 import { query } from 'bitecs';
-import { eventGetter, inputGetter, System } from '../shared/ECSSystem';
-import { PlayerInputTickRingBuffer } from '../shared/PlayerInputBuffer';
+import { eventGetter, inputGetter, System } from '../../shared/interfaces/System';
+import { PlayerInputTickRingBuffer } from '../../shared/PlayerInputBuffer';
 import PlayerSystem, {
   buildDetectionLines,
   buildObstacleLinesExcluding,
@@ -12,11 +12,11 @@ import PlayerSystem, {
   IsAlive,
   PlayerId,
   Player,
-} from '../shared/systems/ECSPlayerSystem';
-import { SharedLine, distanceBetween, angleBetween, wrapAngle } from '../shared/math';
-import { Logger } from '../shared/Logger';
-import { ECSGameRoom } from '../shared/ECSGameRoom';
-import { GameEvent, GameEventType } from '../shared/GameEvent';
+} from '../../shared/systems/PlayerSystem';
+import { SharedLine, distanceBetween, angleBetween, wrapAngle } from '../../shared/math';
+import { Logger } from '../../shared/Logger';
+import { ECSGameRoom } from '../../shared/ECSGameRoom';
+import { GameEventType } from '../../shared/interfaces/GameEvent';
 
 const logger = new Logger('BotSystem');
 
@@ -87,9 +87,15 @@ export default class BotSystem extends System {
     this.room = room;
     for (let i = 1; i <= BOT_COUNT; i++) {
       const botId = `bot${i}`;
-      this.room.addEvent({ type: GameEventType.PlayerJoined, tick: this.room.tick, playerId: botId });
-      this.room.addEvent({ type: GameEventType.PlayerSpawn, tick: this.room.tick, playerId: botId });
+      PlayerSystem.createPlayer(this.room, botId);
+      PlayerSystem.spawnPlayer(this.room, botId);
+      const eid = PlayerSystem.getPlayerEidByStringId(this.room, botId);
+      const strategy = randomStrategy();
+      this.botEids.push(eid);
       this.botIds.push(botId);
+      this.strategies.set(eid, strategy);
+      const displayName = randomName(strategy);
+      logger.info(`Bot initialized: ${displayName} (Strategy: ${strategy})`);
     }
   }
 
@@ -98,31 +104,17 @@ export default class BotSystem extends System {
   }
 
   update(getInput?: inputGetter, _getEvents?: eventGetter): void {
-    if (_getEvents) {
-      for (const event of _getEvents()) {
-        switch (event.type) {
-          case GameEventType.PlayerJoined:
-            if (event.playerId && this.botIds.includes(event.playerId)) {
-              const eid = PlayerSystem.getPlayerEidByStringId(this.room, event.playerId);
-              const strategy = randomStrategy();
-              this.botEids.push(eid);
-              this.strategies.set(eid, strategy);
-              logger.info(`Bot initialized: ${randomName(strategy)} (Strategy: ${strategy})`);
-            }
-            break;
-          default:
-            break;
-        }
-      }
-    }
-
     if (!this.inputBuffer) return;
 
     const tick = this.room.tick;
 
     for (const eid of this.botEids) {
       if (!IsAlive[eid]) {
-        this.room.addEvent({ type: GameEventType.PlayerSpawn, tick: this.room.tick + 1, playerId: PlayerId[eid] });
+        this.room.serverAddEvent({
+          type: GameEventType.PlayerSpawn,
+          tick: this.room.tick + 1,
+          playerId: PlayerId[eid],
+        });
         continue;
       }
 
@@ -165,7 +157,7 @@ export default class BotSystem extends System {
         } else {
           turn = Math.random() > 0.5 ? 'left' : 'right';
         }
-        this.room.addInput({
+        this.room.serverAddInput({
           tick,
           playerId,
           break: false,
@@ -181,7 +173,7 @@ export default class BotSystem extends System {
         if (wantsToSlide && distLeft > 20 && distRight > 20) {
           if (distFront > 50) {
             if (distLeft < distRight && distLeft < 400) {
-              this.room.addInput({
+              this.room.serverAddInput({
                 tick,
                 playerId,
                 break: false,
@@ -190,7 +182,7 @@ export default class BotSystem extends System {
               this.lastActionTick.set(eid, tick + 18);
               continue;
             } else if (distRight < distLeft && distRight < 400) {
-              this.room.addInput({
+              this.room.serverAddInput({
                 tick,
                 playerId,
                 break: false,
@@ -289,7 +281,7 @@ export default class BotSystem extends System {
     // General tracking
     if (!relPos.isAhead) {
       if (relPos.isLeft && leftDist > 40) {
-        this.room.addInput({
+        this.room.serverAddInput({
           tick,
           playerId,
           break: false,
@@ -298,7 +290,7 @@ export default class BotSystem extends System {
         this.lastActionTick.set(eid, tick);
         return;
       } else if (!relPos.isLeft && rightDist > 40) {
-        this.room.addInput({
+        this.room.serverAddInput({
           tick,
           playerId,
           break: false,
@@ -313,7 +305,7 @@ export default class BotSystem extends System {
       case 'CUT_OFF':
         if (relHeading === 'PARALLEL' && !relPos.isAhead && relPos.distance < 150) {
           if (relPos.isLeft && leftDist > 50) {
-            this.room.addInput({
+            this.room.serverAddInput({
               tick,
               playerId,
               break: false,
@@ -321,7 +313,7 @@ export default class BotSystem extends System {
             });
             this.lastActionTick.set(eid, tick);
           } else if (!relPos.isLeft && rightDist > 50) {
-            this.room.addInput({
+            this.room.serverAddInput({
               tick,
               playerId,
               break: false,
@@ -331,7 +323,7 @@ export default class BotSystem extends System {
           }
         } else if (relHeading === 'PERPENDICULAR' && relPos.isAhead && relPos.distance < 150) {
           if (relPos.isLeft && leftDist > 50) {
-            this.room.addInput({
+            this.room.serverAddInput({
               tick,
               playerId,
               break: false,
@@ -339,7 +331,7 @@ export default class BotSystem extends System {
             });
             this.lastActionTick.set(eid, tick);
           } else if (!relPos.isLeft && rightDist > 50) {
-            this.room.addInput({
+            this.room.serverAddInput({
               tick,
               playerId,
               break: false,
@@ -354,7 +346,7 @@ export default class BotSystem extends System {
         if (relHeading === 'PARALLEL' && relPos.distance < 200) {
           if (relPos.distance > 100 && relPos.distance < 150) {
             if (relPos.isLeft && leftDist > 100) {
-              this.room.addInput({
+              this.room.serverAddInput({
                 tick,
                 playerId,
                 break: false,
@@ -362,7 +354,7 @@ export default class BotSystem extends System {
               });
               this.lastActionTick.set(eid, tick);
             } else if (!relPos.isLeft && rightDist > 100) {
-              this.room.addInput({
+              this.room.serverAddInput({
                 tick,
                 playerId,
                 break: false,
@@ -373,7 +365,7 @@ export default class BotSystem extends System {
           }
         } else if (relHeading === 'PERPENDICULAR' && relPos.distance < 150) {
           if (relPos.isLeft && leftDist > 30) {
-            this.room.addInput({
+            this.room.serverAddInput({
               tick,
               playerId,
               break: false,
@@ -381,7 +373,7 @@ export default class BotSystem extends System {
             });
             this.lastActionTick.set(eid, tick);
           } else if (!relPos.isLeft && rightDist > 30) {
-            this.room.addInput({
+            this.room.serverAddInput({
               tick,
               playerId,
               break: false,
@@ -395,7 +387,7 @@ export default class BotSystem extends System {
       case 'SPEED_DEMON':
         if (TargetSpeedMult[eid] > 1.2 && relPos.distance < 200) {
           if (relPos.isLeft && leftDist > 20) {
-            this.room.addInput({
+            this.room.serverAddInput({
               tick,
               playerId,
               break: false,
@@ -403,7 +395,7 @@ export default class BotSystem extends System {
             });
             this.lastActionTick.set(eid, tick);
           } else if (!relPos.isLeft && rightDist > 20) {
-            this.room.addInput({
+            this.room.serverAddInput({
               tick,
               playerId,
               break: false,
@@ -417,26 +409,26 @@ export default class BotSystem extends System {
       case 'TRAPPER':
         if (relHeading === 'PARALLEL' && !relPos.isAhead && relPos.distance < 80) {
           if (leftDist > rightDist && leftDist > 50) {
-            this.room.addInput({
+            this.room.serverAddInput({
               tick,
               playerId,
               break: false,
               turn: 'left',
             });
-            this.room.addInput({
+            this.room.serverAddInput({
               tick: tick + 1,
               playerId,
               break: false,
               turn: 'left',
             });
           } else if (rightDist > 50) {
-            this.room.addInput({
+            this.room.serverAddInput({
               tick,
               playerId,
               break: false,
               turn: 'right',
             });
-            this.room.addInput({
+            this.room.serverAddInput({
               tick: tick + 1,
               playerId,
               break: false,
@@ -446,7 +438,7 @@ export default class BotSystem extends System {
           this.lastActionTick.set(eid, tick + 30);
         } else if (relPos.isAhead && relPos.distance > 150) {
           if (relPos.isLeft && leftDist > 50) {
-            this.room.addInput({
+            this.room.serverAddInput({
               tick: tick + 1,
               playerId,
               break: false,
@@ -454,7 +446,7 @@ export default class BotSystem extends System {
             });
             this.lastActionTick.set(eid, tick);
           } else if (!relPos.isLeft && rightDist > 50) {
-            this.room.addInput({
+            this.room.serverAddInput({
               tick,
               playerId,
               break: false,

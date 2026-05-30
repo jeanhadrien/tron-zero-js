@@ -3,11 +3,11 @@ import type { Logger as OtelLogger } from '@opentelemetry/api-logs';
 import type { ECSGameRoom, ECSGameWorld } from '../ECSGameRoom';
 
 export enum LogLevel {
-  DEBUG = 0,
-  INFO = 1,
-  WARN = 2,
-  ERROR = 3,
-  NONE = 4,
+  Debug = 0,
+  Info = 1,
+  Warn = 2,
+  Error = 3,
+  None = 4,
 }
 
 function parseEnvLevel(): LogLevel {
@@ -17,23 +17,23 @@ function parseEnvLevel(): LogLevel {
     '';
   const key = raw.toUpperCase();
   if (key in LogLevel) return LogLevel[key as keyof typeof LogLevel];
-  return LogLevel.INFO;
+  return LogLevel.Info;
 }
 
 const SEVERITY_MAP: Record<LogLevel, SeverityNumber> = {
-  [LogLevel.DEBUG]: SeverityNumber.DEBUG,
-  [LogLevel.INFO]: SeverityNumber.INFO,
-  [LogLevel.WARN]: SeverityNumber.WARN,
-  [LogLevel.ERROR]: SeverityNumber.ERROR,
-  [LogLevel.NONE]: SeverityNumber.TRACE,
+  [LogLevel.Debug]: SeverityNumber.DEBUG,
+  [LogLevel.Info]: SeverityNumber.INFO,
+  [LogLevel.Warn]: SeverityNumber.WARN,
+  [LogLevel.Error]: SeverityNumber.ERROR,
+  [LogLevel.None]: SeverityNumber.TRACE,
 };
 
 const CONSOLE_MAP: Record<LogLevel, 'debug' | 'info' | 'log' | 'warn' | 'error'> = {
-  [LogLevel.DEBUG]: 'debug',
-  [LogLevel.INFO]: 'info',
-  [LogLevel.WARN]: 'warn',
-  [LogLevel.ERROR]: 'error',
-  [LogLevel.NONE]: 'log',
+  [LogLevel.Debug]: 'debug',
+  [LogLevel.Info]: 'info',
+  [LogLevel.Warn]: 'warn',
+  [LogLevel.Error]: 'error',
+  [LogLevel.None]: 'log',
 };
 
 function toAttributes(val: unknown): Record<string, unknown> {
@@ -76,29 +76,29 @@ export class Logger {
       attributes: { tag: this.tag, ...this.attributes, ...callAttrs },
     });
 
-    const consoleLevel = level > LogLevel.NONE ? LogLevel.NONE : level;
+    const consoleLevel = level > LogLevel.None ? LogLevel.None : level;
     const method = CONSOLE_MAP[consoleLevel as keyof typeof CONSOLE_MAP];
-    console[method](`[${this.tag}]`, ...args);
+    console[method](`[${LogLevel[consoleLevel]}] [${this.tag}]`, ...args);
   }
 
   debug(...args: unknown[]): void {
-    this.emit(LogLevel.DEBUG, args);
+    this.emit(LogLevel.Debug, args);
   }
 
   info(...args: unknown[]): void {
-    this.emit(LogLevel.INFO, args);
+    this.emit(LogLevel.Info, args);
   }
 
   log(...args: unknown[]): void {
-    this.emit(LogLevel.INFO, args);
+    this.emit(LogLevel.Info, args);
   }
 
   warn(...args: unknown[]): void {
-    this.emit(LogLevel.WARN, args);
+    this.emit(LogLevel.Warn, args);
   }
 
   error(...args: unknown[]): void {
-    this.emit(LogLevel.ERROR, args);
+    this.emit(LogLevel.Error, args);
   }
 }
 
@@ -114,7 +114,7 @@ export class RoomLogger extends Logger {
   }
 
   private prefixArgs(args: unknown[]): unknown[] {
-    if (this.room) return [`[${this.room.tick}]`, ...args];
+    if (this.room) return [`[${this.room.tick}] -`, ...args];
     return args;
   }
 

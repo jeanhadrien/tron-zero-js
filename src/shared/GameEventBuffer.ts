@@ -1,4 +1,4 @@
-import { GameEvent } from './GameEvent';
+import { GameEvent } from './interfaces/GameEvent';
 
 export class GameEventTickRingBuffer {
   private readonly slots: Array<{ tick: number; events: GameEvent[] }>;
@@ -51,3 +51,4 @@ export class GameEventTickRingBuffer {
     return tick > this.newestTick - this.capacity && tick <= this.newestTick;
   }
 }
+

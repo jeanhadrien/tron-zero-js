@@ -1,7 +1,7 @@
 import { array, f32 } from 'bitecs/serialization';
 
 import { addComponents, addEntity } from 'bitecs';
-import { System } from '../ECSSystem';
+import { System } from '../interfaces/System';
 import { ECSGameRoom } from '../ECSGameRoom';
 
 export default class GameArea {
@@ -26,7 +26,7 @@ export const Lines = {
   y2: array(f32),
 };
 
-export class ECSGameAreaSystem implements System {
+export class GameArenaSystem implements System {
   readonly key = 'area';
   width: number;
   height: number;

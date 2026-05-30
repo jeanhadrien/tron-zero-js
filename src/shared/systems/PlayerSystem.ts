@@ -9,11 +9,11 @@
 import { addEntity, addComponents, hasComponent, query, removeEntity } from 'bitecs';
 import { createSnapshotSerializer, createSnapshotDeserializer, f32, u8, u32, str, array } from 'bitecs/serialization';
 import { SharedLine, lineToLineIntersection, distanceBetween, clamp, aabbOverlapsRay } from '../math';
-import { Arena, AreaWidth, AreaHeight, Lines } from './ECSGameArea';
+import { Arena, AreaWidth, AreaHeight, Lines } from './GameArenaSystem';
 import { Logger } from '../Logger';
-import { SystemSerializable, eventGetter, inputGetter } from '../ECSSystem';
-import { Networked } from '../ECSNetworkSystem';
-import { GameEventType } from '../GameEvent';
+import { SystemSerializable, eventGetter, inputGetter } from '../interfaces/System';
+import { Networked } from '../interfaces/Network';
+import { GameEventType } from '../interfaces/GameEvent';
 import { ECSGameRoom } from '../ECSGameRoom';
 
 const logger = new Logger('PlayerSystem');
@@ -407,8 +407,17 @@ export default class PlayerSystem extends SystemSerializable {
           PlayerSystem.spawnPlayer(this.room, event.playerId!);
         }
         if (event.type === GameEventType.PlayerLeft) {
-          removeEntity(this.room.world, event.entityId!);
-          this.room.dirtyEntities.add(event.entityId!);
+          const playerId = event.playerId;
+          if (playerId) {
+            try {
+              const eid = PlayerSystem.getPlayerEidByStringId(this.room, playerId);
+              removeEntity(this.room.world, eid);
+              this.room.dirtyEntities.add(eid);
+              logger.debug('Removed player', playerId);
+            } catch {
+              logger.warn(`PlayerLeft for non-existent player: ${playerId}`);
+            }
+          }
         }
       }
     }

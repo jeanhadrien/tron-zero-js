@@ -1,4 +1,4 @@
-import { PlayerInput } from './PlayerInput';
+import { PlayerInput } from './interfaces/PlayerInput';
 import { TickRingBuffer } from './TickRingBuffer';
 
 export class PlayerInputTickRingBuffer extends TickRingBuffer<PlayerInput> {

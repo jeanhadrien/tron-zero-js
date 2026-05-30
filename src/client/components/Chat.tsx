@@ -1,9 +1,15 @@
-import { createSignal, onMount, onCleanup, Show } from 'solid-js';
+import { createSignal, createEffect, onMount, onCleanup, Show } from 'solid-js';
 import { EventBus } from '../game/EventBus';
-import type { ChatMessage } from '../../shared/ChatMessage';
+import type { ChatMessage } from "../../shared/interfaces/ChatMessage";
+
+interface Entry extends ChatMessage {
+  timeLabel: string;
+}
+
+const fmtColor = (c?: number) => c ? `#${c.toString(16).padStart(6, '0')}` : '#4af';
 
 const Chat = () => {
-  const [messages, setMessages] = createSignal<ChatMessage[]>([]);
+  const [messages, setMessages] = createSignal<Entry[]>([]);
   const [hovered, setHovered] = createSignal(false);
   const [focused, setFocused] = createSignal(false);
 
@@ -26,8 +32,9 @@ const Chat = () => {
 
   onMount(() => {
     const handler = (msg: ChatMessage) => {
-      setMessages((prev) => [...prev, msg]);
-      // Solid batches — requestAnimationFrame ensures DOM updated before scroll
+      const d = new Date(msg.timestamp);
+      const timeLabel = `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+      setMessages((prev) => [...prev, { ...msg, timeLabel }]);
       requestAnimationFrame(scrollToBottom);
     };
     EventBus.on('chat-message', handler);
@@ -35,6 +42,13 @@ const Chat = () => {
     onCleanup(() => {
       EventBus.removeListener('chat-message', handler);
     });
+  });
+
+  createEffect(() => {
+    if (!hovered() && !focused()) {
+      scrolledToBottom = true;
+      requestAnimationFrame(scrollToBottom);
+    }
   });
 
   const send = () => {
@@ -58,7 +72,7 @@ const Chat = () => {
   };
 
   const showInput = () => hovered() || focused();
-  const overflow = () => (focused() ? 'auto' : 'hidden');
+  const overflow = () => (hovered() || focused() ? 'auto' : 'hidden');
 
   return (
     <div
@@ -66,12 +80,12 @@ const Chat = () => {
         position: 'absolute',
         bottom: '10px',
         right: '10px',
-        width: '280px',
-        'max-height': '260px',
+        width: '360px',
+        'max-height': '320px',
         'background-color': 'rgba(0, 0, 0, 0.7)',
         color: '#e0e0e0',
         'font-family': 'monospace',
-        'font-size': '12px',
+        'font-size': '14px',
         'border-radius': '6px',
         'z-index': 1000,
         'pointer-events': 'auto',
@@ -94,7 +108,7 @@ const Chat = () => {
           'overflow-x': 'hidden',
           padding: '6px 8px',
           'word-break': 'break-word',
-          'max-height': '200px',
+          'max-height': '260px',
           'min-height': focused() ? '0' : 'auto',
         }}
       >
@@ -103,7 +117,13 @@ const Chat = () => {
         </Show>
         <Show when={messages().length > 0}>
           {messages().map((msg) => (
-            <div style={{ 'line-height': '1.4' }}>{msg.text}</div>
+            <div style={{ 'line-height': '1.4' }}>
+              <span style={{ color: '#888', 'margin-right': '6px' }}>{msg.timeLabel}</span>
+              <Show when={msg.type === 'player' && msg.playerId}>
+                <span style={{ color: fmtColor(msg.color), 'margin-right': '6px' }}>{msg.playerId!.substring(0, 16)}</span>
+              </Show>
+              {msg.text}
+            </div>
           ))}
         </Show>
       </div>
@@ -130,7 +150,7 @@ const Chat = () => {
               color: '#e0e0e0',
               padding: '4px 8px',
               'font-family': 'monospace',
-              'font-size': '12px',
+              'font-size': '14px',
               outline: 'none',
             }}
           />

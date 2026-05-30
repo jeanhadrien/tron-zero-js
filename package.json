@@ -24,6 +24,7 @@
     "dev": "concurrently \"bun run dev:server\" \"bun run dev:client\"",
     "dev:client": "vite --config vite/config.dev.mjs",
     "dev:server": "bun run --inspect=localhost:9229 --watch src/server/index.ts",
+    "dev:manager": "bun run --watch src/server-manager/index.ts",
     "build": "DROP_CONSOLE=true vite build --config vite/config.prod.mjs",
     "test": "vitest run",
     "server": "bun run src/server/index.ts"
@@ -42,6 +43,7 @@
     "@opentelemetry/sdk-trace-web": "^2.7.1",
     "@opentelemetry/semantic-conventions": "^1.40.0",
     "bitecs": "^0.4.0",
+    "cors": "^2.8.6",
     "express": "^5.2.1",
     "jsdom-global": "^3.0.2",
     "phaser": "^3.90.0",
@@ -52,6 +54,7 @@
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
+    "@types/cors": "^2.8.19",
     "@types/express": "^5.0.6",
     "@types/jsdom": "^28.0.1",
     "@vitest/browser": "^4.1.4",

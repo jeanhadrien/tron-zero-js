@@ -1,9 +1,11 @@
 import { GeckosServer, ServerChannel, Data } from '@geckos.io/server';
-import { eventGetter, inputGetter, System } from '../../shared/ECSSystem';
+import { eventGetter, inputGetter, System } from '../../shared/interfaces/System';
 import { ECSGameRoom } from '../../shared/ECSGameRoom';
-import { GameEventType, GameEvent } from '../../shared/GameEvent';
-import { ChatMessage, ChatMessageBuffer } from '../../shared/ChatMessage';
+import { GameEventType, GameEvent } from '../../shared/interfaces/GameEvent';
+import { ChatMessageBuffer } from '../../shared/ChatMessageBuffer';
+import { ChatMessage } from '../../shared/interfaces/ChatMessage';
 import { RoomLogger } from '../../shared/otel/Logger';
+import PlayerSystem, { Color } from '../../shared/systems/PlayerSystem';
 
 const logger = new RoomLogger('chat-server');
 
@@ -30,7 +32,7 @@ function gameEventToText(event: GameEvent): string | null {
   }
 }
 
-export class ChatSystem extends System {
+export class ServerChatSystem extends System {
   readonly key = 'chat-server';
 
   private server: GeckosServer;
@@ -64,20 +66,41 @@ export class ChatSystem extends System {
         const text = data as string;
         if (!text || typeof text !== 'string' || text.trim().length === 0) return;
 
+        const playerId = this.room.channelPlayerIds.get(channelId) ?? channelId;
+        let color: number | undefined;
+        try {
+          const eid = PlayerSystem.getPlayerEidByStringId(this.room, playerId);
+          color = Color[eid];
+        } catch { /* player entity may not exist yet */ }
+
         const message: ChatMessage = {
           tick: this.room.tick,
           timestamp: Date.now(),
           type: 'player',
-          playerId: channelId,
+          playerId,
+          color,
           text: text.trim(),
         };
 
-        logger.log(`${message.playerId}: ${message.text}`);
+        logger.log(`${playerId}: ${message.text}`);
 
         this.buffer.push(message);
 
         // Broadcast to all connected clients
         this.broadcast(message);
+
+        // Easter egg: respond to "hello server"
+        if (text.toLowerCase().includes('hello server')) {
+          const reply: ChatMessage = {
+            tick: this.room.tick,
+            timestamp: Date.now(),
+            type: 'event',
+            playerId: '[Server]',
+            text: 'hello clients!',
+          };
+          this.buffer.push(reply);
+          this.broadcast(reply);
+        }
       });
 
       channel.onDisconnect(() => {

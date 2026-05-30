@@ -9,9 +9,9 @@ import AudioManager from '../gameobjects/AudioManager';
 import GameCamera from '../gameobjects/GameCamera';
 import { Logger } from '../../../shared/Logger';
 import { trace } from '@opentelemetry/api';
-import PlayerSystem, { Position, Rubber, IsAlive } from '../../../shared/systems/ECSPlayerSystem';
+import PlayerSystem, { Position, Rubber, IsAlive } from '../../../shared/systems/PlayerSystem';
 import { ECSGameRoom } from '../../../shared/ECSGameRoom';
-import GameArea, { ECSGameAreaSystem } from '../../../shared/systems/ECSGameArea';
+import GameArea, { GameArenaSystem } from '../../../shared/systems/GameArenaSystem';
 import { ClientNetworkSystem } from '../systems/ClientNetworkSystem';
 import { PlayerRenderSystem } from '../systems/PlayerRenderSystem';
 import { ChatClientSystem } from '../systems/ChatClientSystem';
@@ -66,7 +66,7 @@ export class GameScene extends Scene {
     this.chatSystem = new ChatClientSystem(this.networkClient.channel);
 
     this.room = new ECSGameRoom(new GameEventBus(), this.gameClock, [
-      new ECSGameAreaSystem(),
+      new GameArenaSystem(),
       new PlayerSystem(),
       this.networkClient,
       this.renderSystem,
@@ -121,6 +121,17 @@ export class GameScene extends Scene {
       this.chatSystem.sendMessage(text);
     });
 
+    const onGameResume = () => {
+      logger.info('Tab resumed, syncing...');
+      this.audioManager.resume();
+      if (this.networkClient.isConnected()) {
+        this.networkClient.requestInitState();
+      } else {
+        this.networkClient.reconnect();
+      }
+    };
+    EventBus.on('game-resume', onGameResume);
+
     EventBus.on('game-start', () => {
       logger.info('game-start');
       this.audioManager.resume();
@@ -133,7 +144,12 @@ export class GameScene extends Scene {
       this.isKeyDown = {};
     });
 
+    this.events.on('shutdown', () => {
+      EventBus.off('game-resume', onGameResume);
+    });
+
     this.spaceKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
+    this.input.keyboard.removeCapture(Phaser.Input.Keyboard.KeyCodes.SPACE);
 
     const keyMappings = {
       Q: 'left',
@@ -209,8 +225,13 @@ export class GameScene extends Scene {
   //   }
 
   update(_time: any, delta: number) {
-    if (delta > 1000) {
-      this.networkClient.requestInitState();
+    if (delta > 10000) {
+      this.audioManager.resume();
+      if (this.networkClient.isConnected()) {
+        this.networkClient.requestInitState();
+      } else {
+        this.networkClient.reconnect();
+      }
       return;
     }
     if (this.humanEid >= 0 && IsAlive[this.humanEid] !== 1) {

@@ -1,17 +1,20 @@
 import { GeckosServer, ServerChannel, Data } from '@geckos.io/server';
-import { eventGetter, inputGetter, System } from '../../shared/ECSSystem';
-import { GameEventType } from '../../shared/GameEvent';
 import { encodeInitState, encodeSyncState } from '../../shared/NetworkProtocol';
+import { eventGetter, inputGetter, System } from '../../shared/interfaces/System';
+import { GameEventType } from '../../shared/interfaces/GameEvent';
 import { Logger } from '../../shared/Logger';
 import { ECSGameRoom } from '../../shared/ECSGameRoom';
+import PlayerSystem from '../../shared/systems/PlayerSystem';
 
 export const logger = new Logger('ServerNetworkSystem');
 
 export class ServerNetworkSystem extends System {
   readonly key = 'server-network';
   server: GeckosServer;
-  channels: Map<string, ServerChannel> = new Map();
   room: ECSGameRoom;
+
+  private channels: Map<string, ServerChannel> = new Map();
+  private sessionByChannelId: Map<string, string> = new Map();
 
   constructor(io: GeckosServer) {
     super();
@@ -24,37 +27,30 @@ export class ServerNetworkSystem extends System {
 
   init(room: ECSGameRoom) {
     this.room = room;
-    this.server.onConnection((channel) => this.onConnection(channel));
+    this.server.onConnection((channel) => this._onConnection(channel));
   }
 
   update(getInput: inputGetter, getEvents: eventGetter): void {
-    // If we're rollbacking the world, don't send stuff to clients;
     if (this.room.replaying) return;
 
     if (getEvents) {
       for (const event of getEvents()) {
-        switch (event.type) {
-          case GameEventType.PlayerJoined: {
-            if (!event.playerId) break;
-            const packet = encodeInitState(this.room.tick, this.room.snapshotSerialize());
-            const channel = this.channels.get(event.playerId);
-            if (channel) channel.raw.emit(packet);
-            break;
-          }
-          default:
-            break;
+        if (event.type === GameEventType.PlayerJoined && event.playerId) {
+          const packet = encodeInitState(this.room.tick, this.room.snapshotSerialize());
+          const channel = this._getChannelBySessionToken(event.playerId);
+          if (channel) channel.raw.emit(packet);
         }
       }
     }
 
     const dirtyEntities = [...this.room.dirtyEntities];
     this.room.dirtyEntities.clear();
-    if (!dirtyEntities) return;
+    if (dirtyEntities.length === 0) return;
 
-    this.sendStateToClients(dirtyEntities);
+    this._sendStateToClients(dirtyEntities);
   }
 
-  private sendStateToClients(entities: number[]) {
+  private _sendStateToClients(entities: number[]) {
     const diff = {
       tick: this.room.tick,
       struct: this.room.observerSerializeNetwork(),
@@ -68,30 +64,75 @@ export class ServerNetworkSystem extends System {
     }
   }
 
-  private onConnection(channel: ServerChannel) {
+  private _onConnection(channel: ServerChannel) {
     const channelId = channel.id!;
     this.channels.set(channelId, channel);
 
-    logger.info(`Player connected from channel: ${channelId}`);
-    this.room.addEvent({ type: GameEventType.PlayerJoined, tick: this.room.tick, playerId: channelId });
-    this.room.addEvent({ type: GameEventType.PlayerSpawn, tick: this.room.tick, playerId: channelId });
+    logger.info(`New WebRTC connection: ${channelId}`);
+
+    channel.on('handshake', (data: Data) => this._onHandshake(channel, data));
+
+    channel.on('request_init', () => {
+      const packet = encodeInitState(this.room.tick, this.room.snapshotSerialize());
+      channel.raw.emit(packet);
+    });
 
     channel.on('ping', (clientTime: Data) => {
       channel.emit('pong', clientTime);
     });
 
-    channel.on('client_turn', this.onClientTurn(channel));
-    channel.on('respawn', this.onClientRespawn(channel));
-    channel.onDisconnect(this.onDisconnect(channel));
+    channel.on('client_turn', this._onClientTurn(channel));
+    channel.on('respawn', this._onClientRespawn(channel));
+    channel.onDisconnect(() => this._onDisconnect(channel));
   }
 
-  private onClientTurn(channel: ServerChannel) {
+  private _onHandshake(channel: ServerChannel, data: Data): void {
+    const { sessionToken } = data as { sessionToken: string };
+    const channelId = channel.id!;
+
+    logger.info(`Handshake: session=${sessionToken}, channel=${channelId}`);
+
+    // If this session token already has a channel mapped, close the old one (e.g., old tab)
+    for (const [cid, st] of this.sessionByChannelId) {
+      if (st === sessionToken && cid !== channelId) {
+        logger.info(`Session ${sessionToken} reconnecting — closing old channel ${cid}`);
+        const oldChannel = this.channels.get(cid);
+        if (oldChannel) oldChannel.close();
+        this.channels.delete(cid);
+        this.sessionByChannelId.delete(cid);
+        this.room.channelPlayerIds.delete(cid);
+        break;
+      }
+    }
+
+    this.sessionByChannelId.set(channelId, sessionToken);
+    this.room.channelPlayerIds.set(channelId, sessionToken);
+
+    // Check if player entity already exists (reconnection)
+    try {
+      PlayerSystem.getPlayerEidByStringId(this.room, sessionToken);
+      logger.info(`Player reconnected: ${sessionToken}`);
+      // Send init state directly — entity already exists, no PlayerJoined/Spawn needed
+      const packet = encodeInitState(this.room.tick, this.room.snapshotSerialize());
+      channel.raw.emit(packet);
+    } catch {
+      // New player — create entity and spawn
+      logger.info(`New player: ${sessionToken}`);
+      this.room.serverAddEvent({ type: GameEventType.PlayerJoined, tick: this.room.tick, playerId: sessionToken });
+      this.room.serverAddEvent({ type: GameEventType.PlayerSpawn, tick: this.room.tick, playerId: sessionToken });
+    }
+  }
+
+  private _onClientTurn(channel: ServerChannel) {
     return (data: Data) => {
+      const sessionToken = this.sessionByChannelId.get(channel.id!);
+      if (!sessionToken) return;
+
       const inputs: { tick: number; turn: 'left' | 'right' }[] = Array.isArray(data) ? data : [data];
       for (const input of inputs) {
-        this.room.addInput({
+        this.room.serverAddInput({
           turn: input.turn,
-          playerId: channel.id!,
+          playerId: sessionToken,
           break: false,
           tick: input.tick,
         });
@@ -99,16 +140,34 @@ export class ServerNetworkSystem extends System {
     };
   }
 
-  private onClientRespawn(channel: ServerChannel) {
+  private _onClientRespawn(channel: ServerChannel) {
     return () => {
-      this.room.addEvent({ type: GameEventType.PlayerSpawn, tick: this.room.tick + 1, playerId: channel.id! });
+      const sessionToken = this.sessionByChannelId.get(channel.id!);
+      if (!sessionToken) return;
+
+      this.room.serverAddEvent({ type: GameEventType.PlayerSpawn, tick: this.room.tick + 1, playerId: sessionToken });
     };
   }
 
-  private onDisconnect(channel: ServerChannel) {
-    return () => {
-      this.channels.delete(channel.id!);
-      this.room.addEvent({ type: GameEventType.PlayerLeft, tick: this.room.tick, playerId: channel.id! });
-    };
+  private _onDisconnect(channel: ServerChannel) {
+    const channelId = channel.id!;
+    const sessionToken = this.sessionByChannelId.get(channelId);
+
+    this.room.channelPlayerIds.delete(channelId);
+    this.channels.delete(channelId);
+    if (sessionToken) {
+      this.sessionByChannelId.delete(channelId);
+      logger.info(`Player disconnected (kept alive): ${sessionToken}`);
+    }
+
+    // Player entity stays in simulation — no PlayerLeft.
+    // The player goes straight (no inputs) until auto-kick timeout (later) or reconnect.
+  }
+
+  private _getChannelBySessionToken(sessionToken: string): ServerChannel | undefined {
+    for (const [cid, st] of this.sessionByChannelId) {
+      if (st === sessionToken) return this.channels.get(cid);
+    }
+    return undefined;
   }
 }

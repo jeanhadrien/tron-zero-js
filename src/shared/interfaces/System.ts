@@ -1,4 +1,4 @@
-import { ECSGameRoom } from './ECSGameRoom';
+import { ECSGameRoom } from '../ECSGameRoom';
 import { GameEvent } from './GameEvent';
 import { PlayerInput } from './PlayerInput';
 

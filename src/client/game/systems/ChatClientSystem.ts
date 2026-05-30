@@ -1,7 +1,8 @@
 import { ClientChannel } from '@geckos.io/client';
-import { eventGetter, inputGetter, System } from '../../../shared/ECSSystem';
+import { eventGetter, inputGetter, System } from '../../../shared/interfaces/System';
 import { ECSGameRoom } from '../../../shared/ECSGameRoom';
-import { ChatMessage, ChatMessageBuffer } from '../../../shared/ChatMessage';
+import { ChatMessageBuffer } from '../../../shared/ChatMessageBuffer';
+import { ChatMessage } from '../../../shared/interfaces/ChatMessage';
 import { EventBus } from '../EventBus';
 
 export class ChatClientSystem extends System {

@@ -16,16 +16,16 @@ export const SNAPSHOT_BUFFER_SIZE = 1024 * 1024 * 5; //  avoids 100MB default in
 const DIFF_BUFFER_SIZE = 1024 * 1024 * 5;
 
 import { WorldStateTickRingBuffer } from './WorldStateBuffer';
-import { System } from './ECSSystem';
-import { NetworkDiffPayload } from './ECSNetworkSystem';
-import { NetworkDiffTickRingBuffer } from './ECSNetworkSystem';
-import { PlayerInput } from './PlayerInput';
+import { System } from './interfaces/System';
+import { NetworkDiffPayload } from './interfaces/Network';
+import { NetworkDiffTickRingBuffer } from './interfaces/Network';
+import { PlayerInput } from './interfaces/PlayerInput';
 import { PlayerInputTickRingBuffer } from './PlayerInputBuffer';
-import { GameEvent, GameEventType } from './GameEvent';
+import { GameEvent, GameEventType } from './interfaces/GameEvent';
 import { GameEventTickRingBuffer } from './GameEventBuffer';
-import { Networked } from './ECSNetworkSystem';
+import { Networked } from './interfaces/Network';
 import { RoomLogger } from './otel/Logger';
-import PlayerSystem, { PingInTicks } from './systems/ECSPlayerSystem';
+import PlayerSystem, { PingInTicks } from './systems/PlayerSystem';
 import GameClock from './GameClock';
 
 const logger = new RoomLogger('GameRoom');
@@ -57,6 +57,7 @@ export class ECSGameRoom {
   dirtyEntities: Set<number>;
   localPlayerEid: number;
   localPlayerId: string;
+  channelPlayerIds: Map<string, string>;
 
   constructor(
     bus: GameEventBus,
@@ -71,6 +72,7 @@ export class ECSGameRoom {
     this.playerEventBus = new PlayerEventBus();
     this.gameClock = clock;
     this.dirtyEntities = new Set<number>();
+    this.channelPlayerIds = new Map();
     this.systems = systems;
     this.worldBuffer = new WorldStateTickRingBuffer(128);
     this.playerInputBuffer = new PlayerInputTickRingBuffer(128);
@@ -128,20 +130,19 @@ export class ECSGameRoom {
     this.networkDiffEmitter.off('diff', handler);
   }
 
-  addEvent(event: GameEvent): void {
+  serverAddEvent(event: GameEvent): void {
     this.gameEventBuffer.record(event.tick, event);
     logger.debug('event at tick', event.tick, 'of type ', GameEventType[event.type]);
     // Event at tick T is consumed during the update that transitions T-1 → T.
     const resimTick = event.tick;
     if (resimTick < this.tick) {
-      logger.debug('=> ');
-      this.pendingResimTick = this.pendingResimTick === null ? resimTick : Math.min(this.pendingResimTick, resimTick);
+      //   this.pendingResimTick = this.pendingResimTick === null ? resimTick : Math.min(this.pendingResimTick, resimTick);
     }
   }
 
-  addInput(input: PlayerInput): void {
+  serverAddInput(input: PlayerInput): void {
     this.playerInputBuffer.record(input.tick, input.playerId, input);
-    logger.warn('input at tick', input.tick, 'for player', input.playerId, input.turn, input.break);
+    logger.info('input at tick', input.tick, 'for player', input.playerId, input.turn, input.break);
     const eid = PlayerSystem.getPlayerEidByStringId(this, input.playerId);
     if (!eid) {
       logger.warn('No player for input', eid);
@@ -150,8 +151,13 @@ export class ECSGameRoom {
     PingInTicks[eid] = Math.max(0, this.tick - input.tick);
     const resimTick = input.tick;
     if (resimTick <= this.tick) {
-      this.pendingResimTick = this.pendingResimTick === null ? resimTick : Math.min(this.pendingResimTick, resimTick);
+      //   this.pendingResimTick = this.pendingResimTick === null ? resimTick : Math.min(this.pendingResimTick, resimTick);
     }
+  }
+
+  // How many players are currently connected (have an active WebRTC channel)
+  getPlayerCount(): number {
+    return this.channelPlayerIds.size;
   }
 
   addNetworkDiffPayload(diff: NetworkDiffPayload): void {

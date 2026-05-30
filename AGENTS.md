@@ -14,6 +14,8 @@ Always read the relevant .md files in ./docs about netcode, game rules, ecs...
 
 The project is currently in prototyping phase and needs to move forward. Feel free to consider big architecture changes. Never try to keep backwards compatibility.
 
+You can refactor freely as long as you clearly state changes to the user afterwards.  
+
 ## Coding guidelines
 
 Prefer high-level and meaningful system and function names. Always leave a little comment for functions you create with the intended usage. 

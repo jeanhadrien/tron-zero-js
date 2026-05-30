@@ -1,5 +1,5 @@
 import { ECSGameRoom } from '../../../shared/ECSGameRoom';
-import { eventGetter, inputGetter, System } from '../../../shared/ECSSystem';
+import { eventGetter, inputGetter, System } from '../../../shared/interfaces/System';
 
 export class RendererSystem extends System {
   readonly key = 'renderer';

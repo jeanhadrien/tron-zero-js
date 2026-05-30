@@ -1,7 +1,6 @@
 import { GameObjects } from 'phaser';
 import AudioManager, { EngineSound } from './AudioManager';
-import { ECSGameWorld } from '../../../shared/ECSGameRoom';
-import { PlayerId, TrailPoints } from '../../../shared/systems/ECSPlayerSystem';
+import { PlayerId, TrailPoints } from '../../../shared/systems/PlayerSystem';
 
 export interface RenderSnapshot {
   tick: number;

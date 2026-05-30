@@ -1,26 +1,41 @@
 import { ClientChannel, geckos } from '@geckos.io/client';
-import { eventGetter, inputGetter, System } from '../../../shared/ECSSystem';
+import { eventGetter, inputGetter, System } from '../../../shared/interfaces/System';
 import { RoomLogger } from '../../../shared/otel/Logger';
 import { ConnectionError, Data } from '@geckos.io/common/lib/types';
 import { decodeMessage, MSG_INIT_STATE, MSG_SYNC_STATE } from '../../../shared/NetworkProtocol';
 import { ECSGameRoom } from '../../../shared/ECSGameRoom';
-import PlayerSystem from '../../../shared/systems/ECSPlayerSystem';
-import { PlayerInput } from '../../../shared/PlayerInput';
-import { GameEvent, GameEventType } from '../../../shared/GameEvent';
+import PlayerSystem from '../../../shared/systems/PlayerSystem';
 
 export const logger = new RoomLogger('ClientNetworkSystem');
 
 export class ClientNetworkSystem extends System {
   readonly key = 'client-network';
   private static readonly RTT_SMOOTHING_ALPHA = 0.2;
+  private static readonly SESSION_KEY = 'tronzero_session';
 
   channel: ClientChannel;
+  readonly sessionToken: string;
   private smoothedOneWayTime: number = 0;
   private room: ECSGameRoom;
+  private _connected: boolean = false;
+  private _pingInterval: number | null = null;
 
   constructor() {
     super();
-    this.channel = geckos({
+
+    // Persistent session token — survives tab hide/show and page reloads
+    let token = localStorage.getItem(ClientNetworkSystem.SESSION_KEY);
+    if (!token) {
+      token = crypto.randomUUID();
+      localStorage.setItem(ClientNetworkSystem.SESSION_KEY, token);
+    }
+    this.sessionToken = token;
+
+    this.channel = this._createChannel();
+  }
+
+  private _createChannel(): ClientChannel {
+    return geckos({
       url: `${window.location.protocol}//${window.location.hostname}`,
       iceServers: [{ urls: 'stun:stun1.l.google.com:19302' }, { urls: 'stun:stun2.l.google.com:19302' }],
       port: 3000,
@@ -34,34 +49,53 @@ export class ClientNetworkSystem extends System {
   init?(room: ECSGameRoom): void {
     this.room = room;
     logger.setRoom(room);
-
-    this.channel.onConnect((error) => this.onConnection(error));
-    this.channel.on('pong', (data) => this.onPong(data));
-    this.channel.onRaw((data) => this.onRaw(data));
-
-    setInterval(() => {
-      this.channel.emit('ping', performance.now());
-    }, 3000);
-
-    this.channel.emit('ping', performance.now());
+    this._setupChannel(this.channel);
+    this._startPingInterval();
   }
 
-  private onRaw(data: Data) {
+  private _setupChannel(channel: ClientChannel): void {
+    channel.onConnect((error) => this._onConnection(error));
+    channel.on('pong', (data) => this._onPong(data));
+    channel.onRaw((data) => this._onRaw(data));
+    channel.onDisconnect(() => this._onDisconnect());
+  }
+
+  private _startPingInterval(): void {
+    this._stopPingInterval();
+    this._pingInterval = window.setInterval(() => {
+      if (this._connected) {
+        this.channel.emit('ping', performance.now());
+      }
+    }, 3000);
+  }
+
+  private _stopPingInterval(): void {
+    if (this._pingInterval !== null) {
+      clearInterval(this._pingInterval);
+      this._pingInterval = null;
+    }
+  }
+
+  isConnected(): boolean {
+    return this._connected;
+  }
+
+  private _onRaw(data: Data) {
     const msg = decodeMessage(data as ArrayBuffer);
 
     switch (msg.type) {
       case MSG_INIT_STATE:
-        this.onInitState(msg.tick, msg.snapshot);
+        this._onInitState(msg.tick, msg.snapshot);
         break;
       case MSG_SYNC_STATE:
-        this.onSyncState(msg.tick, msg.data, msg.struct);
+        this._onSyncState(msg.tick, msg.data, msg.struct);
         break;
       default:
         throw new Error('Unknown message');
     }
   }
 
-  private onSyncState(tick: number, data: ArrayBuffer, struct: ArrayBuffer) {
+  private _onSyncState(tick: number, data: ArrayBuffer, struct: ArrayBuffer) {
     logger.debug('Received sync state');
 
     if (this.smoothedOneWayTime) {
@@ -79,19 +113,20 @@ export class ClientNetworkSystem extends System {
     });
   }
 
-  private onInitState(tick: number, snapshot: ArrayBuffer) {
+  private _onInitState(tick: number, snapshot: ArrayBuffer) {
     logger.info('Received init state');
 
     this.room.initFromSnapshot(tick, snapshot);
     this.room.gameClock.tick = tick;
 
-    this.room.localPlayerEid = PlayerSystem.getPlayerEidByStringId(this.room, this.channel.id!);
-    this.room.localPlayerId = this.channel.id!;
+    // Use sessionToken (not channel.id) — survives reconnection
+    this.room.localPlayerEid = PlayerSystem.getPlayerEidByStringId(this.room, this.sessionToken);
+    this.room.localPlayerId = this.sessionToken;
 
-    logger.warn(this.room.tick, 'Player ready — eid:', this.room.localPlayerEid, 'id:', this.room.localPlayerId);
+    logger.warn(this.room.tick, 'Player ready — eid:', this.room.localPlayerEid);
   }
 
-  private onPong(data: Data) {
+  private _onPong(data: Data) {
     const oldTime = data as number;
     const pingDifferenceTime = performance.now() - oldTime;
     const oneWayTime = pingDifferenceTime / 2;
@@ -111,50 +146,50 @@ export class ClientNetworkSystem extends System {
     this.channel.emit('request_init');
   }
 
-  /** Queue an input locally for client prediction and relay it to the server. */
   sendInput(obj: { tick: number; turn?: 'left' | 'right'; break?: boolean }): void {
-    if (!this.room?.localPlayerId) return;
+    if (!this._connected) return;
 
-    const playerInput: PlayerInput = {
-      tick: obj.tick,
-      playerId: this.room.localPlayerId,
-      turn: obj.turn,
-      break: obj.break ?? false,
-    };
-
-    // Add locally so client-side prediction processes the turn
-    //this.room.addInput(playerInput);
-
-    // Relay to the server for authoritative processing
     this.channel.emit('client_turn', [{ tick: obj.tick, turn: obj.turn }]);
-
-    logger.warn('SENT turn:', obj.turn, 'at tick:', obj.tick);
   }
 
   sendRespawn(): void {
-    if (!this.room?.localPlayerId) return;
+    if (!this._connected) return;
 
-    const playerRespawn: GameEvent = {
-      tick: this.room.tick,
-      playerId: this.room.localPlayerId,
-      type: GameEventType.PlayerSpawn,
-    };
+    this.channel.emit('respawn');
+  }
 
-    // Relay to the server for authoritative processing
-    this.channel.emit('respawn', [playerRespawn]);
-
-    logger.warn('SENT respawn:', playerRespawn.tick);
+  /** Replace the current channel with a new one and re-establish all handlers. */
+  reconnect(): void {
+    logger.info('Reconnecting...');
+    this._connected = false;
+    this._stopPingInterval();
+    this.channel.close();
+    this.channel = this._createChannel();
+    this._setupChannel(this.channel);
+    this._startPingInterval();
   }
 
   update(getInput: inputGetter, getEvents: eventGetter): void {
     return;
   }
 
-  private onConnection(error: ConnectionError | undefined): void {
+  private _onConnection(error: ConnectionError | undefined): void {
     if (error) {
-      throw new Error(error.message);
+      logger.error('Connection failed:', error.message);
+      this._connected = false;
+      return;
     }
+
+    this._connected = true;
     logger.info('Connected to server with ID:', this.channel.id);
+
+    // Identify ourselves with the persistent session token
+    this.channel.emit('handshake', { sessionToken: this.sessionToken });
     this.channel.emit('ping', performance.now());
+  }
+
+  private _onDisconnect(): void {
+    this._connected = false;
+    logger.warn('Disconnected from server');
   }
 }
