@@ -4,7 +4,6 @@ import { createServer } from 'http';
 import geckos from '@geckos.io/server';
 import path from 'path';
 import { trace } from '@opentelemetry/api';
-import { GameEventBus } from '@tron0/shared/GameEventBus';
 import { GameArenaSystem } from '@tron0/shared/systems/GameArenaSystem';
 import GameClock from '@tron0/shared/GameClock';
 import { Logger } from '@tron0/shared/Logger';
@@ -48,13 +47,7 @@ const botSystem = new BotSystem();
 const networkServerSystem = new ServerNetworkSystem(io);
 const chatSystem = new ServerChatSystem(io);
 
-const ecsRoom = new ECSGameRoom(new GameEventBus(), gameClock, [
-  areaSystem,
-  botSystem,
-  playerSystem,
-  networkServerSystem,
-  chatSystem,
-]);
+const ecsRoom = new ECSGameRoom(gameClock, [areaSystem, botSystem, playerSystem, networkServerSystem, chatSystem]);
 
 botSystem.setInputBuffer(ecsRoom.playerInputBuffer);
 
@@ -91,7 +84,7 @@ async function registerWithManager() {
       logger.error(`Manager register failed: ${res.status} ${text}`);
       return;
     }
-    const body = await res.json() as { id: string };
+    const body = (await res.json()) as { id: string };
     roomId = body.id;
     logger.info(`Registered with manager — roomId=${roomId}`);
 

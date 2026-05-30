@@ -1,6 +1,6 @@
 import { logs, SeverityNumber } from '@opentelemetry/api-logs';
 import type { Logger as OtelLogger } from '@opentelemetry/api-logs';
-import type { ECSGameRoom, ECSGameWorld } from '../ECSGameRoom';
+import type { ECSGameRoom } from '../ECSGameRoom';
 
 export enum LogLevel {
   Debug = 0,

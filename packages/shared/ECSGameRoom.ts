@@ -1,6 +1,4 @@
 import { EventEmitter } from 'eventemitter3';
-import { GameEventBus } from './GameEventBus';
-import { PlayerEventBus } from './PlayerStateEventBus';
 
 import { createWorld, createEntityIndex, resetWorld, World } from 'bitecs';
 import {
@@ -31,8 +29,6 @@ import GameClock from './GameClock';
 const logger = new RoomLogger('GameRoom');
 
 export class ECSGameRoom {
-  playerEventBus: PlayerEventBus;
-  gameEventBus: GameEventBus;
   gameClock: GameClock;
   private networkDiffEmitter = new EventEmitter<string>();
   private pendingResimTick: number | null = null;
@@ -59,17 +55,10 @@ export class ECSGameRoom {
   localPlayerId: string;
   channelPlayerIds: Map<string, string>;
 
-  constructor(
-    bus: GameEventBus,
-    clock: GameClock,
-    systems: System[] = [],
-    onDeltas?: (deltas: NetworkDiffPayload[]) => void
-  ) {
+  constructor(clock: GameClock, systems: System[] = [], onDeltas?: (deltas: NetworkDiffPayload[]) => void) {
     if (onDeltas) this.networkDiffEmitter.on('diff', onDeltas);
-    this.gameEventBus = bus;
     this.tick = clock.tick;
     this.tickTimeMs = clock.tickTimeMs;
-    this.playerEventBus = new PlayerEventBus();
     this.gameClock = clock;
     this.dirtyEntities = new Set<number>();
     this.channelPlayerIds = new Map();

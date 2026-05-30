@@ -1,7 +1,6 @@
 import { Scene } from 'phaser';
 import { EventBus } from '../EventBus';
 import DebugHud from '../gameobjects/DebugHud';
-import { GameEventBus } from '@tron0/shared/GameEventBus';
 import GameClock from '@tron0/shared/GameClock';
 import GameAreaRenderer from '../gameobjects/GameAreaRenderer';
 import AudioManager from '../gameobjects/AudioManager';
@@ -55,7 +54,6 @@ export class GameScene extends Scene {
   init() {
     this.CANVAS_WIDTH = this.scale.width;
     this.CANVAS_HEIGHT = this.scale.height;
-    let bus = new GameEventBus();
     this.gameArea = new GameArea();
     this.gameClock = new GameClock();
     this.debugHud = new DebugHud(this);
@@ -65,7 +63,7 @@ export class GameScene extends Scene {
     this.renderSystem = new PlayerRenderSystem(this);
     this.chatSystem = new ChatClientSystem(this.networkClient.channel);
 
-    this.room = new ECSGameRoom(new GameEventBus(), this.gameClock, [
+    this.room = new ECSGameRoom(this.gameClock, [
       new GameArenaSystem(),
       new PlayerSystem(),
       this.networkClient,
