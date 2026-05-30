@@ -1,9 +1,11 @@
 export default class GameClock {
   tick: number = 0;
-  readonly tickTimeMs: number;
+  readonly referenceTickTimeMs: number;
+  tickTimeMs: number;
   accumulatorTimeMs: number = 0;
 
   constructor(tickTimeMs: number = 1000 / 60, startTick: number = 0) {
+    this.referenceTickTimeMs = tickTimeMs;
     this.tickTimeMs = tickTimeMs;
     this.tick = startTick;
   }
@@ -14,7 +16,8 @@ export default class GameClock {
    * @returns The number of ticks to process this frame.
    */
   update(deltaTime: number): number {
-    this.accumulatorTimeMs += deltaTime;
+    const clampedDelta = Math.min(deltaTime, 250);
+    this.accumulatorTimeMs += clampedDelta;
     let ticksToProcess = 0;
 
     while (this.accumulatorTimeMs >= this.tickTimeMs) {

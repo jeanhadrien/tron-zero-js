@@ -67,6 +67,12 @@ export class NetworkServer {
         this.ecsRoom.addEvent(this.ecsRoom.world.tick + 1, { type: GameEventType.PlayerSpawn, playerId: channelId });
       });
 
+      channel.on('request_init', () => {
+        logger.info(`Player ${channelId} requested init state`);
+        const packet = encodeInitState(this.ecsRoom.tick, this.ecsRoom.snapshotSerialize());
+        channel.raw.emit(packet);
+      });
+
       channel.onDisconnect(() => {
         this.channels.delete(channelId);
 

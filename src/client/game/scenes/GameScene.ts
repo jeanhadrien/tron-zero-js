@@ -36,7 +36,6 @@ export class GameScene extends Scene {
   debugHud: DebugHud;
   gameArea: GameArea;
 
-  tickOffset: number = 1;
   private _pendingTurnCount: number = 0;
 
   lastFpsEmitTime: number = 0;
@@ -60,7 +59,7 @@ export class GameScene extends Scene {
     this.debugHud = new DebugHud(this);
     this.audioManager = new AudioManager(this);
 
-    this.networkClient = new ClientNetworkSystem(this.room);
+    this.networkClient = new ClientNetworkSystem();
     this.renderSystem = new PlayerRenderSystem(this);
 
     this.room = new ECSGameRoom(new GameEventBus(), this.gameClock, [
@@ -145,7 +144,11 @@ export class GameScene extends Scene {
           this.isKeyDown[key] = true;
           if (this.humanEid >= 0) {
             const targetTick = this.room.tick + this._pendingTurnCount;
-            this.networkClient.sendTurn(targetTick, direction as 'left' | 'right');
+            this.networkClient.sendInput({
+              tick: targetTick,
+              turn: direction as 'left' | 'right',
+              break: false,
+            });
             this._pendingTurnCount++;
           }
         }
@@ -196,6 +199,10 @@ export class GameScene extends Scene {
   //   }
 
   update(_time: any, delta: number) {
+    if (delta > 1000) {
+      this.networkClient.requestInitState();
+      return;
+    }
     if (this.humanEid >= 0 && IsAlive[this.humanEid] !== 1) {
       const cx = this.cameras.main.worldView.centerX;
       const cy = this.cameras.main.worldView.centerY;

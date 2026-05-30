@@ -13,7 +13,7 @@ export class ClientNetworkSystem extends System {
   private static readonly RTT_SMOOTHING_ALPHA = 0.2;
 
   private channel: ClientChannel;
-  private smoothedOneWayTime: number;
+  private smoothedOneWayTime: number = 0;
   private room: ECSGameRoom;
   clientPlayerEid: number;
   clientPlayerId: string;
@@ -33,11 +33,12 @@ export class ClientNetworkSystem extends System {
 
   init?(room: ECSGameRoom): void {
     this.room = room;
-    logger.setRoom(room.world);
+    logger.setRoom(room);
 
     this.channel.onConnect((error) => this.onConnection(error));
     this.channel.on('pong', (data) => this.onPong(data));
     this.channel.onRaw((data) => this.onRaw(data));
+
     setInterval(() => {
       this.channel.emit('ping', performance.now());
     }, 3000);
@@ -62,6 +63,15 @@ export class ClientNetworkSystem extends System {
 
   private onSyncState(tick: number, data: ArrayBuffer, struct: ArrayBuffer) {
     logger.debug('Received sync state');
+
+    if (this.smoothedOneWayTime) {
+      const targetOffsetTicks = Math.ceil(this.smoothedOneWayTime / this.room.gameClock.referenceTickTimeMs);
+      const targetTick = tick + targetOffsetTicks;
+      const tickError = targetTick - this.room.tick;
+      const GAIN = 0.5;
+      this.room.gameClock.tickTimeMs = this.room.gameClock.referenceTickTimeMs - tickError * GAIN;
+    }
+
     this.room.addNetworkDiffPayload({
       tick,
       data,
@@ -91,6 +101,18 @@ export class ClientNetworkSystem extends System {
           oneWayTime * ClientNetworkSystem.RTT_SMOOTHING_ALPHA;
 
     logger.warn(this.room.tick, 'pong', `RTT: ${pingDifferenceTime.toFixed(2)}ms, One-way: ${oneWayTime.toFixed(2)}ms`);
+  }
+
+  requestInitState(): void {
+    logger.info('Requesting init state from server');
+    this.room.gameClock.resetAccumulator();
+    this.channel.emit('request_init');
+  }
+
+  sendInput(obj: any): void {}
+
+  update(getInput: inputGetter, getEvents: eventGetter): void {
+    return;
   }
 
   private onConnection(error: ConnectionError | undefined): void {
