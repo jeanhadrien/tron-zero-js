@@ -83,6 +83,10 @@ export default class BotSystem extends System {
     return [];
   }
 
+  getBotCount(): number {
+    return this.botEids.length;
+  }
+
   init(room: ECSGameRoom): void {
     this.room = room;
     for (let i = 1; i <= BOT_COUNT; i++) {

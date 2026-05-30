@@ -131,7 +131,7 @@ export class ECSGameRoom {
 
   serverAddInput(input: PlayerInput): void {
     this.playerInputBuffer.record(input.tick, input.playerId, input);
-    logger.info('input at tick', input.tick, 'for player', input.playerId, input.turn, input.break);
+    logger.debug('input at tick', input.tick, 'for player', input.playerId, input.turn, input.break);
     const eid = PlayerSystem.getPlayerEidByStringId(this, input.playerId);
     if (!eid) {
       logger.warn('No player for input', eid);

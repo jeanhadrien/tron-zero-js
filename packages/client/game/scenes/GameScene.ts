@@ -30,8 +30,11 @@ export class GameScene extends Scene {
 
   humanEid: number = -1;
 
+  isConnected: boolean = false;
+  menuOpen: boolean = false;
+
   gameClock: GameClock;
-  room: ECSGameRoom;
+  room?: ECSGameRoom;
 
   debugHud: DebugHud;
   gameArea: GameArea;
@@ -61,7 +64,18 @@ export class GameScene extends Scene {
 
     this.networkClient = new ClientNetworkSystem();
     this.renderSystem = new PlayerRenderSystem(this);
-    this.chatSystem = new ChatClientSystem(this.networkClient.channel);
+    this.chatSystem = new ChatClientSystem(() => this.networkClient.channel);
+
+    this.gameAreaRenderer = new GameAreaRenderer(this, this.gameArea);
+    this.gameCamera = new GameCamera(this, this.gameArea, this.audioManager);
+  }
+
+  /** Connect to a game server, creating the ECS room and starting the simulation. */
+  connectToServer(host: string, port: number): void {
+    if (this.isConnected) return;
+    EventBus.emit('connection-state', 'connecting');
+
+    this.networkClient.connect(host, port);
 
     this.room = new ECSGameRoom(this.gameClock, [
       new GameArenaSystem(),
@@ -70,9 +84,6 @@ export class GameScene extends Scene {
       this.renderSystem,
       this.chatSystem,
     ]);
-
-    this.gameAreaRenderer = new GameAreaRenderer(this, this.gameArea);
-    this.gameCamera = new GameCamera(this, this.gameArea, this.audioManager);
   }
 
   preload() {
@@ -119,6 +130,12 @@ export class GameScene extends Scene {
       this.chatSystem.sendMessage(text);
     });
 
+    EventBus.on('menu-open', () => { this.menuOpen = true; });
+    EventBus.on('menu-closed', () => { this.menuOpen = false; });
+    EventBus.on('connection-state', (state: string) => {
+      this.isConnected = (state === 'connected');
+    });
+
     const onGameResume = () => {
       logger.info('Tab resumed, syncing...');
       this.audioManager.resume();
@@ -147,7 +164,7 @@ export class GameScene extends Scene {
     });
 
     this.spaceKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
-    this.input.keyboard.removeCapture(Phaser.Input.Keyboard.KeyCodes.SPACE);
+    this.input.keyboard!.removeCapture(Phaser.Input.Keyboard.KeyCodes.SPACE);
 
     const keyMappings = {
       Q: 'left',
@@ -162,10 +179,11 @@ export class GameScene extends Scene {
 
     Object.entries(keyMappings).forEach(([key, direction]) => {
       this.input.keyboard?.on(`keydown-${key}`, () => {
+        if (this.menuOpen || !this.isConnected) return;
         if (!this.isKeyDown[key]) {
           this.isKeyDown[key] = true;
           if (this.humanEid >= 0) {
-            const targetTick = this.room.tick + this._pendingTurnCount;
+            const targetTick = this.room!.tick + this._pendingTurnCount;
             this.networkClient.sendInput({
               tick: targetTick,
               turn: direction as 'left' | 'right',
@@ -182,47 +200,16 @@ export class GameScene extends Scene {
       });
     });
 
+    EventBus.emit('current-scene-ready', this);
+
     span.end();
   }
 
-  //   setupSocket() {
-  //     this.networkClient.onInitState = (humanMeta, allPlayers) => {
-  //       const world = this.room.world;
-
-  //       for (const p of allPlayers) {
-  //         this.playerRenderers.set(p.id, new PlayerRenderer(this, p.eid, world, this.audioManager));
-  //       }
-
-  //       if (humanMeta) {
-  //         this.humanEid = humanMeta.eid;
-  //         this.debugHud.add('Rubber', () => Rubber[this.humanEid]);
-  //         this.debugHud.add('Speed', () => [Velocity.vx[this.humanEid], Velocity.vy[this.humanEid]]);
-  //         this.gameCamera.setHumanPlayer({ x: Position.x[this.humanEid], y: Position.y[this.humanEid] });
-  //       }
-  //     };
-
-  //     this.networkClient.onPlayerJoined = (player) => {
-  //       if (!this.playerRenderers.has(player.id)) {
-  //         this.playerRenderers.set(player.id, new PlayerRenderer(this, player.eid, this.room.world, this.audioManager));
-  //       }
-  //     };
-
-  //     this.networkClient.onPlayerLeft = (playerId) => {
-  //       const renderer = this.playerRenderers.get(playerId);
-  //       if (renderer) {
-  //         renderer.destroy();
-  //         this.playerRenderers.delete(playerId);
-  //       }
-  //     };
-
-  //     this.networkClient.onPlayerTurn = (player) => {
-  //       this.audioManager.playTurnSound(player.x, player.y);
-  //     };
-
-  //     this.networkClient.connect();
-  //   }
-
   update(_time: any, delta: number) {
+    if (!this.isConnected || !this.room) {
+      return;
+    }
+
     if (delta > 10000) {
       this.audioManager.resume();
       if (this.networkClient.isConnected()) {
@@ -232,6 +219,18 @@ export class GameScene extends Scene {
       }
       return;
     }
+
+    if (this.menuOpen) {
+      this.room.updateFixed(delta);
+      this.renderSystem.localPlayerEid = this.humanEid;
+      this.renderSystem.render();
+      if (this.humanEid >= 0) {
+        this.gameCamera.update(Position.x[this.humanEid], Position.y[this.humanEid]);
+      }
+      this._pendingTurnCount = 0;
+      return;
+    }
+
     if (this.humanEid >= 0 && IsAlive[this.humanEid] !== 1) {
       const cx = this.cameras.main.worldView.centerX;
       const cy = this.cameras.main.worldView.centerY;

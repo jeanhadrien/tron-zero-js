@@ -88,22 +88,33 @@ async function registerWithManager() {
     roomId = body.id;
     logger.info(`Registered with manager — roomId=${roomId}`);
 
-    // Start heartbeat every 30s
-    logger.info(`Starting heartbeat every 30s for roomId=${roomId}`);
-    managerHeartbeatInterval = setInterval(async () => {
+    // Fire heartbeat immediately, then every 30s
+    const sendHeartbeat = async () => {
       try {
         const res = await fetch(`${MANAGER_URL}/api/rooms/${roomId}/heartbeat`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ playerCount: ecsRoom.getPlayerCount() }),
+          body: JSON.stringify({ playerCount: ecsRoom.getPlayerCount() + botSystem.getBotCount() }),
         });
         if (!res.ok) {
+          if (res.status === 404) {
+            logger.warn(`Manager lost our room — re-registering`);
+            roomId = null;
+            clearInterval(managerHeartbeatInterval!);
+            managerHeartbeatInterval = null;
+            registerWithManager();
+            return;
+          }
           logger.warn(`Heartbeat failed: ${res.status}`);
         }
       } catch {
         logger.warn(`Heartbeat — manager unreachable at ${MANAGER_URL}`);
       }
-    }, 30_000);
+    };
+
+    logger.info(`Starting heartbeat every 30s for roomId=${roomId}`);
+    await sendHeartbeat();
+    managerHeartbeatInterval = setInterval(sendHeartbeat, 2_000);
   } catch {
     logger.warn(`Could not reach manager at ${MANAGER_URL} — retrying in 5s`);
     setTimeout(registerWithManager, 5000);

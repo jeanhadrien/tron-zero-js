@@ -8,12 +8,12 @@ import { EventBus } from '../EventBus';
 export class ChatClientSystem extends System {
   readonly key = 'chat-client';
 
-  private channel: ClientChannel;
+  private getChannel: () => ClientChannel;
   readonly messages: ChatMessageBuffer;
 
-  constructor(channel: ClientChannel) {
+  constructor(getChannel: () => ClientChannel) {
     super();
-    this.channel = channel;
+    this.getChannel = getChannel;
     this.messages = new ChatMessageBuffer(100);
   }
 
@@ -22,7 +22,9 @@ export class ChatClientSystem extends System {
   }
 
   init(_room: ECSGameRoom): void {
-    this.channel.on('chat', (data: any) => {
+    const channel = this.getChannel();
+    if (!channel) return;
+    channel.on('chat', (data: any) => {
       if (data.type === 'history') {
         for (const msg of data.messages) {
           this.messages.push(msg);
@@ -43,6 +45,8 @@ export class ChatClientSystem extends System {
   // Send a chat message to the server for broadcast
   sendMessage(text: string): void {
     if (!text || text.trim().length === 0) return;
-    this.channel.emit('chat_message', text.trim());
+    const channel = this.getChannel();
+    if (!channel) return;
+    channel.emit('chat_message', text.trim());
   }
 }

@@ -5,6 +5,7 @@ import { ConnectionError, Data } from '@geckos.io/common/lib/types';
 import { decodeMessage, MSG_INIT_STATE, MSG_SYNC_STATE } from '@tron0/shared/NetworkProtocol';
 import { ECSGameRoom } from '@tron0/shared/ECSGameRoom';
 import PlayerSystem from '@tron0/shared/systems/PlayerSystem';
+import { EventBus } from '../EventBus';
 
 export const logger = new RoomLogger('ClientNetworkSystem');
 
@@ -19,6 +20,8 @@ export class ClientNetworkSystem extends System {
   private room: ECSGameRoom;
   private _connected: boolean = false;
   private _pingInterval: number | null = null;
+  private _host: string = '';
+  private _port: number = 0;
 
   constructor() {
     super();
@@ -30,15 +33,13 @@ export class ClientNetworkSystem extends System {
       localStorage.setItem(ClientNetworkSystem.SESSION_KEY, token);
     }
     this.sessionToken = token;
-
-    this.channel = this._createChannel();
   }
 
   private _createChannel(): ClientChannel {
     return geckos({
-      url: `${window.location.protocol}//${window.location.hostname}`,
+      url: `http://${this._host}`,
       iceServers: [{ urls: 'stun:stun1.l.google.com:19302' }, { urls: 'stun:stun2.l.google.com:19302' }],
-      port: 3000,
+      port: this._port,
     });
   }
 
@@ -49,6 +50,14 @@ export class ClientNetworkSystem extends System {
   init?(room: ECSGameRoom): void {
     this.room = room;
     logger.setRoom(room);
+  }
+
+  /** Connect to a game server at the given host and port. Creates a new channel and starts signaling. */
+  connect(host: string, port: number): void {
+    if (this._connected) return;
+    this._host = host;
+    this._port = port;
+    this.channel = this._createChannel();
     this._setupChannel(this.channel);
     this._startPingInterval();
   }
@@ -160,6 +169,7 @@ export class ClientNetworkSystem extends System {
 
   /** Replace the current channel with a new one and re-establish all handlers. */
   reconnect(): void {
+    if (!this._host || !this._port) return;
     logger.info('Reconnecting...');
     this._connected = false;
     this._stopPingInterval();
@@ -182,6 +192,7 @@ export class ClientNetworkSystem extends System {
 
     this._connected = true;
     logger.info('Connected to server with ID:', this.channel.id);
+    EventBus.emit('connection-state', 'connected');
 
     // Identify ourselves with the persistent session token
     this.channel.emit('handshake', { sessionToken: this.sessionToken });
@@ -191,5 +202,6 @@ export class ClientNetworkSystem extends System {
   private _onDisconnect(): void {
     this._connected = false;
     logger.warn('Disconnected from server');
+    EventBus.emit('connection-state', 'disconnected');
   }
 }
