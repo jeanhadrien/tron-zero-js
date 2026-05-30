@@ -2,7 +2,7 @@ import { GameObjects } from 'phaser';
 import { query } from 'bitecs';
 import { ECSGameRoom } from '../../../shared/ECSGameRoom';
 import { eventGetter, inputGetter, System } from '../../../shared/ECSSystem';
-import {
+import PlayerSystem, {
   Position,
   Direction,
   Color,
@@ -13,6 +13,7 @@ import {
   PlayerId,
   PingInTicks,
 } from '../../../shared/systems/ECSPlayerSystem';
+import { GameEventType } from '../../../shared/GameEvent';
 
 interface PlayerStateSnapshot {
   tick: number;
@@ -22,7 +23,8 @@ interface PlayerStateSnapshot {
   color: number;
   speedMult: number;
   isAlive: boolean;
-  trailLength: number;
+  trailXs: number[];
+  trailYs: number[];
 }
 
 const MAX_SNAPSHOT_AGE = 60;
@@ -60,11 +62,45 @@ export class PlayerRenderSystem extends System {
     this.driverGraphics = this.scene.add.graphics().setDepth(10);
   }
 
-  update(_getInput: inputGetter, _getEvents: eventGetter): void {
+  update(_getInput: inputGetter, getEvents: eventGetter): void {
     const tick = this.room.tick;
+
+    // Handle lifecycle events to clean up stale history
+    if (getEvents) {
+      for (const event of getEvents()) {
+        if (event.type === GameEventType.PlayerSpawn || event.type === GameEventType.PlayerLeft) {
+          let eid: number | undefined;
+          if (event.entityId !== undefined) {
+            eid = event.entityId;
+          } else if (event.playerId) {
+            try {
+              eid = PlayerSystem.getPlayerEidByStringId(this.room, event.playerId);
+            } catch {
+              continue;
+            }
+          }
+          if (eid !== undefined) {
+            this.history.delete(eid);
+            const text = this.nameTexts.get(eid);
+            if (text) {
+              text.destroy();
+              this.nameTexts.delete(eid);
+            }
+          }
+        }
+      }
+    }
 
     for (const eid of Array.from(query(this.room.world, [Player]))) {
       if (IsAlive[eid] !== 1) continue;
+
+      const trailXs = [...(TrailPoints.xs[eid] ?? [])];
+      const trailYs = [...(TrailPoints.ys[eid] ?? [])];
+
+      // Respawn detection: trail reset to a single point = fresh spawn, clear stale history
+      if (trailXs.length === 1) {
+        this.history.delete(eid);
+      }
 
       const snapshot: PlayerStateSnapshot = {
         tick,
@@ -74,7 +110,8 @@ export class PlayerRenderSystem extends System {
         color: Color[eid],
         speedMult: SpeedMult[eid],
         isAlive: true,
-        trailLength: TrailPoints.xs[eid]?.length ?? 0,
+        trailXs,
+        trailYs,
       };
 
       let list = this.history.get(eid);
@@ -82,7 +119,15 @@ export class PlayerRenderSystem extends System {
         list = [];
         this.history.set(eid, list);
       }
-      list.push(snapshot);
+
+      // Replay-safe: overwrite the last entry if it has the same tick (re-simulation)
+      if (list.length > 0 && list[list.length - 1].tick === tick) {
+        list[list.length - 1] = snapshot;
+      } else {
+        list.push(snapshot);
+      }
+
+      // Trim old entries
       while (list.length > 0 && list[0].tick < tick - MAX_SNAPSHOT_AGE) {
         list.shift();
       }
@@ -101,24 +146,43 @@ export class PlayerRenderSystem extends System {
     for (const eid of living) {
       if (IsAlive[eid] !== 1) continue;
 
-      const delay = eid === this.localPlayerEid ? 0 : Math.round(PingInTicks[eid] ?? 0);
-      const targetTick = tick - delay;
+      const isLocal = eid === this.localPlayerEid;
 
-      const snapshot = this._lookup(eid, targetTick);
-      if (!snapshot) continue;
+      let renderX: number;
+      let renderY: number;
+      let direction: number;
+      let color: number;
+      let xs: number[];
+      let ys: number[];
 
-      const renderX = snapshot.x;
-      const renderY = snapshot.y;
+      if (isLocal) {
+        // Local player renders directly from the current simulation — zero delay
+        renderX = Position.x[eid];
+        renderY = Position.y[eid];
+        direction = Direction[eid];
+        color = Color[eid];
+        xs = TrailPoints.xs[eid] ?? [];
+        ys = TrailPoints.ys[eid] ?? [];
+      } else {
+        // Remote player uses delay-compensated snapshot with self-contained trail data
+        const delay = Math.round(PingInTicks[eid] ?? 0);
+        const targetTick = tick - delay;
+        const snapshot = this._lookup(eid, targetTick);
+        if (!snapshot) continue;
 
-      this._drawLightcycle(renderX, renderY, snapshot.direction, snapshot.color);
+        renderX = snapshot.x;
+        renderY = snapshot.y;
+        direction = snapshot.direction;
+        color = snapshot.color;
+        xs = snapshot.trailXs;
+        ys = snapshot.trailYs;
+      }
 
-      const xs = TrailPoints.xs[eid];
-      const ys = TrailPoints.ys[eid];
-      const n = Math.min(snapshot.trailLength, xs.length);
+      this._drawLightcycle(renderX, renderY, direction, color);
 
-      if (n > 0) {
-        this._drawActiveTrail(xs[n - 1], ys[n - 1], renderX, renderY, snapshot.color);
-        this._drawStaticTrail(xs, ys, n, snapshot.color);
+      if (xs.length > 0) {
+        this._drawActiveTrail(xs[xs.length - 1], ys[xs.length - 1], renderX, renderY, color);
+        this._drawStaticTrail(xs, ys, color);
       }
 
       this._updateNameText(eid, renderX, renderY);
@@ -165,11 +229,11 @@ export class PlayerRenderSystem extends System {
     this.activeTrailGraphics.strokePath();
   }
 
-  private _drawStaticTrail(xs: number[], ys: number[], n: number, color: number): void {
+  private _drawStaticTrail(xs: number[], ys: number[], color: number): void {
     this.staticTrailGraphics.lineStyle(TRAIL_WIDTH, color, 0.5);
     this.staticTrailGraphics.beginPath();
     this.staticTrailGraphics.moveTo(xs[0], ys[0]);
-    for (let i = 1; i < n; i++) {
+    for (let i = 1; i < xs.length; i++) {
       this.staticTrailGraphics.lineTo(xs[i], ys[i]);
     }
     this.staticTrailGraphics.strokePath();

@@ -74,6 +74,7 @@ export class ServerNetworkSystem extends System {
 
     logger.info(`Player connected from channel: ${channelId}`);
     this.room.addEvent({ type: GameEventType.PlayerJoined, tick: this.room.tick, playerId: channelId });
+    this.room.addEvent({ type: GameEventType.PlayerSpawn, tick: this.room.tick, playerId: channelId });
 
     channel.on('ping', (clientTime: Data) => {
       channel.emit('pong', clientTime);
@@ -100,7 +101,7 @@ export class ServerNetworkSystem extends System {
 
   private onClientRespawn(channel: ServerChannel) {
     return () => {
-      this.room.addEvent({ type: GameEventType.PlayerSpawn, tick: this.room.tick, playerId: channel.id! });
+      this.room.addEvent({ type: GameEventType.PlayerSpawn, tick: this.room.tick + 1, playerId: channel.id! });
     };
   }
 

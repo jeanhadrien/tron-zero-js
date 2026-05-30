@@ -290,6 +290,7 @@ export default class PlayerSystem extends SystemSerializable {
 
   /** Add a new player entity and return its entity id. */
   static createPlayer(room: ECSGameRoom, playerId: string): number {
+    logger.info('Creating Player', playerId);
     const color = generatePlayerColor();
     const eid = addEntity(room.world);
     addComponents(room.world, eid, PLAYER_COMPONENTS);
@@ -322,8 +323,9 @@ export default class PlayerSystem extends SystemSerializable {
     return eid;
   }
 
-  static spawnPlayer(room: ECSGameRoom, eid: number) {
-    logger.info('&&& Spawning entity', eid);
+  static spawnPlayer(room: ECSGameRoom, playerId: string) {
+    logger.info('&&& Spawning entity', playerId);
+    const eid = this.getPlayerEidByStringId(room, playerId);
 
     if (IsAlive[eid]) {
       logger.warn(`Entity ${eid} is already alive, cannot spawn.`);
@@ -401,12 +403,12 @@ export default class PlayerSystem extends SystemSerializable {
         if (event.type === GameEventType.PlayerJoined) {
           PlayerSystem.createPlayer(this.room, event.playerId!);
         }
-        if (event.type === GameEventType.PlayerSpawn && event.entityId) {
-          PlayerSystem.spawnPlayer(this.room, event.entityId);
+        if (event.type === GameEventType.PlayerSpawn) {
+          PlayerSystem.spawnPlayer(this.room, event.playerId!);
         }
-        if (event.type === GameEventType.PlayerLeft && event.entityId) {
-          removeEntity(this.room.world, event.entityId);
-          this.room.dirtyEntities.add(event.entityId);
+        if (event.type === GameEventType.PlayerLeft) {
+          removeEntity(this.room.world, event.entityId!);
+          this.room.dirtyEntities.add(event.entityId!);
         }
       }
     }

@@ -55,6 +55,8 @@ export class ECSGameRoom {
   observerSerializeNetwork: () => ArrayBuffer;
   observerDeserializeNetwork: (packet: ArrayBuffer, idMap?: Map<number, number>) => Map<number, number>;
   dirtyEntities: Set<number>;
+  localPlayerEid: number;
+  localPlayerId: string;
 
   constructor(
     bus: GameEventBus,
@@ -131,7 +133,7 @@ export class ECSGameRoom {
     logger.debug('event at tick', event.tick, 'of type ', GameEventType[event.type]);
     // Event at tick T is consumed during the update that transitions T-1 → T.
     const resimTick = event.tick;
-    if (resimTick <= this.tick) {
+    if (resimTick < this.tick) {
       logger.debug('=> ');
       this.pendingResimTick = this.pendingResimTick === null ? resimTick : Math.min(this.pendingResimTick, resimTick);
     }

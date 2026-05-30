@@ -1,10 +1,12 @@
 import { ClientChannel, geckos } from '@geckos.io/client';
 import { eventGetter, inputGetter, System } from '../../../shared/ECSSystem';
-import { Logger, RoomLogger } from '../../../shared/otel/Logger';
+import { RoomLogger } from '../../../shared/otel/Logger';
 import { ConnectionError, Data } from '@geckos.io/common/lib/types';
 import { decodeMessage, MSG_INIT_STATE, MSG_SYNC_STATE } from '../../../shared/NetworkProtocol';
 import { ECSGameRoom } from '../../../shared/ECSGameRoom';
 import PlayerSystem from '../../../shared/systems/ECSPlayerSystem';
+import { PlayerInput } from '../../../shared/PlayerInput';
+import { GameEvent, GameEventType } from '../../../shared/GameEvent';
 
 export const logger = new RoomLogger('ClientNetworkSystem');
 
@@ -12,11 +14,9 @@ export class ClientNetworkSystem extends System {
   readonly key = 'client-network';
   private static readonly RTT_SMOOTHING_ALPHA = 0.2;
 
-  private channel: ClientChannel;
+  channel: ClientChannel;
   private smoothedOneWayTime: number = 0;
   private room: ECSGameRoom;
-  clientPlayerEid: number;
-  clientPlayerId: string;
 
   constructor() {
     super();
@@ -85,8 +85,10 @@ export class ClientNetworkSystem extends System {
     this.room.initFromSnapshot(tick, snapshot);
     this.room.gameClock.tick = tick;
 
-    this.clientPlayerEid = PlayerSystem.getPlayerEidByStringId(this.room, this.channel.id!);
-    this.clientPlayerId = this.channel.id!;
+    this.room.localPlayerEid = PlayerSystem.getPlayerEidByStringId(this.room, this.channel.id!);
+    this.room.localPlayerId = this.channel.id!;
+
+    logger.warn(this.room.tick, 'Player ready — eid:', this.room.localPlayerEid, 'id:', this.room.localPlayerId);
   }
 
   private onPong(data: Data) {
@@ -109,7 +111,40 @@ export class ClientNetworkSystem extends System {
     this.channel.emit('request_init');
   }
 
-  sendInput(obj: any): void {}
+  /** Queue an input locally for client prediction and relay it to the server. */
+  sendInput(obj: { tick: number; turn?: 'left' | 'right'; break?: boolean }): void {
+    if (!this.room?.localPlayerId) return;
+
+    const playerInput: PlayerInput = {
+      tick: obj.tick,
+      playerId: this.room.localPlayerId,
+      turn: obj.turn,
+      break: obj.break ?? false,
+    };
+
+    // Add locally so client-side prediction processes the turn
+    //this.room.addInput(playerInput);
+
+    // Relay to the server for authoritative processing
+    this.channel.emit('client_turn', [{ tick: obj.tick, turn: obj.turn }]);
+
+    logger.warn('SENT turn:', obj.turn, 'at tick:', obj.tick);
+  }
+
+  sendRespawn(): void {
+    if (!this.room?.localPlayerId) return;
+
+    const playerRespawn: GameEvent = {
+      tick: this.room.tick,
+      playerId: this.room.localPlayerId,
+      type: GameEventType.PlayerSpawn,
+    };
+
+    // Relay to the server for authoritative processing
+    this.channel.emit('respawn', [playerRespawn]);
+
+    logger.warn('SENT respawn:', playerRespawn.tick);
+  }
 
   update(getInput: inputGetter, getEvents: eventGetter): void {
     return;

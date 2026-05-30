@@ -12,6 +12,7 @@ import { ECSGameRoom } from '../shared/ECSGameRoom';
 import PlayerSystem from '../shared/systems/ECSPlayerSystem';
 import BotSystem from './BotSystem';
 import { ServerNetworkSystem } from './systems/ServerNetworkSystem';
+import { ChatSystem } from './systems/ChatSystem';
 
 const logger = new Logger('Server');
 const tracer = trace.getTracer('tron-zero-server');
@@ -41,12 +42,14 @@ const playerSystem = new PlayerSystem();
 const areaSystem = new ECSGameAreaSystem();
 const botSystem = new BotSystem();
 const networkServerSystem = new ServerNetworkSystem(io);
+const chatSystem = new ChatSystem(io);
 
 const ecsRoom = new ECSGameRoom(new GameEventBus(), gameClock, [
   areaSystem,
   playerSystem,
   botSystem,
   networkServerSystem,
+  chatSystem,
 ]);
 
 botSystem.setInputBuffer(ecsRoom.playerInputBuffer);

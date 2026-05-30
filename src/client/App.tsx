@@ -1,6 +1,7 @@
 import { PhaserGame } from './PhaserGame';
 import DebugConsole from './components/DebugConsole';
 import FpsCounter from './components/FpsCounter';
+import Chat from './components/Chat';
 
 const App = () => {
     return (
@@ -8,6 +9,7 @@ const App = () => {
             <PhaserGame />
             <DebugConsole />
             <FpsCounter />
+            <Chat />
             <div style={{
                 position: 'absolute',
                 bottom: '10px',

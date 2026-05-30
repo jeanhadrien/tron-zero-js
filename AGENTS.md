@@ -1,5 +1,5 @@
 ## Tech Stack
-- **Phaser 3** + **SolidJS** + **TypeScript** + **Vite** (Frontend)
+- **Phaser 3** + **SolidJS** + **TypeScript** + **Vite** + **geckos.io** (Frontend)
 - **Bun** + **Express** + **geckos.io** (Backend)
 
 ## Navigating this project
@@ -9,6 +9,31 @@ You're either working for the client (src/client/*), or the server (src/server/*
 ## Documentation
 
 Always read the relevant .md files in ./docs about netcode, game rules, ecs...
+
+## Developing
+
+The project is currently in prototyping phase and needs to move forward. Feel free to consider big architecture changes. Never try to keep backwards compatibility.
+
+## Coding guidelines
+
+Prefer high-level and meaningful system and function names. Always leave a little comment for functions you create with the intended usage. 
+
+## Simulation mental model
+
+- Tick is "next to process": The simulation tick counter points to the tick that has NOT run yet. Inputs and events queued for this tick will be consumed in the next `tick → tick+1` transition. This is why it's safe to add inputs for the current value of `room.tick`.
+
+- Fixed timestep with rollback: Each frame, the clock accumulates real time and determines how many fixed ticks to simulate. After all ticks run, the world state is snapshotted into a ring buffer. When a late input arrives (network delay or queued keypress), the simulation rewinds to the input's tick, replays from there forward using the stored snapshots, and then continues normally.
+
+- Inputs are queued : Inputs are stored indexed by tick and player. During simulation, each tick pulls up any queued input for that player. No input = no turn; queued input = turn gets applied. Both client (prediction) and server (authority) use the same buffer mechanics.
+
+- System execution order is linear: ECS systems run in array order each tick. A system that creates entities must run before a system that reads them. A system that sends network state runs last so it captures the fully computed tick.
+
+- Events are same-tick, non-consuming: Events fire for the current tick, are visible to ALL systems in that tick's iteration, and are not removed after being read.
+
+- Client must mirror two IDs: The local player has both a string ID (represents the human) and an entity ID (tied to simulation engine). 
+
+- Replay overwrites, doesn't append: When replaying a tick that already has a snapshot, the new state replaces the old one. The history for a tick is always the most recent simulation result for that tick.
+
 
 <!-- CODEGRAPH_START -->
 ## CodeGraph

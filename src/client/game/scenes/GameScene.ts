@@ -14,6 +14,7 @@ import { ECSGameRoom } from '../../../shared/ECSGameRoom';
 import GameArea, { ECSGameAreaSystem } from '../../../shared/systems/ECSGameArea';
 import { ClientNetworkSystem } from '../systems/ClientNetworkSystem';
 import { PlayerRenderSystem } from '../systems/PlayerRenderSystem';
+import { ChatClientSystem } from '../systems/ChatClientSystem';
 
 const logger = new Logger('Game');
 const tracer = trace.getTracer('tron-zero-client');
@@ -45,6 +46,7 @@ export class GameScene extends Scene {
 
   renderSystem: PlayerRenderSystem;
   networkClient: ClientNetworkSystem;
+  chatSystem: ChatClientSystem;
 
   constructor() {
     super('Game');
@@ -61,12 +63,14 @@ export class GameScene extends Scene {
 
     this.networkClient = new ClientNetworkSystem();
     this.renderSystem = new PlayerRenderSystem(this);
+    this.chatSystem = new ChatClientSystem(this.networkClient.channel);
 
     this.room = new ECSGameRoom(new GameEventBus(), this.gameClock, [
       new ECSGameAreaSystem(),
       new PlayerSystem(),
       this.networkClient,
       this.renderSystem,
+      this.chatSystem,
     ]);
 
     this.gameAreaRenderer = new GameAreaRenderer(this, this.gameArea);
@@ -113,6 +117,10 @@ export class GameScene extends Scene {
       .setDepth(1000)
       .setVisible(false);
 
+    EventBus.on('chat-send', (text: string) => {
+      this.chatSystem.sendMessage(text);
+    });
+
     EventBus.on('game-start', () => {
       logger.info('game-start');
       this.audioManager.resume();
@@ -150,6 +158,8 @@ export class GameScene extends Scene {
               break: false,
             });
             this._pendingTurnCount++;
+          } else {
+            logger.warn('Key ignored — humanEid is', this.humanEid);
           }
         }
       });
@@ -224,8 +234,8 @@ export class GameScene extends Scene {
 
     this._pendingTurnCount = 0;
 
-    if (this.humanEid < 0) {
-      this.humanEid = this.networkClient.clientPlayerEid;
+    if (this.room.localPlayerEid) {
+      this.humanEid = this.room.localPlayerEid;
     }
 
     this.renderSystem.localPlayerEid = this.humanEid;

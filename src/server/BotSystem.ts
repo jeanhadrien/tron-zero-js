@@ -122,7 +122,7 @@ export default class BotSystem extends System {
 
     for (const eid of this.botEids) {
       if (!IsAlive[eid]) {
-        this.room.addEvent({ type: GameEventType.PlayerSpawn, tick: this.room.tick + 1, entityId: eid });
+        this.room.addEvent({ type: GameEventType.PlayerSpawn, tick: this.room.tick + 1, playerId: PlayerId[eid] });
         continue;
       }
 
