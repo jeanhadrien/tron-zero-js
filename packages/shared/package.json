@@ -1,0 +1,20 @@
+{
+  "name": "@tron0/shared",
+  "version": "1.0.0",
+  "type": "module",
+  "peerDependencies": {
+    "bitecs": "^0.4.0"
+  },
+  "dependencies": {
+    "@opentelemetry/api-logs": "^0.217.0",
+    "eventemitter3": "^5.0.1"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "typescript": "5.7.2",
+    "vitest": "^4.1.4"
+  }
+}

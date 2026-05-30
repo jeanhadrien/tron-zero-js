@@ -1,10 +1,22 @@
 ## Tech Stack
 - **Phaser 3** + **SolidJS** + **TypeScript** + **Vite** + **geckos.io** (Frontend)
 - **Bun** + **Express** + **geckos.io** (Backend)
+- **Bun workspaces** monorepo under `packages/*`
+
+## Project Structure
+
+```
+packages/
+  shared/         @tron0/shared — Shared libraries - ECS rooms, game logic, types, networking protocol
+  client/         @tron0/client — What the player sees - Phaser + SolidJS frontend (Vite)
+  server/         @tron0/server — Game server - Express + geckos.io game server (Bun)
+  server-manager/ @tron0/server-manager — How servers are registered and exposed to clients - Express lobby/matchmaking server (Bun)
+```
+
 
 ## Navigating this project
 
-You're either working for the client (src/client/*), or the server (src/server/*). Both share common classes (src/shared/*). Limit the scope of your access to the side you are working on. If you are working for the client, do not read files from the server. If you are working for the server, do not read files from the client. If you need cross information, you must ask the user for permission.
+You're either working for the **client** (`packages/client/*`), the **server** (`packages/server/*`), or the **server-manager** (`packages/server-manager/*`). All share common code from `packages/shared/*` imported via `@tron0/shared/*`. Limit the scope of your access to the side you are working on. If you are working for the client, do not read files from the server. If you are working for the server, do not read files from the client. If you need cross information, you must ask the user for permission.
 
 ## Documentation
 
@@ -36,6 +48,33 @@ Prefer high-level and meaningful system and function names. Always leave a littl
 
 - Replay overwrites, doesn't append: When replaying a tick that already has a snapshot, the new state replaces the old one. The history for a tick is always the most recent simulation result for that tick.
 
+
+### Dependency hierarchy
+
+```
+@tron0/shared  ←  no workspace deps (peer: bitecs, dep: eventemitter3, otel)
+@tron0/client  depends on  @tron0/shared (workspace:*)
+@tron0/server  depends on  @tron0/shared (workspace:*)
+@tron0/server-manager  depends on  @tron0/shared (workspace:*)
+```
+
+All cross-package imports use the `@tron0/shared/*` path mapping (e.g. `import { Logger } from '@tron0/shared/Logger'`). Resolved via `paths` in each package's `tsconfig.json`.
+
+
+### Testing
+
+Only run these commands to check your code.
+
+```sh
+# From root — uses concurrently
+bun run build            # build client (Vite)
+bun run test             # run tests (vitest)
+bun run typecheck        # type-check all packages
+
+# Or directly:
+bun --cwd packages/shared test
+bun --cwd packages/shared typecheck
+```
 
 <!-- CODEGRAPH_START -->
 ## CodeGraph

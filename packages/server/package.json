@@ -1,0 +1,33 @@
+{
+  "name": "@tron0/server",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "dev": "bun --inspect=localhost:9229 --watch index.ts",
+    "start": "bun index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "@geckos.io/server": "^3.1.0",
+    "@opentelemetry/api": "^1.9.1",
+    "@opentelemetry/api-logs": "^0.217.0",
+    "@opentelemetry/exporter-logs-otlp-proto": "^0.217.0",
+    "@opentelemetry/exporter-trace-otlp-proto": "^0.217.0",
+    "@opentelemetry/resources": "^2.7.1",
+    "@opentelemetry/sdk-logs": "^0.217.0",
+    "@opentelemetry/sdk-trace-base": "^2.7.1",
+    "@opentelemetry/semantic-conventions": "^1.40.0",
+    "@tron0/shared": "workspace:*",
+    "bitecs": "^0.4.0",
+    "cors": "^2.8.6",
+    "express": "^5.2.1",
+    "jsdom": "^29.0.2",
+    "jsdom-worker": "^0.3.0"
+  },
+  "devDependencies": {
+    "@types/cors": "^2.8.19",
+    "@types/express": "^5.0.6",
+    "@types/jsdom": "^28.0.1",
+    "typescript": "5.7.2"
+  }
+}
