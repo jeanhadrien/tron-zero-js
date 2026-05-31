@@ -22,6 +22,7 @@ export class ClientNetworkSystem extends System {
   private _pingInterval: number | null = null;
   private _host: string = '';
   private _port: number = 0;
+  oneWayTime: number = 0;
 
   constructor() {
     super();
@@ -107,13 +108,18 @@ export class ClientNetworkSystem extends System {
   private _onSyncState(tick: number, data: ArrayBuffer, struct: ArrayBuffer) {
     logger.debug('Received sync state');
 
-    if (this.smoothedOneWayTime) {
-      const targetOffsetTicks = Math.ceil(this.smoothedOneWayTime / this.room.gameClock.referenceTickTimeMs);
-      const targetTick = tick + targetOffsetTicks;
-      const tickError = targetTick - this.room.tick;
-      const GAIN = 0.5;
-      this.room.gameClock.tickTimeMs = this.room.gameClock.referenceTickTimeMs - tickError * GAIN;
-    }
+    // Clock-sync: adjust client tickTimeMs so clientTick converges to serverTick + pingTicks + 1
+    const targetOffsetTicks = Math.ceil(this.oneWayTime / this.room.gameClock.referenceTickTimeMs);
+    const tickError = tick + targetOffsetTicks - this.room.tick + 1;
+    const GAIN = 0.1;
+    const MAX_SPEEDUP = 0.25; // scale floor = 0.75 (client runs at most 33% faster)
+    const MAX_SLOWDOWN = 0.25; // scale ceiling = 1.25 (client runs at most 20% slower)
+    // Positive tickError = client is behind → speed up  (correction > 0 → scale < 1)
+    // Negative tickError = client is ahead  → slow down (correction < 0 → scale > 1)
+    const correction = GAIN * tickError;
+    const clamped = Math.max(-MAX_SLOWDOWN, Math.min(MAX_SPEEDUP, correction));
+    const scale = 1 - clamped;
+    this.room.gameClock.tickTimeMs = this.room.gameClock.referenceTickTimeMs * scale;
 
     this.room.addNetworkDiffPayload({
       tick,
@@ -132,21 +138,21 @@ export class ClientNetworkSystem extends System {
     this.room.localPlayerEid = PlayerSystem.getPlayerEidByStringId(this.room, this.sessionToken);
     this.room.localPlayerId = this.sessionToken;
 
+    //this.room.gameClock.tickTimeMs = this.room.gameClock.referenceTickTimeMs;
+
     logger.warn(this.room.tick, 'Player ready — eid:', this.room.localPlayerEid);
   }
 
   private _onPong(data: Data) {
     const oldTime = data as number;
     const pingDifferenceTime = performance.now() - oldTime;
-    const oneWayTime = pingDifferenceTime / 2;
+    this.oneWayTime = pingDifferenceTime / 2;
 
-    this.smoothedOneWayTime =
-      this.smoothedOneWayTime === 0
-        ? oneWayTime
-        : this.smoothedOneWayTime * (1 - ClientNetworkSystem.RTT_SMOOTHING_ALPHA) +
-          oneWayTime * ClientNetworkSystem.RTT_SMOOTHING_ALPHA;
-
-    logger.warn(this.room.tick, 'pong', `RTT: ${pingDifferenceTime.toFixed(2)}ms, One-way: ${oneWayTime.toFixed(2)}ms`);
+    logger.warn(
+      this.room.tick,
+      'pong',
+      `RTT: ${pingDifferenceTime.toFixed(2)}ms, One-way: ${this.oneWayTime.toFixed(2)}ms`
+    );
   }
 
   requestInitState(): void {

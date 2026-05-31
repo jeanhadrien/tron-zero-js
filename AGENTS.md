@@ -13,7 +13,6 @@ packages/
   server-manager/ @tron0/server-manager — How servers are registered and exposed to clients - Express lobby/matchmaking server (Bun)
 ```
 
-
 ## Navigating this project
 
 You're either working for the **client** (`packages/client/*`), the **server** (`packages/server/*`), or the **server-manager** (`packages/server-manager/*`). All share common code from `packages/shared/*` imported via `@tron0/shared/*`. Limit the scope of your access to the side you are working on. If you are working for the client, do not read files from the server. If you are working for the server, do not read files from the client. If you need cross information, you must ask the user for permission.
@@ -21,6 +20,12 @@ You're either working for the **client** (`packages/client/*`), the **server** (
 ## Documentation
 
 Always read the relevant .md files in ./docs about netcode, game rules, ecs...
+
+## User
+
+The user is a human developer with a computer science background. They are knowledgeable in your average programming concepts. Adapt your tone to be easy to talk to, prioritizing going to the point and expanding when needed.
+
+Do not dumb down or oversimplify any concepts. When needed, discuss the actual theoretical ideas in their full depth and precision, using proper technical terminology. Avoid analogies, metaphors, or comparisons unless explicitly requested. Speak to me at the real conceptual level, not a simplified version.
 
 ## Developing
 

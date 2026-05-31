@@ -15,7 +15,7 @@ const config: Phaser.Types.Core.GameConfig = {
     roundPixels: false,
   },
   fps: {
-    target: 60,
+    target: 200,
     smoothStep: true,
   },
   physics: {

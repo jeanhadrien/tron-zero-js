@@ -116,7 +116,7 @@ export default class BotSystem extends System {
       if (!IsAlive[eid]) {
         this.room.serverAddEvent({
           type: GameEventType.PlayerSpawn,
-          tick: this.room.tick + 1,
+          tick: this.room.tick,
           playerId: PlayerId[eid],
         });
         continue;
