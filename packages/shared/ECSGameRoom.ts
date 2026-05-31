@@ -120,6 +120,10 @@ export class ECSGameRoom {
   }
 
   serverAddEvent(event: GameEvent): void {
+    if (event.tick < this.tick) {
+      logger.error('ignoring event', event);
+      return;
+    }
     this.gameEventBuffer.record(event.tick, event);
     logger.debug('event at tick', event.tick, 'of type ', GameEventType[event.type]);
     // Event at tick T is consumed during the update that transitions T-1 → T.
@@ -130,11 +134,15 @@ export class ECSGameRoom {
   }
 
   serverAddInput(input: PlayerInput): void {
+    if (input.tick < this.tick) {
+      logger.error('ignoring input', input);
+      return;
+    }
     this.playerInputBuffer.record(input.tick, input.playerId, input);
     logger.debug('input at tick', input.tick, 'for player', input.playerId, input.turn, input.break);
     const eid = PlayerSystem.getPlayerEidByStringId(this, input.playerId);
     if (!eid) {
-      logger.warn('No player for input', eid);
+      logger.error('No player for input', eid);
       return;
     }
     PingInTicks[eid] = Math.max(0, this.tick - input.tick);
@@ -184,6 +192,14 @@ export class ECSGameRoom {
       logger.info('replaying from', this.pendingResimTick);
       this.replayFrom(this.pendingResimTick);
       this.pendingResimTick = null;
+    }
+
+    // Also load the diff for current tick
+    const diff = this.networkDiffTickRingBuffer.get(this.tick, 'network');
+    if (diff) {
+      logger.info('loading remote network auth diff');
+      this.soaDeserialize(diff.data);
+      this.observerDeserializeNetwork(diff.struct, new Map());
     }
 
     const ticksToProcess = this.gameClock.update(deltaTime);

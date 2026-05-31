@@ -21,6 +21,8 @@ const MainMenu = () => {
     const onConnectionState = (state: string) => {
       if (state === 'connected') {
         setShow(false);
+      } else if (state === 'disconnected' && document.visibilityState === 'visible') {
+        setShow(true);
       }
     };
     EventBus.on('connection-state', onConnectionState);

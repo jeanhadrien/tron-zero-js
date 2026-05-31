@@ -71,7 +71,9 @@ export class ServerChatSystem extends System {
         try {
           const eid = PlayerSystem.getPlayerEidByStringId(this.room, playerId);
           color = Color[eid];
-        } catch { /* player entity may not exist yet */ }
+        } catch {
+          /* player entity may not exist yet */
+        }
 
         const message: ChatMessage = {
           tick: this.room.tick,

@@ -130,10 +130,14 @@ export class GameScene extends Scene {
       this.chatSystem.sendMessage(text);
     });
 
-    EventBus.on('menu-open', () => { this.menuOpen = true; });
-    EventBus.on('menu-closed', () => { this.menuOpen = false; });
+    EventBus.on('menu-open', () => {
+      this.menuOpen = true;
+    });
+    EventBus.on('menu-closed', () => {
+      this.menuOpen = false;
+    });
     EventBus.on('connection-state', (state: string) => {
-      this.isConnected = (state === 'connected');
+      this.isConnected = state === 'connected';
     });
 
     const onGameResume = () => {

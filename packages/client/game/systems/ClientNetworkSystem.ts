@@ -13,6 +13,7 @@ export class ClientNetworkSystem extends System {
   readonly key = 'client-network';
   private static readonly RTT_SMOOTHING_ALPHA = 0.2;
   private static readonly SESSION_KEY = 'tronzero_session';
+  private static readonly HEARTBEAT_TIMEOUT_MS = 3000;
 
   channel: ClientChannel;
   readonly sessionToken: string;
@@ -20,6 +21,7 @@ export class ClientNetworkSystem extends System {
   private room: ECSGameRoom;
   private _connected: boolean = false;
   private _pingInterval: number | null = null;
+  private _heartbeatTimeout: number | null = null;
   private _host: string = '';
   private _port: number = 0;
   oneWayTime: number = 0;
@@ -56,6 +58,7 @@ export class ClientNetworkSystem extends System {
   /** Connect to a game server at the given host and port. Creates a new channel and starts signaling. */
   connect(host: string, port: number): void {
     if (this._connected) return;
+    this._clearHeartbeat();
     this._host = host;
     this._port = port;
     this.channel = this._createChannel();
@@ -86,11 +89,36 @@ export class ClientNetworkSystem extends System {
     }
   }
 
+  private _resetHeartbeat(): void {
+    this._clearHeartbeat();
+    if (this._connected) {
+      this._heartbeatTimeout = window.setTimeout(
+        () => this._handleHeartbeatLoss(),
+        ClientNetworkSystem.HEARTBEAT_TIMEOUT_MS
+      );
+    }
+  }
+
+  private _clearHeartbeat(): void {
+    if (this._heartbeatTimeout !== null) {
+      clearTimeout(this._heartbeatTimeout);
+      this._heartbeatTimeout = null;
+    }
+  }
+
+  private _handleHeartbeatLoss(): void {
+    if (!this._connected) return;
+    logger.warn('Server heartbeat timeout — forcing disconnect');
+    this.channel.close();
+    this._onDisconnect();
+  }
+
   isConnected(): boolean {
     return this._connected;
   }
 
   private _onRaw(data: Data) {
+    this._resetHeartbeat();
     const msg = decodeMessage(data as ArrayBuffer);
 
     switch (msg.type) {
@@ -106,20 +134,7 @@ export class ClientNetworkSystem extends System {
   }
 
   private _onSyncState(tick: number, data: ArrayBuffer, struct: ArrayBuffer) {
-    logger.debug('Received sync state');
-
-    // Clock-sync: adjust client tickTimeMs so clientTick converges to serverTick + pingTicks + 1
-    const targetOffsetTicks = Math.ceil(this.oneWayTime / this.room.gameClock.referenceTickTimeMs);
-    const tickError = tick + targetOffsetTicks - this.room.tick + 1;
-    const GAIN = 0.1;
-    const MAX_SPEEDUP = 0.25; // scale floor = 0.75 (client runs at most 33% faster)
-    const MAX_SLOWDOWN = 0.25; // scale ceiling = 1.25 (client runs at most 20% slower)
-    // Positive tickError = client is behind → speed up  (correction > 0 → scale < 1)
-    // Negative tickError = client is ahead  → slow down (correction < 0 → scale > 1)
-    const correction = GAIN * tickError;
-    const clamped = Math.max(-MAX_SLOWDOWN, Math.min(MAX_SPEEDUP, correction));
-    const scale = 1 - clamped;
-    this.room.gameClock.tickTimeMs = this.room.gameClock.referenceTickTimeMs * scale;
+    logger.warn('Received sync state for', tick);
 
     this.room.addNetworkDiffPayload({
       tick,
@@ -129,7 +144,7 @@ export class ClientNetworkSystem extends System {
   }
 
   private _onInitState(tick: number, snapshot: ArrayBuffer) {
-    logger.info('Received init state');
+    logger.warn('Received init state');
 
     this.room.initFromSnapshot(tick, snapshot);
     this.room.gameClock.tick = tick;
@@ -140,18 +155,33 @@ export class ClientNetworkSystem extends System {
 
     //this.room.gameClock.tickTimeMs = this.room.gameClock.referenceTickTimeMs;
 
-    logger.warn(this.room.tick, 'Player ready — eid:', this.room.localPlayerEid);
+    logger.warn(this.room.gameClock.tick, 'Player ready — eid:', this.room.localPlayerEid);
   }
 
   private _onPong(data: Data) {
-    const oldTime = data as number;
-    const pingDifferenceTime = performance.now() - oldTime;
+    this._resetHeartbeat();
+    const { clientTime, serverTick } = data as { clientTime: number; serverTick: number };
+    const pingDifferenceTime = performance.now() - clientTime;
     this.oneWayTime = pingDifferenceTime / 2;
+
+    // Clock-sync: adjust client tickTimeMs so clientTick converges to serverTick
+    const targetOffsetTicks = Math.ceil(this.oneWayTime / this.room.gameClock.referenceTickTimeMs);
+    const tickError = serverTick + targetOffsetTicks - this.room.gameClock.tick + 1;
+    const GAIN = 0.1;
+    const MAX_SPEEDUP = 0.1;
+    const MAX_SLOWDOWN = 0.1;
+    const correction = GAIN * tickError;
+    const clamped = Math.max(-MAX_SLOWDOWN, Math.min(MAX_SPEEDUP, correction));
+    const scale = 1 - clamped;
+    this.room.gameClock.tickTimeMs = this.room.gameClock.referenceTickTimeMs * scale;
 
     logger.warn(
       this.room.tick,
       'pong',
-      `RTT: ${pingDifferenceTime.toFixed(2)}ms, One-way: ${this.oneWayTime.toFixed(2)}ms`
+      'tick difference:',
+      serverTick - this.room.gameClock.tick,
+
+      `RTT: ${pingDifferenceTime.toFixed(2)}ms, One-way: ${this.oneWayTime.toFixed(2)}ms, TickError: ${tickError.toFixed(1)}, Scale: ${scale.toFixed(3)}`
     );
   }
 
@@ -178,6 +208,7 @@ export class ClientNetworkSystem extends System {
     if (!this._host || !this._port) return;
     logger.info('Reconnecting...');
     this._connected = false;
+    this._clearHeartbeat();
     this._stopPingInterval();
     this.channel.close();
     this.channel = this._createChannel();
@@ -193,10 +224,12 @@ export class ClientNetworkSystem extends System {
     if (error) {
       logger.error('Connection failed:', error.message);
       this._connected = false;
+      this._clearHeartbeat();
       return;
     }
 
     this._connected = true;
+    this._resetHeartbeat();
     logger.info('Connected to server with ID:', this.channel.id);
     EventBus.emit('connection-state', 'connected');
 
@@ -206,7 +239,10 @@ export class ClientNetworkSystem extends System {
   }
 
   private _onDisconnect(): void {
+    if (!this._connected) return;
     this._connected = false;
+    this._clearHeartbeat();
+    this._stopPingInterval();
     logger.warn('Disconnected from server');
     EventBus.emit('connection-state', 'disconnected');
   }
