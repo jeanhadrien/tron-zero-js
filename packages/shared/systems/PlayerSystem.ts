@@ -349,7 +349,7 @@ export default class PlayerSystem extends SystemSerializable {
     IsSliding[eid] = 0;
     IsColliding[eid] = 0;
 
-    _setSpeedAndVelocity(eid, 1, room.tickTimeMs);
+    _setSpeedAndVelocity(eid, 1, room.clock.tickTimeMs);
 
     // Single initial trail point at spawn location
 
@@ -435,7 +435,7 @@ export default class PlayerSystem extends SystemSerializable {
       const playerId = PlayerId[eid];
       const input = getInput?.(playerId);
       if (input?.turn) {
-        executeTurn(this.room, eid, input.turn, this.room.tickTimeMs);
+        executeTurn(this.room, eid, input.turn, this.room.clock.tickTimeMs);
       }
 
       // Build detection rays
@@ -465,7 +465,7 @@ export default class PlayerSystem extends SystemSerializable {
         IsColliding[eid] = 1;
 
         const speedRatio = (distFront * distFront) / (SLOW_DOWN_DISTANCE * SLOW_DOWN_DISTANCE);
-        _setSpeedAndVelocity(eid, TargetSpeedMult[eid] * speedRatio, this.room.tickTimeMs);
+        _setSpeedAndVelocity(eid, TargetSpeedMult[eid] * speedRatio, this.room.clock.tickTimeMs);
 
         // Drain rubber — faster at higher speeds
         Rubber[eid] -= DELTA_STUFF * 0.03 * (2 + TargetSpeedMult[eid]) ** 2;
@@ -475,7 +475,7 @@ export default class PlayerSystem extends SystemSerializable {
           Rubber[eid] += 0.006 * DELTA_STUFF;
         }
         // Restore normal speed
-        _setSpeedAndVelocity(eid, TargetSpeedMult[eid], this.room.tickTimeMs);
+        _setSpeedAndVelocity(eid, TargetSpeedMult[eid], this.room.clock.tickTimeMs);
       }
 
       // ─── Slide boost ─────────────────────────────────────────────────────────

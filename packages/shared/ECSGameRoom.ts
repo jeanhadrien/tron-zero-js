@@ -29,7 +29,7 @@ import GameClock from './GameClock';
 const logger = new RoomLogger('GameRoom');
 
 export class ECSGameRoom {
-  gameClock: GameClock;
+  clock: GameClock;
   private networkDiffEmitter = new EventEmitter<string>();
   private pendingResimTick: number | null = null;
   world: World;
@@ -41,8 +41,7 @@ export class ECSGameRoom {
   systems: System[];
   components: object[];
   replaying: boolean;
-  tick: number;
-  tickTimeMs: number;
+  tick: number = 0;
   snapshotBuffer: WorldStateTickRingBuffer;
   snapshotSerialize: (selectedEntities?: readonly number[]) => ArrayBuffer;
   snapshotDeserialize: (packet: ArrayBuffer, idMapOverride?: Map<number, number>) => Map<number, number>;
@@ -57,9 +56,7 @@ export class ECSGameRoom {
 
   constructor(clock: GameClock, systems: System[] = [], onDeltas?: (deltas: NetworkDiffPayload[]) => void) {
     if (onDeltas) this.networkDiffEmitter.on('diff', onDeltas);
-    this.tick = clock.tick;
-    this.tickTimeMs = clock.tickTimeMs;
-    this.gameClock = clock;
+    this.clock = clock;
     this.dirtyEntities = new Set<number>();
     this.channelPlayerIds = new Map();
     this.systems = systems;
@@ -202,7 +199,7 @@ export class ECSGameRoom {
       this.observerDeserializeNetwork(diff.struct, new Map());
     }
 
-    const ticksToProcess = this.gameClock.update(deltaTime);
+    const ticksToProcess = this.clock.update(deltaTime);
     for (let index = 0; index < ticksToProcess; index++) {
       this.update();
       this.worldBuffer.record(this.tick, this.snapshotSerialize());

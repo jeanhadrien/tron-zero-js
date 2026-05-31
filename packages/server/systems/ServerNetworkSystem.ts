@@ -78,7 +78,7 @@ export class ServerNetworkSystem extends System {
     });
 
     channel.on('ping', (clientTime: Data) => {
-      channel.emit('pong', clientTime);
+      channel.emit('pong', { clientTime, serverTick: this.room.tick });
     });
 
     channel.on('client_turn', this._onClientTurn(channel));
@@ -130,6 +130,8 @@ export class ServerNetworkSystem extends System {
 
       const inputs: { tick: number; turn: 'left' | 'right' }[] = Array.isArray(data) ? data : [data];
       for (const input of inputs) {
+        logger.warn('received input from client, diff', input.tick - this.room.tick);
+
         this.room.serverAddInput({
           turn: input.turn,
           playerId: sessionToken,

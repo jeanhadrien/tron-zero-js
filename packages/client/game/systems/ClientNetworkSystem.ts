@@ -22,6 +22,7 @@ export class ClientNetworkSystem extends System {
   private _connected: boolean = false;
   private _pingInterval: number | null = null;
   private _heartbeatTimeout: number | null = null;
+  private _initialized = false;
   private _host: string = '';
   private _port: number = 0;
   oneWayTime: number = 0;
@@ -79,7 +80,7 @@ export class ClientNetworkSystem extends System {
       if (this._connected) {
         this.channel.emit('ping', performance.now());
       }
-    }, 3000);
+    }, 500);
   }
 
   private _stopPingInterval(): void {
@@ -145,49 +146,47 @@ export class ClientNetworkSystem extends System {
 
   private _onInitState(tick: number, snapshot: ArrayBuffer) {
     logger.warn('Received init state');
+    this._initialized = true;
 
     this.room.initFromSnapshot(tick, snapshot);
-    this.room.gameClock.tick = tick;
+    this.room.tick = tick;
 
     // Use sessionToken (not channel.id) — survives reconnection
     this.room.localPlayerEid = PlayerSystem.getPlayerEidByStringId(this.room, this.sessionToken);
     this.room.localPlayerId = this.sessionToken;
 
-    //this.room.gameClock.tickTimeMs = this.room.gameClock.referenceTickTimeMs;
+    this.room.clock.tickTimeMs = this.room.clock.referenceTickTimeMs;
 
-    logger.warn(this.room.gameClock.tick, 'Player ready — eid:', this.room.localPlayerEid);
+    logger.warn(this.room.tick, 'Player ready — eid:', this.room.localPlayerEid);
   }
 
   private _onPong(data: Data) {
     this._resetHeartbeat();
+    if (!this._initialized) return;
+
     const { clientTime, serverTick } = data as { clientTime: number; serverTick: number };
     const pingDifferenceTime = performance.now() - clientTime;
     this.oneWayTime = pingDifferenceTime / 2;
 
-    // Clock-sync: adjust client tickTimeMs so clientTick converges to serverTick
-    const targetOffsetTicks = Math.ceil(this.oneWayTime / this.room.gameClock.referenceTickTimeMs);
-    const tickError = serverTick + targetOffsetTicks - this.room.gameClock.tick + 1;
-    const GAIN = 0.1;
-    const MAX_SPEEDUP = 0.1;
-    const MAX_SLOWDOWN = 0.1;
-    const correction = GAIN * tickError;
-    const clamped = Math.max(-MAX_SLOWDOWN, Math.min(MAX_SPEEDUP, correction));
-    const scale = 1 - clamped;
-    this.room.gameClock.tickTimeMs = this.room.gameClock.referenceTickTimeMs * scale;
+    const ref = this.room.clock.referenceTickTimeMs;
+    const targetTick = serverTick + this.oneWayTime / ref + 1;
+    const tickError = targetTick - this.room.tick;
+
+    const gain = 0.1;
+    const scale = Math.max(0.95, Math.min(1.05, 1.0 - tickError * gain));
+
+    this.room.clock.tickTimeMs = ref * scale;
 
     logger.warn(
-      this.room.tick,
-      'pong',
       'tick difference:',
-      serverTick - this.room.gameClock.tick,
-
+      serverTick - this.room.tick,
       `RTT: ${pingDifferenceTime.toFixed(2)}ms, One-way: ${this.oneWayTime.toFixed(2)}ms, TickError: ${tickError.toFixed(1)}, Scale: ${scale.toFixed(3)}`
     );
   }
 
   requestInitState(): void {
     logger.info('Requesting init state from server');
-    this.room.gameClock.resetAccumulator();
+    this.room.clock.resetAccumulator();
     this.channel.emit('request_init');
   }
 

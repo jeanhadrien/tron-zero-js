@@ -1,13 +1,11 @@
 export default class GameClock {
-  tick: number = 0;
   readonly referenceTickTimeMs: number;
   tickTimeMs: number;
   accumulatorTimeMs: number = 0;
 
-  constructor(tickTimeMs: number = 1000 / 60, startTick: number = 0) {
+  constructor(tickTimeMs: number = 1000 / 60) {
     this.referenceTickTimeMs = tickTimeMs;
     this.tickTimeMs = tickTimeMs;
-    this.tick = startTick;
   }
 
   /**
@@ -16,17 +14,14 @@ export default class GameClock {
    * @returns The number of ticks to process this frame.
    */
   update(deltaTime: number): number {
-    const clampedDelta = Math.min(deltaTime, 250);
-    this.accumulatorTimeMs += clampedDelta;
+    this.accumulatorTimeMs += deltaTime;
     let ticksToProcess = 0;
 
     while (this.accumulatorTimeMs >= this.tickTimeMs) {
       this.accumulatorTimeMs -= this.tickTimeMs;
-      this.tick++;
       ticksToProcess++;
     }
 
-    //console.debug('Ticked at', this.tick, 'for', ticksToProcess);
     return ticksToProcess;
   }
 
@@ -36,14 +31,6 @@ export default class GameClock {
    */
   getAlpha(): number {
     return this.accumulatorTimeMs / this.tickTimeMs;
-  }
-
-  /**
-   * Forces the current tick to a specific value.
-   * Useful when the client needs to resync with the server's tick.
-   */
-  setTick(tick: number) {
-    this.tick = tick;
   }
 
   /**
