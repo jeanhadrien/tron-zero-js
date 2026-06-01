@@ -1,4 +1,4 @@
-import { EventBus } from '../EventBus';
+import { EventBus } from '../managers/EventBus';
 
 export default class DebugHud {
   scene: Phaser.Scene;

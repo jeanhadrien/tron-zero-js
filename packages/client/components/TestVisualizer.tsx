@@ -1,5 +1,5 @@
 import { createSignal, onMount, onCleanup } from 'solid-js';
-import { EventBus } from '../game/EventBus';
+import { EventBus } from '../game/managers/EventBus';
 import StartVisualizer from '../game/visualizer';
 import { SCENARIO_REGISTRY } from '@tron0/shared/testing';
 

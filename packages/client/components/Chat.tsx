@@ -1,5 +1,5 @@
 import { createSignal, createEffect, onMount, onCleanup, Show } from 'solid-js';
-import { EventBus } from '../game/EventBus';
+import { EventBus } from '../game/managers/EventBus';
 import type { ChatMessage } from "@tron0/shared/interfaces/ChatMessage";
 
 interface Entry extends ChatMessage {

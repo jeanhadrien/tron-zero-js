@@ -3,7 +3,7 @@ import { eventGetter, inputGetter, System } from '@tron0/shared/interfaces/Syste
 import { ECSGameRoom } from '@tron0/shared/ECSGameRoom';
 import { ChatMessageBuffer } from '@tron0/shared/ChatMessageBuffer';
 import { ChatMessage } from '@tron0/shared/interfaces/ChatMessage';
-import { EventBus } from '../EventBus';
+import { EventBus } from '../managers/EventBus';
 
 export class ClientChatSystem extends System {
   readonly key = 'chat-client';

@@ -4,7 +4,7 @@ import DebugConsole from './components/DebugConsole';
 import FpsCounter from './components/FpsCounter';
 import Chat from './components/Chat';
 import MainMenu from './components/MainMenu';
-import { EventBus } from './game/EventBus';
+import { EventBus } from './game/managers/EventBus';
 import type { GameScene } from './game/scenes/GameScene';
 
 const App = () => {

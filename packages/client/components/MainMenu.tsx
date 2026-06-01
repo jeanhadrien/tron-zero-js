@@ -1,5 +1,5 @@
 import { createSignal, createEffect, onMount, onCleanup, Show, Switch, Match } from 'solid-js';
-import { EventBus } from '../game/EventBus';
+import { EventBus } from '../game/managers/EventBus';
 import ServerBrowser from './ServerBrowser';
 
 const MainMenu = () => {

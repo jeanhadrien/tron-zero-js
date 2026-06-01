@@ -1,5 +1,5 @@
 import { createSignal, onMount, onCleanup } from 'solid-js';
-import { EventBus } from '../game/EventBus';
+import { EventBus } from '../game/managers/EventBus';
 
 const FpsCounter = () => {
     const [fps, setFps] = createSignal<number>(0);

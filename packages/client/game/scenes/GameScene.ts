@@ -1,9 +1,9 @@
 import { Scene } from 'phaser';
-import { EventBus } from '../EventBus';
+import { EventBus } from '../managers/EventBus';
 import DebugHud from '../gameobjects/DebugHud';
 import GameClock from '@tron0/shared/GameClock';
 import GameAreaRenderer from '../gameobjects/GameAreaRenderer';
-import AudioManager from '../gameobjects/AudioManager';
+import AudioManager from '../managers/AudioManager';
 
 import GameCamera from '../gameobjects/GameCamera';
 import { Logger } from '@tron0/shared/Logger';
@@ -14,6 +14,7 @@ import GameArea, { GameArenaSystem } from '@tron0/shared/systems/GameArenaSystem
 import { ClientNetworkSystem } from '../systems/ClientNetworkSystem';
 import { PlayerRenderSystem } from '../systems/PlayerRenderSystem';
 import { ClientChatSystem } from '../systems/ClientChatSystem';
+import { ClockSyncManager } from '../managers/ClockSyncManager';
 
 const logger = new Logger('Game');
 const tracer = trace.getTracer('tron-zero-client');
@@ -49,6 +50,7 @@ export class GameScene extends Scene {
   renderSystem: PlayerRenderSystem;
   networkClient: ClientNetworkSystem;
   chatSystem: ClientChatSystem;
+  clockSync: ClockSyncManager;
 
   constructor() {
     super('Game');
@@ -65,6 +67,7 @@ export class GameScene extends Scene {
     this.networkClient = new ClientNetworkSystem();
     this.renderSystem = new PlayerRenderSystem(this);
     this.chatSystem = new ClientChatSystem(() => this.networkClient.channel);
+    this.clockSync = new ClockSyncManager();
 
     this.gameAreaRenderer = new GameAreaRenderer(this, this.gameArea);
     this.gameCamera = new GameCamera(this, this.gameArea, this.audioManager);
@@ -77,6 +80,8 @@ export class GameScene extends Scene {
 
     this.networkClient.connect(host, port);
 
+    this.networkClient.setClockSync(this.clockSync);
+
     this.room = new ECSGameRoom(this.gameClock, [
       new GameArenaSystem(),
       new PlayerSystem(),
@@ -84,6 +89,23 @@ export class GameScene extends Scene {
       this.renderSystem,
       this.chatSystem,
     ]);
+
+    this.clockSync.attach(this.room);
+
+    this.debugHud.add('OWD', () => {
+      const owd = this.clockSync?.smoothedOWD;
+      return owd != null ? owd.toFixed(1) + 'ms' : '-';
+    });
+    this.debugHud.add('TickErr', () => {
+      const err = this.clockSync?.storedTickError;
+      return err != null ? err.toFixed(1) : '-';
+    });
+    this.debugHud.add('Scale', () => {
+      const tt = this.room?.clock.tickTimeMs;
+      const ref = this.room?.clock.referenceTickTimeMs;
+      return tt && ref ? (tt / ref).toFixed(3) : '-';
+    });
+    this.debugHud.add('Lead', () => this.clockSync?.getLeadTicks() ?? '-');
   }
 
   preload() {
@@ -223,6 +245,8 @@ export class GameScene extends Scene {
       }
       return;
     }
+
+    this.clockSync?.adjustClock();
 
     if (this.menuOpen) {
       this.room.updateFixed(delta);

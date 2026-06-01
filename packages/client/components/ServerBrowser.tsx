@@ -1,6 +1,6 @@
 import { createSignal, onMount, onCleanup, Show, For } from 'solid-js';
 import { fetchGameRooms, GameRoomInfo } from '../api/serverBrowser';
-import { EventBus } from '../game/EventBus';
+import { EventBus } from '../game/managers/EventBus';
 
 const ServerBrowser = () => {
   const [rooms, setRooms] = createSignal<GameRoomInfo[]>([]);

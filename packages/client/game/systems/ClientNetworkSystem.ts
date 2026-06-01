@@ -5,27 +5,26 @@ import { ConnectionError, Data } from '@geckos.io/common/lib/types';
 import { decodeMessage, MSG_INIT_STATE, MSG_SYNC_STATE } from '@tron0/shared/NetworkProtocol';
 import { ECSGameRoom } from '@tron0/shared/ECSGameRoom';
 import PlayerSystem from '@tron0/shared/systems/PlayerSystem';
-import { EventBus } from '../EventBus';
+import { EventBus } from '../managers/EventBus';
+import { ClockSyncManager } from '../managers/ClockSyncManager';
 
 export const logger = new RoomLogger('ClientNetworkSystem');
 
 export class ClientNetworkSystem extends System {
   readonly key = 'client-network';
-  private static readonly RTT_SMOOTHING_ALPHA = 0.2;
   private static readonly SESSION_KEY = 'tronzero_session';
   private static readonly HEARTBEAT_TIMEOUT_MS = 3000;
 
   channel: ClientChannel;
   readonly sessionToken: string;
-  private smoothedOneWayTime: number = 0;
   private room: ECSGameRoom;
+  private clockSync: ClockSyncManager | null = null;
   private _connected: boolean = false;
   private _pingInterval: number | null = null;
   private _heartbeatTimeout: number | null = null;
   private _initialized = false;
   private _host: string = '';
   private _port: number = 0;
-  oneWayTime: number = 0;
 
   constructor() {
     super();
@@ -49,6 +48,10 @@ export class ClientNetworkSystem extends System {
 
   getComponents(): object[] {
     return [];
+  }
+
+  setClockSync(cs: ClockSyncManager): void {
+    this.clockSync = cs;
   }
 
   init?(room: ECSGameRoom): void {
@@ -80,7 +83,7 @@ export class ClientNetworkSystem extends System {
       if (this._connected) {
         this.channel.emit('ping', performance.now());
       }
-    }, 500);
+    }, 250);
   }
 
   private _stopPingInterval(): void {
@@ -148,8 +151,9 @@ export class ClientNetworkSystem extends System {
     logger.warn('Received init state');
     this._initialized = true;
 
+    const leadTicks = this.clockSync?.getLeadTicks() ?? 3;
     this.room.initFromSnapshot(tick, snapshot);
-    this.room.tick = tick;
+    this.room.tick = tick + leadTicks;
 
     // Use sessionToken (not channel.id) — survives reconnection
     this.room.localPlayerEid = PlayerSystem.getPlayerEidByStringId(this.room, this.sessionToken);
@@ -157,7 +161,7 @@ export class ClientNetworkSystem extends System {
 
     this.room.clock.tickTimeMs = this.room.clock.referenceTickTimeMs;
 
-    logger.warn(this.room.tick, 'Player ready — eid:', this.room.localPlayerEid);
+    logger.warn('Player ready — tick:', this.room.tick, 'lead:', leadTicks, 'eid:', this.room.localPlayerEid);
   }
 
   private _onPong(data: Data) {
@@ -165,29 +169,12 @@ export class ClientNetworkSystem extends System {
     if (!this._initialized) return;
 
     const { clientTime, serverTick } = data as { clientTime: number; serverTick: number };
+    const rttMs = performance.now() - clientTime;
 
-    const pingDifferenceTime = performance.now() - clientTime;
-    this.oneWayTime = pingDifferenceTime / 2;
+    this.clockSync?.recordPing(rttMs, serverTick);
 
-    const pingDifferenceInTicks = Math.ceil(this.oneWayTime / this.room.clock.referenceTickTimeMs);
-    const targetTick = serverTick + pingDifferenceInTicks + 1;
-    const tickError = targetTick - this.room.tick;
-
-    const gain = 0.1;
-    const scale = Math.max(0.7, Math.min(1.5, 1.0 - tickError * gain));
-    this.room.clock.tickTimeMs = this.room.clock.referenceTickTimeMs * scale;
-
-    //
-
-    const tickDifference = this.room.tick - serverTick;
-
-    if (tickDifference <= 0) {
-      logger.warn('Client is behind by', tickDifference);
-    } else {
-      logger.warn('Client is ahead by', tickDifference);
-    }
     logger.warn(
-      `RTT: ${pingDifferenceTime.toFixed(2)}ms, One-way: ${this.oneWayTime.toFixed(2)}ms, TickError: ${tickError.toFixed(1)}, Scale: ${scale.toFixed(3)}`
+      `RTT: ${rttMs.toFixed(2)}ms, OWD: ${(rttMs / 2).toFixed(2)}ms, TickErr: ${this.clockSync?.storedTickError?.toFixed(1) ?? '-'}`
     );
   }
 
@@ -216,6 +203,7 @@ export class ClientNetworkSystem extends System {
     this._connected = false;
     this._clearHeartbeat();
     this._stopPingInterval();
+    this.clockSync?.reset();
     this.channel.close();
     this.channel = this._createChannel();
     this._setupChannel(this.channel);
@@ -249,6 +237,7 @@ export class ClientNetworkSystem extends System {
     this._connected = false;
     this._clearHeartbeat();
     this._stopPingInterval();
+    this.clockSync?.reset();
     logger.warn('Disconnected from server');
     EventBus.emit('connection-state', 'disconnected');
   }

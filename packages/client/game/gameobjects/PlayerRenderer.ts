@@ -1,5 +1,5 @@
 import { GameObjects } from 'phaser';
-import AudioManager, { EngineSound } from './AudioManager';
+import AudioManager, { EngineSound } from '../managers/AudioManager';
 import { PlayerId, TrailPoints } from '@tron0/shared/systems/PlayerSystem';
 
 export interface RenderSnapshot {

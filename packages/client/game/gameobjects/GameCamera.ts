@@ -1,7 +1,7 @@
 import { Scene } from 'phaser';
 import GameArea from '@tron0/shared/ECSGameArea';
-import { EventBus } from '../EventBus';
-import AudioManager from './AudioManager';
+import { EventBus } from '../managers/EventBus';
+import AudioManager from '../managers/AudioManager';
 
 export default class GameCamera {
   private scene: Scene;
