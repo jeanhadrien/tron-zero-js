@@ -135,7 +135,7 @@ export class ClientNetworkSystem extends System {
   }
 
   private _onSyncState(tick: number, data: ArrayBuffer, struct: ArrayBuffer) {
-    logger.warn('Received sync state for', tick);
+    logger.debug('Received sync state for', tick);
 
     this.room.addNetworkDiffPayload({
       tick,
@@ -165,21 +165,28 @@ export class ClientNetworkSystem extends System {
     if (!this._initialized) return;
 
     const { clientTime, serverTick } = data as { clientTime: number; serverTick: number };
+
     const pingDifferenceTime = performance.now() - clientTime;
     this.oneWayTime = pingDifferenceTime / 2;
 
-    const ref = this.room.clock.referenceTickTimeMs;
-    const targetTick = serverTick + this.oneWayTime / ref + 1;
+    const pingDifferenceInTicks = Math.ceil(this.oneWayTime / this.room.clock.referenceTickTimeMs);
+    const targetTick = serverTick + pingDifferenceInTicks + 1;
     const tickError = targetTick - this.room.tick;
 
     const gain = 0.1;
-    const scale = Math.max(0.95, Math.min(1.05, 1.0 - tickError * gain));
+    const scale = Math.max(0.7, Math.min(1.5, 1.0 - tickError * gain));
+    this.room.clock.tickTimeMs = this.room.clock.referenceTickTimeMs * scale;
 
-    this.room.clock.tickTimeMs = ref * scale;
+    //
 
+    const tickDifference = this.room.tick - serverTick;
+
+    if (tickDifference <= 0) {
+      logger.warn('Client is behind by', tickDifference);
+    } else {
+      logger.warn('Client is ahead by', tickDifference);
+    }
     logger.warn(
-      'tick difference:',
-      serverTick - this.room.tick,
       `RTT: ${pingDifferenceTime.toFixed(2)}ms, One-way: ${this.oneWayTime.toFixed(2)}ms, TickError: ${tickError.toFixed(1)}, Scale: ${scale.toFixed(3)}`
     );
   }

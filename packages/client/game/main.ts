@@ -16,15 +16,15 @@ const config: Phaser.Types.Core.GameConfig = {
   },
   fps: {
     target: 200,
-    smoothStep: true,
+    smoothStep: false,
   },
-  physics: {
-    default: 'arcade',
-    arcade: {
-      gravity: { x: 0, y: 0 },
-      fps: 240,
-    },
-  },
+  //   physics: {
+  //     default: 'arcade',
+  //     arcade: {
+  //       gravity: { x: 0, y: 0 },
+  //       fps: 240,
+  //     },
+  //   },
   scene: [GameScene],
   scale: {
     mode: Phaser.Scale.RESIZE,

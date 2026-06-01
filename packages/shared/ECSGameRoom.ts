@@ -186,7 +186,6 @@ export class ECSGameRoom {
 
   updateFixed(deltaTime: number): void {
     if (this.pendingResimTick !== null && this.tick > this.pendingResimTick) {
-      logger.info('replaying from', this.pendingResimTick);
       this.replayFrom(this.pendingResimTick);
       this.pendingResimTick = null;
     }
@@ -224,7 +223,7 @@ export class ECSGameRoom {
 
     if (this.tick !== pastTick) throw new Error('Snapshot is not the tick we expected');
 
-    logger.info(`Replaying from ${pastTick} to ${currentTick} (${currentTick - pastTick} ticks)`);
+    logger.debug(`Replaying from ${pastTick} to ${currentTick} (${currentTick - pastTick} ticks)`);
     for (let _tick = this.tick; _tick < currentTick; _tick++) {
       // Load authorithative state diffs from server
       const diff = this.networkDiffTickRingBuffer.get(_tick, 'network');

@@ -13,7 +13,7 @@ import { ECSGameRoom } from '@tron0/shared/ECSGameRoom';
 import GameArea, { GameArenaSystem } from '@tron0/shared/systems/GameArenaSystem';
 import { ClientNetworkSystem } from '../systems/ClientNetworkSystem';
 import { PlayerRenderSystem } from '../systems/PlayerRenderSystem';
-import { ChatClientSystem } from '../systems/ChatClientSystem';
+import { ClientChatSystem } from '../systems/ClientChatSystem';
 
 const logger = new Logger('Game');
 const tracer = trace.getTracer('tron-zero-client');
@@ -48,7 +48,7 @@ export class GameScene extends Scene {
 
   renderSystem: PlayerRenderSystem;
   networkClient: ClientNetworkSystem;
-  chatSystem: ChatClientSystem;
+  chatSystem: ClientChatSystem;
 
   constructor() {
     super('Game');
@@ -64,7 +64,7 @@ export class GameScene extends Scene {
 
     this.networkClient = new ClientNetworkSystem();
     this.renderSystem = new PlayerRenderSystem(this);
-    this.chatSystem = new ChatClientSystem(() => this.networkClient.channel);
+    this.chatSystem = new ClientChatSystem(() => this.networkClient.channel);
 
     this.gameAreaRenderer = new GameAreaRenderer(this, this.gameArea);
     this.gameCamera = new GameCamera(this, this.gameArea, this.audioManager);

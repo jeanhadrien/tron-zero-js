@@ -114,8 +114,12 @@ export class RoomLogger extends Logger {
   }
 
   private prefixArgs(args: unknown[]): unknown[] {
-    if (this.room) return [`[${this.room.tick}] -`, ...args];
-    return args;
+    if (!this.room) return args;
+    const prefix = `[${this.room.tick}] -`;
+    if (args.length > 0 && typeof args[0] === 'string') {
+      return [`${prefix} ${args[0]}`, ...args.slice(1)];
+    }
+    return [prefix, ...args];
   }
 
   debug(...args: unknown[]): void {

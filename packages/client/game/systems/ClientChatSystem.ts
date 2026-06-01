@@ -5,7 +5,7 @@ import { ChatMessageBuffer } from '@tron0/shared/ChatMessageBuffer';
 import { ChatMessage } from '@tron0/shared/interfaces/ChatMessage';
 import { EventBus } from '../EventBus';
 
-export class ChatClientSystem extends System {
+export class ClientChatSystem extends System {
   readonly key = 'chat-client';
 
   private getChannel: () => ClientChannel;
