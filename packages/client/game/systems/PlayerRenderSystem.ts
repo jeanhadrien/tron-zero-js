@@ -7,6 +7,7 @@ import PlayerSystem, {
   Direction,
   Color,
   SpeedMult,
+  Velocity,
   IsAlive,
   TrailPoints,
   Player,
@@ -25,6 +26,7 @@ interface PlayerStateSnapshot {
   isAlive: boolean;
   trailXs: number[];
   trailYs: number[];
+  tickTimeMs: number;
 }
 
 const MAX_SNAPSHOT_AGE = 60;
@@ -112,6 +114,7 @@ export class PlayerRenderSystem extends System {
         isAlive: true,
         trailXs,
         trailYs,
+        tickTimeMs: this.room.clock.tickTimeMs,
       };
 
       let list = this.history.get(eid);
@@ -134,7 +137,12 @@ export class PlayerRenderSystem extends System {
     }
   }
 
-  render(): void {
+  /**
+   * Render the current ECS state.
+   * @param alpha Interpolation factor (0 = current tick, 1 = projected to next tick).
+   *              Only used for the local player; remote players use snapshot lookup.
+   */
+  render(alpha: number = 0): void {
     const tick = this.room.tick;
 
     this.staticTrailGraphics.clear();
@@ -156,26 +164,30 @@ export class PlayerRenderSystem extends System {
       let ys: number[];
 
       if (isLocal) {
-        // Local player renders directly from the current simulation — zero delay
-        renderX = Position.x[eid];
-        renderY = Position.y[eid];
+        // Local player — extrapolate from current position toward next tick
+        renderX = Position.x[eid] + (Velocity.vx[eid] / 1000) * alpha;
+        renderY = Position.y[eid] + (Velocity.vy[eid] / 1000) * alpha;
         direction = Direction[eid];
         color = Color[eid];
         xs = TrailPoints.xs[eid] ?? [];
         ys = TrailPoints.ys[eid] ?? [];
       } else {
-        // Remote player uses delay-compensated snapshot with self-contained trail data
+        // Remote player — lerp between two snapshots with scale correction for clock drift
         const delay = Math.round(PingInTicks[eid] ?? 0);
         const targetTick = tick - delay;
-        const snapshot = this._lookup(eid, targetTick);
-        if (!snapshot) continue;
+        const curr = this._lookup(eid, targetTick);
+        if (!curr) continue;
+        const prev = this._lookup(eid, targetTick - 1);
 
-        renderX = snapshot.x;
-        renderY = snapshot.y;
-        direction = snapshot.direction;
-        color = snapshot.color;
-        xs = snapshot.trailXs;
-        ys = snapshot.trailYs;
+        const a = Math.min(1, Math.max(0, alpha));
+        const scale = this.room.clock.tickTimeMs / curr.tickTimeMs;
+
+        renderX = prev ? prev.x + (curr.x - prev.x) * a * scale : curr.x;
+        renderY = prev ? prev.y + (curr.y - prev.y) * a * scale : curr.y;
+        direction = curr.direction;
+        color = curr.color;
+        xs = curr.trailXs;
+        ys = curr.trailYs;
       }
 
       this._drawLightcycle(renderX, renderY, direction, color);

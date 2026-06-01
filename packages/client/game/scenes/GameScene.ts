@@ -41,6 +41,8 @@ export class GameScene extends Scene {
   gameArea: GameArea;
 
   private _pendingTurnCount: number = 0;
+  private _simLoopHandle: number | null = null;
+  private _lastSimTime: number = 0;
 
   lastFpsEmitTime: number = 0;
   gameAreaRenderer: GameAreaRenderer;
@@ -106,7 +108,45 @@ export class GameScene extends Scene {
       return tt && ref ? (tt / ref).toFixed(3) : '-';
     });
     this.debugHud.add('Lead', () => this.clockSync?.getLeadTicks() ?? '-');
+
+    this._startSimulationLoop();
   }
+
+  // -- simulation loop (setInterval, separate from Phaser's render) ----------
+
+  /**
+   * Runs simulation ticks on a fixed cadence via {@link setInterval}.
+   * Yields to the browser between calls so painting is never blocked by
+   * simulation bursts. Clock sync adjustment and input consumption happen here.
+   */
+  private _startSimulationLoop(): void {
+    if (this._simLoopHandle !== null) return;
+    this._lastSimTime = performance.now();
+    this._simLoopHandle = window.setInterval(() => {
+      if (!this.room) return;
+
+      const now = performance.now();
+      const delta = now - this._lastSimTime;
+      this._lastSimTime = now;
+
+      this.clockSync?.adjustClock();
+      this.room.clock.addDelta(delta);
+
+      // Cap burst to prevent spiral if the timer was delayed (GC, etc.)
+      for (let i = 0; i < 3; i++) {
+        if (!this.room.processNextTick()) break;
+      }
+    }, this.gameClock.referenceTickTimeMs);
+  }
+
+  private _stopSimulationLoop(): void {
+    if (this._simLoopHandle !== null) {
+      clearInterval(this._simLoopHandle);
+      this._simLoopHandle = null;
+    }
+  }
+
+  // -- Phaser lifecycle ------------------------------------------------------
 
   preload() {
     this.load.setPath('assets');
@@ -187,6 +227,7 @@ export class GameScene extends Scene {
 
     this.events.on('shutdown', () => {
       EventBus.off('game-resume', onGameResume);
+      this._stopSimulationLoop();
     });
 
     this.spaceKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
@@ -231,11 +272,18 @@ export class GameScene extends Scene {
     span.end();
   }
 
+  // -- render loop (Phaser's rAF) --------------------------------------------
+
+  /**
+   * Render-only. Simulation runs independently via {@link _startSimulationLoop}.
+   * This callback only reads the ECS state and draws.
+   */
   update(_time: any, delta: number) {
     if (!this.isConnected || !this.room) {
       return;
     }
 
+    // Tab resume — request full state sync
     if (delta > 10000) {
       this.audioManager.resume();
       if (this.networkClient.isConnected()) {
@@ -246,29 +294,19 @@ export class GameScene extends Scene {
       return;
     }
 
-    this.clockSync?.adjustClock();
-
-    if (this.menuOpen) {
-      this.room.updateFixed(delta);
-      this.renderSystem.localPlayerEid = this.humanEid;
-      this.renderSystem.render();
-      if (this.humanEid >= 0) {
-        this.gameCamera.update(Position.x[this.humanEid], Position.y[this.humanEid]);
-      }
-      this._pendingTurnCount = 0;
-      return;
+    // Sync local player EID from sim state
+    if (this.room.localPlayerEid) {
+      this.humanEid = this.room.localPlayerEid;
     }
 
+    // Game over overlay (still render the scene underneath)
     if (this.humanEid >= 0 && IsAlive[this.humanEid] !== 1) {
       const cx = this.cameras.main.worldView.centerX;
       const cy = this.cameras.main.worldView.centerY;
       const zoom = this.cameras.main.zoom;
 
-      this.gameOverText.setPosition(cx, cy - 30 / zoom);
-      this.gameOverText.setScale(1 / zoom);
-
-      this.restartText.setPosition(cx, cy + 30 / zoom);
-      this.restartText.setScale(1 / zoom);
+      this.gameOverText.setPosition(cx, cy - 30 / zoom).setScale(1 / zoom);
+      this.restartText.setPosition(cx, cy + 30 / zoom).setScale(1 / zoom);
 
       if (this.spaceKey.isDown) {
         this.networkClient.sendRespawn();
@@ -276,25 +314,24 @@ export class GameScene extends Scene {
       }
     }
 
-    this.room.updateFixed(delta);
-
+    // Reset pending turn counter (input captured in keyboard handlers this frame)
     this._pendingTurnCount = 0;
 
-    if (this.room.localPlayerEid) {
-      this.humanEid = this.room.localPlayerEid;
-    }
-
+    // Render the current ECS state
     this.renderSystem.localPlayerEid = this.humanEid;
-    this.renderSystem.render();
+    this.renderSystem.render(this.room.clock.getAlpha());
 
+    // Camera follow
     if (this.humanEid >= 0) {
       this.gameCamera.update(Position.x[this.humanEid], Position.y[this.humanEid]);
     }
 
+    // Rubber death detection
     if (this.humanEid >= 0 && Rubber[this.humanEid] <= 0 && IsAlive[this.humanEid] === 1) {
       EventBus.emit('game-over', 'ai');
     }
 
+    // FPS counter
     if (_time - this.lastFpsEmitTime > 50) {
       this.lastFpsEmitTime = _time;
       EventBus.emit('fps-update', this.game.loop.actualFps);

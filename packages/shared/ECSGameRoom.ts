@@ -184,6 +184,7 @@ export class ECSGameRoom {
     this.tick += 1;
   }
 
+  /** Batch-mode simulation — consume all accumulated ticks at once (server). */
   updateFixed(deltaTime: number): void {
     if (this.pendingResimTick !== null && this.tick > this.pendingResimTick) {
       this.replayFrom(this.pendingResimTick);
@@ -203,6 +204,38 @@ export class ECSGameRoom {
       this.update();
       this.worldBuffer.record(this.tick, this.snapshotSerialize());
     }
+  }
+
+  /**
+   * Per-tick simulation — process a single tick, yielding to the event loop between calls.
+   * Designed for the client's {@link setInterval} simulation loop.
+   * @returns true if a simulation tick (or replay) was processed, false if idle.
+   */
+  processNextTick(): boolean {
+    // 1. Handle pending resim first (synchronous — may process many ticks)
+    if (this.pendingResimTick !== null && this.tick > this.pendingResimTick) {
+      this.replayFrom(this.pendingResimTick);
+      this.pendingResimTick = null;
+      return true;
+    }
+
+    // 2. Nothing to do — accumulator hasn't filled a tick yet
+    if (this.clock.pendingTicks() <= 0) return false;
+
+    // 3. Load network diff for this specific tick
+    const diff = this.networkDiffTickRingBuffer.get(this.tick, 'network');
+    if (diff) {
+      logger.info('loading remote network auth diff');
+      this.soaDeserialize(diff.data);
+      this.observerDeserializeNetwork(diff.struct, new Map());
+    }
+
+    // 4. Process one tick
+    this.update();
+    this.worldBuffer.record(this.tick, this.snapshotSerialize());
+    this.clock.consumeTicks(1);
+
+    return true;
   }
 
   private replayFrom(pastTick: number): void {
