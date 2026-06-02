@@ -144,11 +144,13 @@ export class ServerNetworkSystem extends System {
   }
 
   private _onClientRespawn(channel: ServerChannel) {
-    return () => {
+    return (data?: Data) => {
       const sessionToken = this.sessionByChannelId.get(channel.id!);
       if (!sessionToken) return;
 
-      this.room.serverAddEvent({ type: GameEventType.PlayerSpawn, tick: this.room.tick + 1, playerId: sessionToken });
+      const clientTick = (data as { clientTick?: number })?.clientTick ?? 0;
+      const targetTick = Math.max(this.room.tick + 1, clientTick);
+      this.room.serverAddEvent({ type: GameEventType.PlayerSpawn, tick: targetTick, playerId: sessionToken });
     };
   }
 

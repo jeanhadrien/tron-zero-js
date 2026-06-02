@@ -94,6 +94,8 @@ export class GameScene extends Scene {
       this.chatSystem,
     ]);
 
+    this.room.snapshotPeriodX = 10;
+
     this.clockSync.attach(this.room);
 
     this.debugHud.add('OWD', () => {
@@ -133,6 +135,13 @@ export class GameScene extends Scene {
 
       this.clockSync?.adjustClock();
       this.room.clock.addDelta(delta);
+
+      // Update snapshot gap based on current ping estimate
+      const leadTicks = this.clockSync?.getLeadTicks() ?? 1;
+      const owdTicks = this.clockSync
+        ? this.clockSync.smoothedOWD / this.gameClock.referenceTickTimeMs
+        : 0;
+      this.room.snapshotGapTicks = leadTicks + Math.ceil(owdTicks);
 
       // Cap burst to prevent spiral if the timer was delayed (GC, etc.)
       for (let i = 0; i < 3; i++) {

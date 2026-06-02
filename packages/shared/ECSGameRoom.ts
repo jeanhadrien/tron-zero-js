@@ -13,7 +13,6 @@ import {
 export const SNAPSHOT_BUFFER_SIZE = 1024 * 1024 * 5; //  avoids 100MB default in bitecs that kills perf via slice()
 const DIFF_BUFFER_SIZE = 1024 * 1024 * 5;
 
-import { WorldStateTickRingBuffer } from './WorldStateBuffer';
 import { System } from './interfaces/System';
 import { NetworkDiffPayload } from './interfaces/Network';
 import { NetworkDiffTickRingBuffer } from './interfaces/Network';
@@ -23,7 +22,7 @@ import { GameEvent, GameEventType } from './interfaces/GameEvent';
 import { GameEventTickRingBuffer } from './GameEventBuffer';
 import { Networked } from './interfaces/Network';
 import { RoomLogger } from './otel/Logger';
-import PlayerSystem, { PingInTicks } from './systems/PlayerSystem';
+import PlayerSystem, { Direction, PingInTicks } from './systems/PlayerSystem';
 import GameClock from './GameClock';
 
 const logger = new RoomLogger('GameRoom');
@@ -33,7 +32,6 @@ export class ECSGameRoom {
   private networkDiffEmitter = new EventEmitter<string>();
   private pendingResimTick: number | null = null;
   world: World;
-  worldBuffer: WorldStateTickRingBuffer;
   playerInputBuffer: PlayerInputTickRingBuffer;
   localInputBuffer: PlayerInputTickRingBuffer;
   networkDiffTickRingBuffer: NetworkDiffTickRingBuffer;
@@ -42,8 +40,19 @@ export class ECSGameRoom {
   systems: System[];
   components: object[];
   replaying: boolean;
+  /** Ticks in the current replay pass that have server-authoritative state for the local player. */
+  private _authStateTicks: Set<number> = new Set();
   tick: number = 0;
-  snapshotBuffer: WorldStateTickRingBuffer;
+
+  /** Current valid rewind anchor — always positioned ≤ currentTick - gap - 1. */
+  private _rewindAnchor: { tick: number; buffer: ArrayBuffer } | null = null;
+  /** Next anchor being aged in — promoted to _rewindAnchor once gap+1 ticks have passed. */
+  private _nextAnchor: { tick: number; buffer: ArrayBuffer } | null = null;
+  /** Tick gap between client and server (leadTicks + oneWayTicks). 0 disables snapshotting (server). */
+  snapshotGapTicks: number = 0;
+  /** Tick period between snapshot refreshes (bounds replay distance). */
+  snapshotPeriodX: number = 10;
+
   snapshotSerialize: (selectedEntities?: readonly number[]) => ArrayBuffer;
   snapshotDeserialize: (packet: ArrayBuffer, idMapOverride?: Map<number, number>) => Map<number, number>;
   soaSerialize: (indices: number[] | readonly number[]) => ArrayBuffer;
@@ -61,7 +70,6 @@ export class ECSGameRoom {
     this.dirtyEntities = new Set<number>();
     this.channelPlayerIds = new Map();
     this.systems = systems;
-    this.worldBuffer = new WorldStateTickRingBuffer(32);
     this.playerInputBuffer = new PlayerInputTickRingBuffer(32);
     this.localInputBuffer = new PlayerInputTickRingBuffer(32); // client only
     this.networkDiffTickRingBuffer = new NetworkDiffTickRingBuffer(32);
@@ -69,11 +77,11 @@ export class ECSGameRoom {
     this.entityIndex = createEntityIndex();
     this.components = systems.flatMap((s) => s.getComponents());
     this.soaSerialize = createSoASerializer(this.components, {
-      diff: false,
+      diff: true,
       buffer: new ArrayBuffer(DIFF_BUFFER_SIZE),
       epsilon: 0,
     });
-    this.soaDeserialize = createSoADeserializer(this.components, { diff: false });
+    this.soaDeserialize = createSoADeserializer(this.components, { diff: true });
 
     this.world = createWorld({}, this.entityIndex);
     this.components = systems.flatMap((s) => s.getComponents());
@@ -99,8 +107,9 @@ export class ECSGameRoom {
     resetWorld(this.world);
     this.snapshotDeserialize(buffer);
     this.tick = tick;
-    // Record the initial state so replayFrom can roll back to this tick
-    this.worldBuffer.record(tick, this.snapshotSerialize());
+    // Record the initial state as the rewind anchor (immediately valid)
+    this._rewindAnchor = { tick, buffer: this.snapshotSerialize() };
+    this._nextAnchor = null;
     // Rebuild serializers (existing code)
     this.snapshotSerialize = createSnapshotSerializer(
       this.world,
@@ -183,8 +192,12 @@ export class ECSGameRoom {
    * @param world
    */
   private update(): void {
-    const input = (entityId: string) =>
-      this.localInputBuffer.consume(this.tick, entityId) ?? this.playerInputBuffer.get(this.tick, entityId);
+    const isLocal = (entityId: string) =>
+      this.replaying && entityId === this.localPlayerId && this._authStateTicks.has(this.tick);
+    const input = (entityId: string) => {
+      if (isLocal(entityId)) return this.playerInputBuffer.get(this.tick, entityId);
+      return this.localInputBuffer.get(this.tick, entityId) ?? this.playerInputBuffer.get(this.tick, entityId);
+    };
     const events = () => this.gameEventBuffer.get(this.tick);
     for (const sys of this.systems) {
       if (sys.update) sys?.update(input, events);
@@ -210,7 +223,7 @@ export class ECSGameRoom {
     const ticksToProcess = this.clock.update(deltaTime);
     for (let index = 0; index < ticksToProcess; index++) {
       this.update();
-      this.worldBuffer.record(this.tick, this.snapshotSerialize());
+      this._tryTakeSnapshot(this.tick);
     }
   }
 
@@ -240,41 +253,80 @@ export class ECSGameRoom {
 
     // 4. Process one tick
     this.update();
-    this.worldBuffer.record(this.tick, this.snapshotSerialize());
+    this._tryTakeSnapshot(this.tick);
     this.clock.consumeTicks(1);
 
     return true;
   }
 
+  /**
+   * Conditionally refresh the rewind anchor snapshot.
+   *
+   * Uses two slots to avoid the cooldown gap where a freshly-taken snapshot
+   * (at currentTick) is too recent to anchor a replay.  _nextAnchor ages
+   * for gap+1 ticks before being promoted to _rewindAnchor, guaranteeing at
+   * least one valid anchor is always available.
+   */
+  private _tryTakeSnapshot(currentTick: number): void {
+    if (this.snapshotPeriodX <= 0 || this.snapshotGapTicks <= 0) return;
+
+    const gap = this.snapshotGapTicks;
+
+    // Promote the aging candidate once it's old enough to anchor any replay
+    if (this._nextAnchor !== null && currentTick - this._nextAnchor.tick >= gap + 1) {
+      this._rewindAnchor = this._nextAnchor;
+      this._nextAnchor = null;
+    }
+
+    // Start aging a new candidate when the current anchor is getting stale
+    // (or if we have no anchor at all — edge case before initFromSnapshot)
+    const needsCandidate =
+      this._nextAnchor === null &&
+      (this._rewindAnchor === null || currentTick - this._rewindAnchor.tick > gap + 1 + this.snapshotPeriodX);
+
+    if (needsCandidate) {
+      this._nextAnchor = {
+        tick: currentTick,
+        buffer: this.snapshotSerialize(),
+      };
+    }
+  }
+
   private replayFrom(pastTick: number): void {
-    const snapshot = this.worldBuffer.get(pastTick);
     const currentTick = this.tick;
-    if (!snapshot) {
-      logger.error(`No snapshot found for tick ${pastTick}, cannot resimulate.`);
+
+    if (!this._rewindAnchor) {
+      logger.error('No rewind anchor, cannot resimulate.');
       return;
     }
 
-    // Load past world
+    if (this._rewindAnchor.tick > pastTick) {
+      logger.error(`Anchor tick ${this._rewindAnchor.tick} > resim tick ${pastTick}, cannot resimulate.`);
+      return;
+    }
+
+    // Load past world from rewind anchor
     resetWorld(this.world);
     this.dirtyEntities.clear();
+    this._authStateTicks.clear();
     this.replaying = true;
 
-    this.snapshotDeserialize(snapshot, new Map());
-    this.tick = pastTick;
+    this.snapshotDeserialize(this._rewindAnchor.buffer, new Map());
+    this.tick = this._rewindAnchor.tick;
 
-    if (this.tick !== pastTick) throw new Error('Snapshot is not the tick we expected');
-
-    logger.debug(`Replaying from ${pastTick} to ${currentTick} (${currentTick - pastTick} ticks)`);
+    logger.debug(`Replaying from ${this._rewindAnchor.tick} to ${currentTick} (${currentTick - this._rewindAnchor.tick} ticks)`);
     for (let _tick = this.tick; _tick < currentTick; _tick++) {
       // Load authorithative state diffs from server
       const diff = this.networkDiffTickRingBuffer.get(_tick, 'network');
       if (diff) {
+        const prevDir = this.localPlayerEid >= 0 ? Direction[this.localPlayerEid] : undefined;
         this.soaDeserialize(diff.data);
         this.observerDeserializeNetwork(diff.struct, new Map());
+        if (this.localPlayerEid >= 0 && Direction[this.localPlayerEid] !== prevDir) {
+          this._authStateTicks.add(_tick);
+        }
       }
       this.update();
-      // Updated buffered world snapshots with the new state
-      this.worldBuffer.record(this.tick, this.snapshotSerialize());
     }
     this.replaying = false;
   }

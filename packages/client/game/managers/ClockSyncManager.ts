@@ -66,7 +66,7 @@ export class ClockSyncManager {
 
   private static readonly GAIN = 0.1;
   private static readonly MAX_CORRECTION = 0.25;
-  private static readonly DEFAULT_LEAD_TICKS = 3;
+  private static readonly DEFAULT_LEAD_TICKS = 1;
   private static readonly STABILITY_THRESHOLD_MS = 5;
   private static readonly MIN_STABLE_COUNT = 3;
 

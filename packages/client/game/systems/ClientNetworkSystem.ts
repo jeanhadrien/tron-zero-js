@@ -190,9 +190,9 @@ export class ClientNetworkSystem extends System {
   }
 
   sendRespawn(): void {
-    if (!this._connected) return;
+    if (!this._connected || !this.room) return;
 
-    this.channel.emit('respawn');
+    this.channel.emit('respawn', { clientTick: this.room.tick });
   }
 
   /** Replace the current channel with a new one and re-establish all handlers. */
