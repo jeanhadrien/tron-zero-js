@@ -35,6 +35,7 @@ export class ECSGameRoom {
   world: World;
   worldBuffer: WorldStateTickRingBuffer;
   playerInputBuffer: PlayerInputTickRingBuffer;
+  localInputBuffer: PlayerInputTickRingBuffer;
   networkDiffTickRingBuffer: NetworkDiffTickRingBuffer;
   gameEventBuffer: GameEventTickRingBuffer;
   entityIndex: object;
@@ -60,10 +61,11 @@ export class ECSGameRoom {
     this.dirtyEntities = new Set<number>();
     this.channelPlayerIds = new Map();
     this.systems = systems;
-    this.worldBuffer = new WorldStateTickRingBuffer(128);
-    this.playerInputBuffer = new PlayerInputTickRingBuffer(128);
-    this.networkDiffTickRingBuffer = new NetworkDiffTickRingBuffer(128);
-    this.gameEventBuffer = new GameEventTickRingBuffer(128);
+    this.worldBuffer = new WorldStateTickRingBuffer(32);
+    this.playerInputBuffer = new PlayerInputTickRingBuffer(32);
+    this.localInputBuffer = new PlayerInputTickRingBuffer(32); // client only
+    this.networkDiffTickRingBuffer = new NetworkDiffTickRingBuffer(32);
+    this.gameEventBuffer = new GameEventTickRingBuffer(32);
     this.entityIndex = createEntityIndex();
     this.components = systems.flatMap((s) => s.getComponents());
     this.soaSerialize = createSoASerializer(this.components, {
@@ -149,6 +151,11 @@ export class ECSGameRoom {
     }
   }
 
+  /** Store a local-predicted input that is consumed on first read and never replayed. */
+  clientAddLocalInput(input: PlayerInput): void {
+    this.localInputBuffer.record(input.tick, input.playerId, input);
+  }
+
   // How many players are currently connected (have an active WebRTC channel)
   getPlayerCount(): number {
     return this.channelPlayerIds.size;
@@ -176,7 +183,8 @@ export class ECSGameRoom {
    * @param world
    */
   private update(): void {
-    const input = (entityId: string) => this.playerInputBuffer.get(this.tick, entityId);
+    const input = (entityId: string) =>
+      this.localInputBuffer.consume(this.tick, entityId) ?? this.playerInputBuffer.get(this.tick, entityId);
     const events = () => this.gameEventBuffer.get(this.tick);
     for (const sys of this.systems) {
       if (sys.update) sys?.update(input, events);

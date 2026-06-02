@@ -172,7 +172,8 @@ export function getClosestIntersectingPoint(
 // ─── Turn execution ──────────────────────────────────────────────────────────
 
 /** Execute a turn: update direction, add trail point, emit nothing (events are outside ECS). */
-export function executeTurn(room: ECSGameRoom, eid: number, type: 'left' | 'right', tickTimeMs: number): void {
+/** Execute a turn: update direction, add trail point at the sub-tick position. */
+export function executeTurn(room: ECSGameRoom, eid: number, type: 'left' | 'right', tickTimeMs: number, alpha: number = 0): void {
   let newDirection = Direction[eid];
 
   if (type === 'left') {
@@ -185,12 +186,15 @@ export function executeTurn(room: ECSGameRoom, eid: number, type: 'left' | 'righ
 
   newDirection = _normalizeDirection(newDirection);
 
+  const interpX = Position.x[eid] + (Velocity.vx[eid] / 1000) * alpha;
+  const interpY = Position.y[eid] + (Velocity.vy[eid] / 1000) * alpha;
+
   const trailN = TrailPoints.xs[eid].length;
-  const lastX = trailN > 0 ? TrailPoints.xs[eid][trailN - 1] : Position.x[eid];
-  const lastY = trailN > 0 ? TrailPoints.ys[eid][trailN - 1] : Position.y[eid];
+  const lastX = trailN > 0 ? TrailPoints.xs[eid][trailN - 1] : interpX;
+  const lastY = trailN > 0 ? TrailPoints.ys[eid][trailN - 1] : interpY;
 
   // If player hasn't moved since the last trail point, just update it
-  if (trailN > 0 && Math.abs(Position.x[eid] - lastX) <= EPSILON && Math.abs(Position.y[eid] - lastY) <= EPSILON) {
+  if (trailN > 0 && Math.abs(interpX - lastX) <= EPSILON && Math.abs(interpY - lastY) <= EPSILON) {
     Direction[eid] = newDirection;
     _setSpeedAndVelocity(eid, SpeedMult[eid], tickTimeMs);
     TrailPoints.dirs[eid] = [...TrailPoints.dirs[eid]];
@@ -198,9 +202,9 @@ export function executeTurn(room: ECSGameRoom, eid: number, type: 'left' | 'righ
     return;
   }
 
-  // Add a new trail point at current position
-  TrailPoints.xs[eid] = [...TrailPoints.xs[eid], Position.x[eid]];
-  TrailPoints.ys[eid] = [...TrailPoints.ys[eid], Position.y[eid]];
+  // Add a new trail point at the sub-tick interpolated position
+  TrailPoints.xs[eid] = [...TrailPoints.xs[eid], interpX];
+  TrailPoints.ys[eid] = [...TrailPoints.ys[eid], interpY];
   TrailPoints.dirs[eid] = [...TrailPoints.dirs[eid], newDirection];
 
   Direction[eid] = newDirection;
@@ -434,8 +438,12 @@ export default class PlayerSystem extends SystemSerializable {
       // Process one turn (max one per tick)
       const playerId = PlayerId[eid];
       const input = getInput?.(playerId);
+
+      const vxBefore = Velocity.vx[eid];
+      const vyBefore = Velocity.vy[eid];
+
       if (input?.turn) {
-        executeTurn(this.room, eid, input.turn, this.room.clock.tickTimeMs);
+        executeTurn(this.room, eid, input.turn, this.room.clock.tickTimeMs, input.alpha ?? 0);
       }
 
       // Build detection rays
@@ -489,8 +497,14 @@ export default class PlayerSystem extends SystemSerializable {
       }
 
       // ─── Move ────────────────────────────────────────────────────────────────
-      Position.x[eid] += Velocity.vx[eid] / 1000;
-      Position.y[eid] += Velocity.vy[eid] / 1000;
+      if (input?.turn) {
+        const alpha = input.alpha ?? 0;
+        Position.x[eid] += (vxBefore / 1000) * alpha + (Velocity.vx[eid] / 1000) * (1 - alpha);
+        Position.y[eid] += (vyBefore / 1000) * alpha + (Velocity.vy[eid] / 1000) * (1 - alpha);
+      } else {
+        Position.x[eid] += Velocity.vx[eid] / 1000;
+        Position.y[eid] += Velocity.vy[eid] / 1000;
+      }
 
       // Clamp rubber
       Rubber[eid] = clamp(Rubber[eid], 0, BASE_RUBBER);

@@ -184,10 +184,9 @@ export class ClientNetworkSystem extends System {
     this.channel.emit('request_init');
   }
 
-  sendInput(obj: { tick: number; turn?: 'left' | 'right'; break?: boolean }): void {
+  sendInput(obj: { tick: number; turn?: 'left' | 'right'; break?: boolean; alpha?: number }): void {
     if (!this._connected) return;
-
-    this.channel.emit('client_turn', [{ tick: obj.tick, turn: obj.turn }]);
+    this.channel.emit('client_turn', [{ tick: obj.tick, turn: obj.turn, alpha: obj.alpha }]);
   }
 
   sendRespawn(): void {

@@ -33,6 +33,7 @@ export class GameScene extends Scene {
 
   isConnected: boolean = false;
   menuOpen: boolean = false;
+  phase: 'idle' | 'stabilizing' | 'playing' = 'idle';
 
   gameClock: GameClock;
   room?: ECSGameRoom;
@@ -78,6 +79,7 @@ export class GameScene extends Scene {
   /** Connect to a game server, creating the ECS room and starting the simulation. */
   connectToServer(host: string, port: number): void {
     if (this.isConnected) return;
+    this.phase = 'stabilizing';
     EventBus.emit('connection-state', 'connecting');
 
     this.networkClient.connect(host, port);
@@ -246,15 +248,23 @@ export class GameScene extends Scene {
 
     Object.entries(keyMappings).forEach(([key, direction]) => {
       this.input.keyboard?.on(`keydown-${key}`, () => {
-        if (this.menuOpen || !this.isConnected) return;
+        if (this.menuOpen || this.phase !== 'playing') return;
         if (!this.isKeyDown[key]) {
           this.isKeyDown[key] = true;
           if (this.humanEid >= 0) {
             const targetTick = this.room!.tick + this._pendingTurnCount;
+            const alpha = this.room!.clock.getAlpha();
             this.networkClient.sendInput({
               tick: targetTick,
               turn: direction as 'left' | 'right',
               break: false,
+              alpha,
+            });
+            this.room!.clientAddLocalInput({
+              tick: targetTick,
+              turn: direction as 'left' | 'right',
+              playerId: this.room!.localPlayerId,
+              alpha,
             });
             this._pendingTurnCount++;
           } else {
@@ -279,9 +289,7 @@ export class GameScene extends Scene {
    * This callback only reads the ECS state and draws.
    */
   update(_time: any, delta: number) {
-    if (!this.isConnected || !this.room) {
-      return;
-    }
+    if (!this.room) return;
 
     // Tab resume — request full state sync
     if (delta > 10000) {
@@ -298,6 +306,19 @@ export class GameScene extends Scene {
     if (this.room.localPlayerEid) {
       this.humanEid = this.room.localPlayerEid;
     }
+
+    // -- non-playing phases: wait for clock stabilisation --------------------
+    if (this.phase !== 'playing') {
+      if (this.phase === 'stabilizing' && this.clockSync.isWarmedUp()) {
+        this.phase = 'playing';
+        this.networkClient.sendRespawn();
+        EventBus.emit('game-start');
+      }
+      this.debugHud.update(_time);
+      return;
+    }
+
+    // -- playing phase ------------------------------------------------------
 
     // Game over overlay (still render the scene underneath)
     if (this.humanEid >= 0 && IsAlive[this.humanEid] !== 1) {

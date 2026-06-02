@@ -128,7 +128,7 @@ export class ServerNetworkSystem extends System {
       const sessionToken = this.sessionByChannelId.get(channel.id!);
       if (!sessionToken) return;
 
-      const inputs: { tick: number; turn: 'left' | 'right' }[] = Array.isArray(data) ? data : [data];
+      const inputs: { tick: number; turn: 'left' | 'right'; alpha?: number }[] = Array.isArray(data) ? data : [data];
       for (const input of inputs) {
         logger.warn('received input from client, diff', input.tick - this.room.tick);
 
@@ -137,6 +137,7 @@ export class ServerNetworkSystem extends System {
           playerId: sessionToken,
           break: false,
           tick: input.tick,
+          alpha: input.alpha,
         });
       }
     };

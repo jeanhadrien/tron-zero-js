@@ -23,17 +23,14 @@ export interface ITickRingBuffer<V, K extends string = string> {
  * @typeParam V  – the value stored (PlayerInput, MonsterAICommand, …)
  * @typeParam K  – the entity key type (default `string`)
  */
-export class TickRingBuffer<
-  V,
-  K extends string = string,
-> implements ITickRingBuffer<V, K> {
+export class TickRingBuffer<V, K extends string = string> implements ITickRingBuffer<V, K> {
   private readonly slots: Array<{
     tick: number;
     map: Map<K, V>;
   }>;
   private readonly capacity: number;
   private newestTick: number = -1;
-  constructor(capacity: number = 1024) {
+  constructor(capacity: number = 128) {
     this.capacity = capacity;
     this.slots = new Array(capacity);
     for (let i = 0; i < capacity; i++) {
@@ -68,6 +65,15 @@ export class TickRingBuffer<
   }
   getUnacked(lastAckedTick: number, key: K): (V | null)[] {
     return this.getWindow(lastAckedTick + 1, this.newestTick, key);
+  }
+  /** Get and remove — one-shot read for inputs that must not survive replay. */
+  consume(tick: number, key: K): V | null {
+    const val = this.get(tick, key);
+    if (val !== null) {
+      const slot = this.slots[this.slotIndex(tick)];
+      slot.map.delete(key);
+    }
+    return val;
   }
   get latestTick(): number {
     return this.newestTick;

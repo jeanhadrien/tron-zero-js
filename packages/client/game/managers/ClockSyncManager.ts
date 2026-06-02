@@ -60,9 +60,15 @@ export class ClockSyncManager {
   private room: ECSGameRoom | null = null;
   private _storedTickError: number | null = null;
 
+  private _warmedUp = false;
+  private _stableStreak = 0;
+  private _lastRawOWD = -1;
+
   private static readonly GAIN = 0.1;
   private static readonly MAX_CORRECTION = 0.25;
   private static readonly DEFAULT_LEAD_TICKS = 3;
+  private static readonly STABILITY_THRESHOLD_MS = 5;
+  private static readonly MIN_STABLE_COUNT = 3;
 
   // -- lifecycle ---------------------------------------------------------------
 
@@ -75,21 +81,49 @@ export class ClockSyncManager {
   reset(): void {
     this.buffer.clear();
     this._storedTickError = null;
+    this._warmedUp = false;
+    this._stableStreak = 0;
+    this._lastRawOWD = -1;
   }
 
   // -- data intake -------------------------------------------------------------
 
   /**
    * Called synchronously from {@link ClientNetworkSystem._onPong}.
-   * Computes `storedTickError` at the exact moment the pong arrived so
-   * the per‑frame controller can act on it continuously.
+   *
+   * During warmup, raw OWD is tracked until it stabilises (3 consecutive
+   * samples within {@link STABILITY_THRESHOLD_MS}).  Once stable, the
+   * polluted warmup samples are discarded and the EWMA starts fresh.
    */
   recordPing(rttMs: number, serverTick: number): void {
     if (!this.room || this.room.replaying) return;
 
+    const rawOWD = rttMs / 2;
+
+    // -- warmup: wait for raw OWD to settle --------------------------------
+    if (!this._warmedUp) {
+      if (this._lastRawOWD >= 0) {
+        if (Math.abs(rawOWD - this._lastRawOWD) <= ClockSyncManager.STABILITY_THRESHOLD_MS) {
+          this._stableStreak++;
+        } else {
+          this._stableStreak = 0;
+        }
+      }
+      this._lastRawOWD = rawOWD;
+
+      if (this._stableStreak >= ClockSyncManager.MIN_STABLE_COUNT) {
+        this._warmedUp = true;
+        this.buffer.clear();
+        // fall through to normal processing with this clean sample
+      } else {
+        return;
+      }
+    }
+
+    // -- normal: push and compute tickError --------------------------------
     const sample: PingSample = {
       rttMs,
-      owdMs: rttMs / 2,
+      owdMs: rawOWD,
       serverTick,
       clientTimeMs: performance.now(),
     };
@@ -108,6 +142,11 @@ export class ClockSyncManager {
   }
 
   // -- queries -----------------------------------------------------------------
+
+  /** Whether the warmup phase is complete and the EWMA rests on clean data. */
+  isWarmedUp(): boolean {
+    return this._warmedUp;
+  }
 
   /**
    * How many ticks the client should jump ahead of the server on init/reset.

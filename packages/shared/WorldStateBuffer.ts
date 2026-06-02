@@ -14,7 +14,7 @@ export type Type = ArrayBuffer;
 export class WorldStateTickRingBuffer {
   private buffer: TickRingBuffer<Type>;
 
-  constructor(capacity = 1024) {
+  constructor(capacity = 128) {
     this.buffer = new TickRingBuffer<Type>(capacity);
   }
 

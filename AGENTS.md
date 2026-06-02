@@ -33,6 +33,8 @@ The project is currently in prototyping phase and needs to move forward. Feel fr
 
 You can refactor freely as long as you clearly state changes to the user afterwards.  
 
+Never do hacks to make it work. Prefere clean, maintainable architecture. If something needs to be reconsidered, tell the user.
+
 ## Coding guidelines
 
 Prefer high-level and meaningful system and function names. Always leave a little comment for functions you create with the intended usage. 
