@@ -1,7 +1,6 @@
 import { createSignal, onMount, onCleanup } from 'solid-js';
 import { PhaserGame } from './PhaserGame';
 import DebugConsole from './components/DebugConsole';
-import FpsCounter from './components/FpsCounter';
 import Chat from './components/Chat';
 import MainMenu from './components/MainMenu';
 import { EventBus } from './game/managers/EventBus';
@@ -28,7 +27,6 @@ const App = () => {
             />
             <MainMenu />
             <DebugConsole />
-            <FpsCounter />
             <Chat />
             <div style={{
                 position: 'absolute',

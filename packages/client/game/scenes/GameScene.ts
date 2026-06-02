@@ -45,7 +45,6 @@ export class GameScene extends Scene {
   private _simLoopHandle: number | null = null;
   private _lastSimTime: number = 0;
 
-  lastFpsEmitTime: number = 0;
   gameAreaRenderer: GameAreaRenderer;
   gameCamera: GameCamera;
   audioManager: AudioManager;
@@ -112,6 +111,7 @@ export class GameScene extends Scene {
       return tt && ref ? (tt / ref).toFixed(3) : '-';
     });
     this.debugHud.add('Lead', () => this.clockSync?.getLeadTicks() ?? '-');
+    this.debugHud.add('FPS', () => this.game.loop.actualFps);
 
     this._startSimulationLoop();
   }
@@ -359,12 +359,6 @@ export class GameScene extends Scene {
     // Rubber death detection
     if (this.humanEid >= 0 && Rubber[this.humanEid] <= 0 && IsAlive[this.humanEid] === 1) {
       EventBus.emit('game-over', 'ai');
-    }
-
-    // FPS counter
-    if (_time - this.lastFpsEmitTime > 50) {
-      this.lastFpsEmitTime = _time;
-      EventBus.emit('fps-update', this.game.loop.actualFps);
     }
 
     this.debugHud.update(_time);
