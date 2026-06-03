@@ -18,6 +18,7 @@ import PlayerSystem, {
 } from '@tron0/shared/systems/PlayerSystem';
 import { ClockSyncManager } from '../managers/ClockSyncManager';
 import { query } from 'bitecs';
+import { GameEventType } from '@tron0/shared/interfaces/GameEvent';
 import type {
   MainToWorkerMessage,
   PlayerRenderDatum,
@@ -167,7 +168,15 @@ self.onmessage = (e: MessageEvent<MainToWorkerMessage>) => {
     }
 
     case 'respawn': {
-      // Handled server-side — main thread sends respawn request to server.
+      // Client-side respawn prediction — spawn instantly, server confirms later via replay.
+      const eid = room.localPlayerEid;
+      if (eid >= 0 && IsAlive[eid] !== 1) {
+        room.gameEventBuffer.record(room.tick, {
+          tick: room.tick,
+          type: GameEventType.PlayerSpawn,
+          playerId: room.localPlayerId,
+        });
+      }
       break;
     }
 

@@ -306,6 +306,7 @@ export class GameScene extends Scene {
       if (this.phase === 'stabilizing' && this._clockWarmedUp) {
         this.phase = 'playing';
         this.networkClient.sendRespawn();
+        this.workerManager.sendRespawn();
         EventBus.emit('game-start');
       }
       this.debugHud.update(_time);
@@ -333,6 +334,7 @@ export class GameScene extends Scene {
 
         if (this.spaceKey.isDown) {
           this.networkClient.sendRespawn();
+          this.workerManager.sendRespawn();
           EventBus.emit('game-start');
         }
       }

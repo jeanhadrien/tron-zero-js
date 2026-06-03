@@ -19,7 +19,7 @@ You're either working for the **client** (`packages/client/*`), the **server** (
 
 ## Documentation
 
-Always read the relevant .md files in ./docs about netcode, game rules, ecs...
+Always read the relevant .md files in ./docs. You'll find the reference design documents for netcode, game rules, ecs simulation...
 
 ## User
 
