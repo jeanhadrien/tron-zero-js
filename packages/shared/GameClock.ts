@@ -72,6 +72,11 @@ export default class GameClock {
     return Math.min(1.0, elapsed / this.tickTimeMs);
   }
 
+  /** Override the tick duration (used by clock-sync P-controller). */
+  setTickTimeMs(ms: number): void {
+    this.tickTimeMs = ms;
+  }
+
   /**
    * Resets the clock's accumulator.
    */

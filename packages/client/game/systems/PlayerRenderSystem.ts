@@ -1,20 +1,5 @@
 import { GameObjects } from 'phaser';
-import { query } from 'bitecs';
-import { ECSGameRoom } from '@tron0/shared/ECSGameRoom';
-import { eventGetter, inputGetter, System } from '@tron0/shared/interfaces/System';
-import PlayerSystem, {
-  Position,
-  Direction,
-  Color,
-  SpeedMult,
-  Velocity,
-  IsAlive,
-  TrailPoints,
-  Player,
-  PlayerId,
-  PingInTicks,
-} from '@tron0/shared/systems/PlayerSystem';
-import { GameEventType } from '@tron0/shared/interfaces/GameEvent';
+import type { PlayerRenderDatum, TickRenderOutput } from '@tron0/shared/WorkerProtocol';
 
 interface PlayerStateSnapshot {
   tick: number;
@@ -32,12 +17,14 @@ interface PlayerStateSnapshot {
 const MAX_SNAPSHOT_AGE = 60;
 const TRAIL_WIDTH = 2;
 
-export class PlayerRenderSystem extends System {
-  readonly key = 'player-render';
-
-  localPlayerEid: number = -1;
-
-  private room: ECSGameRoom;
+/**
+ * Pure rendering system — consumes {@link TickRenderOutput} batches from the
+ * simulation Worker and draws lightcycles, trails, and name tags.
+ *
+ * No longer an ECS System; does not read {@link Position}, {@link TrailPoints},
+ * or any other ECS component directly.
+ */
+export class PlayerRenderSystem {
   private scene: Phaser.Scene;
 
   private staticTrailGraphics: GameObjects.Graphics;
@@ -45,116 +32,106 @@ export class PlayerRenderSystem extends System {
   private driverGraphics: GameObjects.Graphics;
   private nameTexts: Map<number, GameObjects.Text> = new Map();
 
-  private history: Map<number, PlayerStateSnapshot[]> = new Map();
+  /** Snapshot history per player eid (for remote-player interpolation). */
+  private _history: Map<number, PlayerStateSnapshot[]> = new Map();
+
+  /** Latest datum per player (for local-player extrapolation and rubber checks). */
+  private _latest: Map<number, PlayerRenderDatum> = new Map();
 
   constructor(scene: Phaser.Scene) {
-    super();
     this.scene = scene;
   }
 
-  getComponents(): object[] {
-    return [];
-  }
+  private _initialized: boolean = false;
 
-  init(room: ECSGameRoom): void {
-    this.room = room;
+  // ── Lifecycle ────────────────────────────────────────────────────────────
+
+  init(): void {
+    if (this._initialized) return;
+    this._initialized = true;
 
     this.staticTrailGraphics = this.scene.add.graphics().setDepth(1);
     this.activeTrailGraphics = this.scene.add.graphics().setDepth(2);
     this.driverGraphics = this.scene.add.graphics().setDepth(10);
   }
 
-  update(_getInput: inputGetter, getEvents: eventGetter): void {
-    const tick = this.room.tick;
+  destroy(): void {
+    for (const text of this.nameTexts.values()) text.destroy();
+    this.nameTexts.clear();
+    this.staticTrailGraphics?.destroy();
+    this.activeTrailGraphics?.destroy();
+    this.driverGraphics?.destroy();
+    this._initialized = false;
+  }
 
-    // Handle lifecycle events to clean up stale history
-    if (getEvents) {
-      for (const event of getEvents()) {
-        if (event.type === GameEventType.PlayerSpawn || event.type === GameEventType.PlayerLeft) {
-          let eid: number | undefined;
-          if (event.entityId !== undefined) {
-            eid = event.entityId;
-          } else if (event.playerId) {
-            try {
-              eid = PlayerSystem.getPlayerEidByStringId(this.room, event.playerId);
-            } catch {
-              continue;
-            }
-          }
-          if (eid !== undefined) {
-            this.history.delete(eid);
-            const text = this.nameTexts.get(eid);
-            if (text) {
-              text.destroy();
-              this.nameTexts.delete(eid);
-            }
-          }
+  // ── Data intake from Worker ──────────────────────────────────────────────
+
+  /**
+   * Feed one or more tick outputs from the Worker into the local history
+   * buffer. Replay-safe — snapshots for the same tick overwrite.
+   */
+  consumeWorkerOutput(ticks: TickRenderOutput[]): void {
+    for (const output of ticks) {
+      for (const datum of output.players) {
+        // Respawn detection: trail reset to a single point
+        if (datum.trailXs.length === 1) {
+          this._history.delete(datum.eid);
         }
-      }
-    }
 
-    for (const eid of Array.from(query(this.room.world, [Player]))) {
-      if (IsAlive[eid] !== 1) continue;
+        const snapshot: PlayerStateSnapshot = {
+          tick: datum.tick,
+          x: datum.x,
+          y: datum.y,
+          direction: datum.direction,
+          color: datum.color,
+          speedMult: datum.speedMult,
+          isAlive: datum.isAlive,
+          trailXs: datum.trailXs,
+          trailYs: datum.trailYs,
+          tickTimeMs: datum.tickTimeMs,
+        };
 
-      const trailXs = [...(TrailPoints.xs[eid] ?? [])];
-      const trailYs = [...(TrailPoints.ys[eid] ?? [])];
+        let list = this._history.get(datum.eid);
+        if (!list) {
+          list = [];
+          this._history.set(datum.eid, list);
+        }
 
-      // Respawn detection: trail reset to a single point = fresh spawn, clear stale history
-      if (trailXs.length === 1) {
-        this.history.delete(eid);
-      }
+        // Replay-safe: overwrite last entry if same tick
+        if (list.length > 0 && list[list.length - 1].tick === datum.tick) {
+          list[list.length - 1] = snapshot;
+        } else {
+          list.push(snapshot);
+        }
 
-      const snapshot: PlayerStateSnapshot = {
-        tick,
-        x: Position.x[eid],
-        y: Position.y[eid],
-        direction: Direction[eid],
-        color: Color[eid],
-        speedMult: SpeedMult[eid],
-        isAlive: true,
-        trailXs,
-        trailYs,
-        tickTimeMs: this.room.clock.tickTimeMs,
-      };
+        // Trim old entries
+        while (list.length > 0 && list[0].tick < datum.tick - MAX_SNAPSHOT_AGE) {
+          list.shift();
+        }
 
-      let list = this.history.get(eid);
-      if (!list) {
-        list = [];
-        this.history.set(eid, list);
-      }
-
-      // Replay-safe: overwrite the last entry if it has the same tick (re-simulation)
-      if (list.length > 0 && list[list.length - 1].tick === tick) {
-        list[list.length - 1] = snapshot;
-      } else {
-        list.push(snapshot);
-      }
-
-      // Trim old entries
-      while (list.length > 0 && list[0].tick < tick - MAX_SNAPSHOT_AGE) {
-        list.shift();
+        this._latest.set(datum.eid, datum);
       }
     }
   }
 
-  /**
-   * Render the current ECS state.
-   * @param alpha Interpolation factor (0 = current tick, 1 = projected to next tick).
-   *              Only used for the local player; remote players use snapshot lookup.
-   */
-  render(alpha: number = 0): void {
-    const tick = this.room.tick;
+  // ── Rendering ────────────────────────────────────────────────────────────
 
+  /**
+   * Render all alive players.
+   * @param alpha          0..1 interpolation factor (0 = at tick, 1 = projected to next)
+   * @param localPlayerEid EID of the local human player
+   * @param currentTick    Latest simulation tick
+   * @param tickTimeMs     Current tick duration (for remote-player scale correction)
+   */
+  render(alpha: number, localPlayerEid: number, currentTick: number, tickTimeMs: number): void {
     this.staticTrailGraphics.clear();
     this.activeTrailGraphics.clear();
     this.driverGraphics.clear();
 
-    const living = new Set(query(this.room.world, [Player]));
+    for (const [eid, datum] of this._latest) {
+      if (!datum.isAlive) continue;
 
-    for (const eid of living) {
-      if (IsAlive[eid] !== 1) continue;
-
-      const isLocal = eid === this.localPlayerEid;
+      const isLocal = eid === localPlayerEid;
 
       let renderX: number;
       let renderY: number;
@@ -165,22 +142,22 @@ export class PlayerRenderSystem extends System {
 
       if (isLocal) {
         // Local player — extrapolate from current position toward next tick
-        renderX = Position.x[eid] + (Velocity.vx[eid] / 1000) * alpha;
-        renderY = Position.y[eid] + (Velocity.vy[eid] / 1000) * alpha;
-        direction = Direction[eid];
-        color = Color[eid];
-        xs = TrailPoints.xs[eid] ?? [];
-        ys = TrailPoints.ys[eid] ?? [];
+        renderX = datum.x + (datum.vx / 1000) * alpha;
+        renderY = datum.y + (datum.vy / 1000) * alpha;
+        direction = datum.direction;
+        color = datum.color;
+        xs = datum.trailXs;
+        ys = datum.trailYs;
       } else {
         // Remote player — lerp between two snapshots with scale correction for clock drift
-        const delay = Math.round(PingInTicks[eid] ?? 0);
-        const targetTick = tick - delay;
+        const delay = Math.round(datum.pingInTicks ?? 0);
+        const targetTick = currentTick - delay;
         const curr = this._lookup(eid, targetTick);
         if (!curr) continue;
         const prev = this._lookup(eid, targetTick - 1);
 
         const a = Math.min(1, Math.max(0, alpha));
-        const scale = this.room.clock.tickTimeMs / curr.tickTimeMs;
+        const scale = tickTimeMs / curr.tickTimeMs;
 
         renderX = prev ? prev.x + (curr.x - prev.x) * a * scale : curr.x;
         renderY = prev ? prev.y + (curr.y - prev.y) * a * scale : curr.y;
@@ -200,16 +177,17 @@ export class PlayerRenderSystem extends System {
       this._updateNameText(eid, renderX, renderY);
     }
 
-    this._cleanupTexts(living);
+    this._cleanupTexts();
   }
 
-  destroy(): void {
-    for (const text of this.nameTexts.values()) text.destroy();
-    this.nameTexts.clear();
-    this.staticTrailGraphics?.destroy();
-    this.activeTrailGraphics?.destroy();
-    this.driverGraphics?.destroy();
+  // ── Query helpers ─────────────────────────────────────────────────────────
+
+  /** Get the latest datum for a player (for camera follow, rubber checks, etc.). */
+  getLatest(eid: number): PlayerRenderDatum | undefined {
+    return this._latest.get(eid);
   }
+
+  // ── Private drawing ──────────────────────────────────────────────────────
 
   private _drawLightcycle(x: number, y: number, direction: number, color: number): void {
     const θ = direction + Math.PI / 2;
@@ -258,21 +236,23 @@ export class PlayerRenderSystem extends System {
         .setDepth(20);
       this.nameTexts.set(eid, text);
     }
+    const datum = this._latest.get(eid);
     text.setVisible(true);
-    text.setText((PlayerId[eid] ?? '').substring(0, 16));
+    text.setText((datum?.playerId ?? '').substring(0, 16));
     text.setPosition(x, y - 15);
   }
 
-  private _cleanupTexts(living: Set<number>): void {
+  private _cleanupTexts(): void {
     for (const [eid, text] of this.nameTexts) {
-      if (!living.has(eid) || IsAlive[eid] !== 1) {
+      const datum = this._latest.get(eid);
+      if (!datum || !datum.isAlive) {
         text.setVisible(false);
       }
     }
   }
 
   private _lookup(eid: number, targetTick: number): PlayerStateSnapshot | null {
-    const list = this.history.get(eid);
+    const list = this._history.get(eid);
     if (!list || list.length === 0) return null;
     for (let i = list.length - 1; i >= 0; i--) {
       if (list[i].tick <= targetTick) return list[i];

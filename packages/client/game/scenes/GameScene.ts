@@ -1,30 +1,27 @@
 import { Scene } from 'phaser';
 import { EventBus } from '../managers/EventBus';
 import DebugHud from '../gameobjects/DebugHud';
-import GameClock from '@tron0/shared/GameClock';
+import GameArea from '@tron0/shared/systems/GameArenaSystem';
 import GameAreaRenderer from '../gameobjects/GameAreaRenderer';
 import AudioManager from '../managers/AudioManager';
-
 import GameCamera from '../gameobjects/GameCamera';
 import { Logger } from '@tron0/shared/Logger';
 import { trace } from '@opentelemetry/api';
-import PlayerSystem, { Position, Rubber, IsAlive } from '@tron0/shared/systems/PlayerSystem';
-import { ECSGameRoom } from '@tron0/shared/ECSGameRoom';
-import GameArea, { GameArenaSystem } from '@tron0/shared/systems/GameArenaSystem';
-import { ClientNetworkSystem } from '../systems/ClientNetworkSystem';
+import { ClientNetworkSystem, NetworkDataHandler } from '../managers/ClientNetworkSystem';
 import { PlayerRenderSystem } from '../systems/PlayerRenderSystem';
-import { ClientChatSystem } from '../systems/ClientChatSystem';
-import { ClockSyncManager } from '../managers/ClockSyncManager';
+import { ClientChatSystem } from '../managers/ClientChatSystem';
+import { SimulationWorkerManager } from '../workers/SimulationWorkerManager';
 
 const logger = new Logger('Game');
 const tracer = trace.getTracer('tron-zero-client');
+
+const DEFAULT_TICK_MS = 1000 / 60;
 
 export class GameScene extends Scene {
   CANVAS_WIDTH: number;
   CANVAS_HEIGHT: number;
 
   isKeyDown: Record<string, boolean>;
-  isLocalPlayerAlive: boolean;
   gameOverText: Phaser.GameObjects.Text;
   restartText: Phaser.GameObjects.Text;
   spaceKey: Phaser.Input.Keyboard.Key;
@@ -35,16 +32,8 @@ export class GameScene extends Scene {
   menuOpen: boolean = false;
   phase: 'idle' | 'stabilizing' | 'playing' = 'idle';
 
-  gameClock: GameClock;
-  room?: ECSGameRoom;
-
   debugHud: DebugHud;
   gameArea: GameArea;
-
-  private _pendingTurnCount: number = 0;
-  private _simLoopHandle: number | null = null;
-  private _lastSimTime: number = 0;
-
   gameAreaRenderer: GameAreaRenderer;
   gameCamera: GameCamera;
   audioManager: AudioManager;
@@ -52,7 +41,13 @@ export class GameScene extends Scene {
   renderSystem: PlayerRenderSystem;
   networkClient: ClientNetworkSystem;
   chatSystem: ClientChatSystem;
-  clockSync: ClockSyncManager;
+  workerManager: SimulationWorkerManager;
+
+  private _referenceTickTimeMs: number = DEFAULT_TICK_MS;
+  private _pendingTurnCount: number = 0;
+  private _simLoopHandle: number | null = null;
+  private _lastSimTime: number = 0;
+  private _clockWarmedUp: boolean = false;
 
   constructor() {
     super('Game');
@@ -62,92 +57,89 @@ export class GameScene extends Scene {
     this.CANVAS_WIDTH = this.scale.width;
     this.CANVAS_HEIGHT = this.scale.height;
     this.gameArea = new GameArea();
-    this.gameClock = new GameClock();
     this.debugHud = new DebugHud(this);
     this.audioManager = new AudioManager(this);
 
     this.networkClient = new ClientNetworkSystem();
     this.renderSystem = new PlayerRenderSystem(this);
     this.chatSystem = new ClientChatSystem(() => this.networkClient.channel);
-    this.clockSync = new ClockSyncManager();
+    this.workerManager = new SimulationWorkerManager();
 
     this.gameAreaRenderer = new GameAreaRenderer(this, this.gameArea);
     this.gameCamera = new GameCamera(this, this.gameArea, this.audioManager);
   }
 
-  /** Connect to a game server, creating the ECS room and starting the simulation. */
+  /** Connect to a game server, spawning the simulation Worker and wiring everything. */
   connectToServer(host: string, port: number): void {
     if (this.isConnected) return;
     this.phase = 'stabilizing';
+    this._clockWarmedUp = false;
     EventBus.emit('connection-state', 'connecting');
 
+    // 1. Spawn the simulation Worker
+    this._stopSimulationLoop();
+    this.workerManager.destroy(); // clean up any previous worker
+    this.workerManager.onReady = (_tick: number, _leadTicks: number) => {
+      logger.info('Worker sim ready');
+    };
+    this.workerManager.init({
+      referenceTickTimeMs: this._referenceTickTimeMs,
+      snapshotGapTicks: 0, // Worker updates this as ping data arrives
+      snapshotPeriodX: 10,
+      sessionToken: this.networkClient.sessionToken,
+    });
+
+    // 2. Wire network → Worker relay
+    const relay: NetworkDataHandler = {
+      onInitState: (tick, snapshot) => this.workerManager.sendInitState(tick, snapshot),
+      onSyncState: (tick, data, struct) => this.workerManager.sendSyncState(tick, data, struct),
+      onPong: (rttMs, serverTick) => this.workerManager.sendPong(rttMs, serverTick),
+    };
+    this.networkClient.setHandler(relay);
+
+    // 3. Connect the network
     this.networkClient.connect(host, port);
 
-    this.networkClient.setClockSync(this.clockSync);
+    // 4. Wire chat after channel exists
+    this.chatSystem.wire();
 
-    this.room = new ECSGameRoom(this.gameClock, [
-      new GameArenaSystem(),
-      new PlayerSystem(),
-      this.networkClient,
-      this.renderSystem,
-      this.chatSystem,
-    ]);
+    // 4. Wire render system
+    this.renderSystem.init();
 
-    this.room.snapshotPeriodX = 10;
-
-    this.clockSync.attach(this.room);
-
-    this.debugHud.add('OWD', () => {
-      const owd = this.clockSync?.smoothedOWD;
-      return owd != null ? owd.toFixed(1) + 'ms' : '-';
-    });
-    this.debugHud.add('TickErr', () => {
-      const err = this.clockSync?.storedTickError;
-      return err != null ? err.toFixed(1) : '-';
-    });
-    this.debugHud.add('Scale', () => {
-      const tt = this.room?.clock.tickTimeMs;
-      const ref = this.room?.clock.referenceTickTimeMs;
-      return tt && ref ? (tt / ref).toFixed(3) : '-';
-    });
-    this.debugHud.add('Lead', () => this.clockSync?.getLeadTicks() ?? '-');
+    // 5. Debug HUD — read from Worker state
+    this.debugHud.add('OWD', () => '-');
+    this.debugHud.add('TickErr', () => '-');
+    this.debugHud.add('Scale', () => '-');
+    this.debugHud.add('Lead', () => '-');
+    this.debugHud.add('Tick', () => this.workerManager.latestCurrentTick);
     this.debugHud.add('FPS', () => this.game.loop.actualFps);
 
+    // 6. Start the simulation driver loop
     this._startSimulationLoop();
   }
 
-  // -- simulation loop (setInterval, separate from Phaser's render) ----------
+  // ── Simulation driver loop (setInterval) ─────────────────────────────────
 
   /**
-   * Runs simulation ticks on a fixed cadence via {@link setInterval}.
-   * Yields to the browser between calls so painting is never blocked by
-   * simulation bursts. Clock sync adjustment and input consumption happen here.
+   * Sends fixed-interval {@code delta_time} messages to the Worker.
+   * The Worker owns clock sync, accumulator, and tick processing.
    */
   private _startSimulationLoop(): void {
     if (this._simLoopHandle !== null) return;
     this._lastSimTime = performance.now();
     this._simLoopHandle = window.setInterval(() => {
-      if (!this.room) return;
-
       const now = performance.now();
       const delta = now - this._lastSimTime;
       this._lastSimTime = now;
 
-      this.clockSync?.adjustClock();
-      this.room.clock.addDelta(delta);
+      this.workerManager.sendDeltaTime(delta);
 
-      // Update snapshot gap based on current ping estimate
-      const leadTicks = this.clockSync?.getLeadTicks() ?? 1;
-      const owdTicks = this.clockSync
-        ? this.clockSync.smoothedOWD / this.gameClock.referenceTickTimeMs
-        : 0;
-      this.room.snapshotGapTicks = leadTicks + Math.ceil(owdTicks);
-
-      // Cap burst to prevent spiral if the timer was delayed (GC, etc.)
-      for (let i = 0; i < 3; i++) {
-        if (!this.room.processNextTick()) break;
+      // Clock warmup detection: when worker is processing ticks, consider it warmed up.
+      // The worker's ClockSyncManager handles the actual OWD stabilisation internally.
+      if (!this._clockWarmedUp && this.workerManager.latestCurrentTick > 10) {
+        this._clockWarmedUp = true;
       }
-    }, this.gameClock.referenceTickTimeMs);
+    }, this._referenceTickTimeMs);
   }
 
   private _stopSimulationLoop(): void {
@@ -157,7 +149,7 @@ export class GameScene extends Scene {
     }
   }
 
-  // -- Phaser lifecycle ------------------------------------------------------
+  // ── Phaser lifecycle ─────────────────────────────────────────────────────
 
   preload() {
     this.load.setPath('assets');
@@ -174,8 +166,6 @@ export class GameScene extends Scene {
       this.CANVAS_WIDTH = gameSize.width;
       this.CANVAS_HEIGHT = gameSize.height;
     });
-
-    this.isLocalPlayerAlive = true;
 
     this.isKeyDown = {};
 
@@ -227,18 +217,15 @@ export class GameScene extends Scene {
     EventBus.on('game-start', () => {
       logger.info('game-start');
       this.audioManager.resume();
-
-      this.isLocalPlayerAlive = true;
-
       this.gameOverText.setVisible(false);
       this.restartText.setVisible(false);
-
       this.isKeyDown = {};
     });
 
     this.events.on('shutdown', () => {
       EventBus.off('game-resume', onGameResume);
       this._stopSimulationLoop();
+      this.workerManager.destroy();
     });
 
     this.spaceKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
@@ -261,20 +248,21 @@ export class GameScene extends Scene {
         if (!this.isKeyDown[key]) {
           this.isKeyDown[key] = true;
           if (this.humanEid >= 0) {
-            const targetTick = this.room!.tick + this._pendingTurnCount;
-            const alpha = this.room!.clock.getAlpha();
-            this.networkClient.sendInput({
+            const targetTick = this.workerManager.latestCurrentTick + this._pendingTurnCount;
+            const input = {
               tick: targetTick,
+              playerId: this.networkClient.sessionToken,
               turn: direction as 'left' | 'right',
               break: false,
-              alpha,
-            });
-            this.room!.clientAddLocalInput({
-              tick: targetTick,
-              turn: direction as 'left' | 'right',
-              playerId: this.room!.localPlayerId,
-              alpha,
-            });
+              alpha: 0,
+            };
+
+            // Send to server (authoritative)
+            this.networkClient.sendInput(input);
+
+            // Send to Worker (local prediction)
+            this.workerManager.sendPlayerInput(input, 'local');
+
             this._pendingTurnCount++;
           } else {
             logger.warn('Key ignored — humanEid is', this.humanEid);
@@ -291,15 +279,13 @@ export class GameScene extends Scene {
     span.end();
   }
 
-  // -- render loop (Phaser's rAF) --------------------------------------------
+  // ── Render loop (Phaser's rAF) ───────────────────────────────────────────
 
   /**
-   * Render-only. Simulation runs independently via {@link _startSimulationLoop}.
-   * This callback only reads the ECS state and draws.
+   * Render-only. Simulation runs in the Worker.
+   * Consumes {@link SimulationWorkerManager.latestOutput} to draw each frame.
    */
   update(_time: any, delta: number) {
-    if (!this.room) return;
-
     // Tab resume — request full state sync
     if (delta > 10000) {
       this.audioManager.resume();
@@ -308,17 +294,16 @@ export class GameScene extends Scene {
       } else {
         this.networkClient.reconnect();
       }
+      this.workerManager.destroy();
       return;
     }
 
-    // Sync local player EID from sim state
-    if (this.room.localPlayerEid) {
-      this.humanEid = this.room.localPlayerEid;
-    }
+    // Sync local player EID from Worker
+    this.humanEid = this.workerManager.localPlayerEid;
 
     // -- non-playing phases: wait for clock stabilisation --------------------
     if (this.phase !== 'playing') {
-      if (this.phase === 'stabilizing' && this.clockSync.isWarmedUp()) {
+      if (this.phase === 'stabilizing' && this._clockWarmedUp) {
         this.phase = 'playing';
         this.networkClient.sendRespawn();
         EventBus.emit('game-start');
@@ -329,36 +314,53 @@ export class GameScene extends Scene {
 
     // -- playing phase ------------------------------------------------------
 
-    // Game over overlay (still render the scene underneath)
-    if (this.humanEid >= 0 && IsAlive[this.humanEid] !== 1) {
-      const cx = this.cameras.main.worldView.centerX;
-      const cy = this.cameras.main.worldView.centerY;
-      const zoom = this.cameras.main.zoom;
+    // Feed Worker output to render system
+    if (this.workerManager.latestOutput.length > 0) {
+      this.renderSystem.consumeWorkerOutput(this.workerManager.latestOutput);
+      this.workerManager.latestOutput = [];
+    }
 
-      this.gameOverText.setPosition(cx, cy - 30 / zoom).setScale(1 / zoom);
-      this.restartText.setPosition(cx, cy + 30 / zoom).setScale(1 / zoom);
+    // Game over overlay
+    if (this.humanEid >= 0) {
+      const localDatum = this.renderSystem.getLatest(this.humanEid);
+      if (localDatum && !localDatum.isAlive) {
+        const cx = this.cameras.main.worldView.centerX;
+        const cy = this.cameras.main.worldView.centerY;
+        const zoom = this.cameras.main.zoom;
 
-      if (this.spaceKey.isDown) {
-        this.networkClient.sendRespawn();
-        EventBus.emit('game-start');
+        this.gameOverText.setPosition(cx, cy - 30 / zoom).setScale(1 / zoom);
+        this.restartText.setPosition(cx, cy + 30 / zoom).setScale(1 / zoom);
+
+        if (this.spaceKey.isDown) {
+          this.networkClient.sendRespawn();
+          EventBus.emit('game-start');
+        }
       }
     }
 
-    // Reset pending turn counter (input captured in keyboard handlers this frame)
+    // Reset pending turn counter
     this._pendingTurnCount = 0;
 
-    // Render the current ECS state
-    this.renderSystem.localPlayerEid = this.humanEid;
-    this.renderSystem.render(this.room.clock.getAlpha());
+    // Render
+    const alpha = this.workerManager.computeAlpha();
+    this.renderSystem.render(alpha, this.humanEid, this.workerManager.latestCurrentTick, this.workerManager.tickTimeMs);
 
-    // Camera follow
+    // Camera follow (use extrapolated position, consistent with render)
     if (this.humanEid >= 0) {
-      this.gameCamera.update(Position.x[this.humanEid], Position.y[this.humanEid]);
+      const localDatum = this.renderSystem.getLatest(this.humanEid);
+      if (localDatum) {
+        const renderX = localDatum.x + (localDatum.vx / 1000) * alpha;
+        const renderY = localDatum.y + (localDatum.vy / 1000) * alpha;
+        this.gameCamera.update(renderX, renderY);
+      }
     }
 
     // Rubber death detection
-    if (this.humanEid >= 0 && Rubber[this.humanEid] <= 0 && IsAlive[this.humanEid] === 1) {
-      EventBus.emit('game-over', 'ai');
+    if (this.humanEid >= 0) {
+      const localDatum = this.renderSystem.getLatest(this.humanEid);
+      if (localDatum && localDatum.rubber <= 0 && localDatum.isAlive) {
+        EventBus.emit('game-over', 'ai');
+      }
     }
 
     this.debugHud.update(_time);

@@ -44,6 +44,9 @@ export class ECSGameRoom {
   private _authStateTicks: Set<number> = new Set();
   tick: number = 0;
 
+  /** Hook fired after every tick transition (replay or forward). Worker uses this to capture render state. */
+  onTick?: (tick: number) => void;
+
   /** Current valid rewind anchor — always positioned ≤ currentTick - gap - 1. */
   private _rewindAnchor: { tick: number; buffer: ArrayBuffer } | null = null;
   /** Next anchor being aged in — promoted to _rewindAnchor once gap+1 ticks have passed. */
@@ -203,6 +206,7 @@ export class ECSGameRoom {
       if (sys.update) sys?.update(input, events);
     }
     this.tick += 1;
+    this.onTick?.(this.tick);
   }
 
   /** Batch-mode simulation — consume all accumulated ticks at once (server). */
