@@ -111,8 +111,8 @@ export class SimulationWorkerManager {
     this._post({ type: 'delta_time', deltaMs });
   }
 
-  sendRespawn(): void {
-    this._post({ type: 'respawn' });
+  sendRespawn(tick: number): void {
+    this._post({ type: 'respawn', tick });
   }
 
   // ── Incoming (worker → main) ─────────────────────────────────────────────

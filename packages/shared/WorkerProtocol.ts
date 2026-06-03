@@ -67,9 +67,10 @@ export interface DeltaTimeMessage {
   deltaMs: number;
 }
 
-/** Trigger a respawn for the local player. */
+/** Trigger a respawn for the local player at a specific simulation tick. */
 export interface RespawnMessage {
   type: 'respawn';
+  tick: number;
 }
 
 /** Chat message received from server — relay to UI via main thread. */

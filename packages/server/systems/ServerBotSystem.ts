@@ -92,7 +92,7 @@ export default class BotSystem extends System {
     for (let i = 1; i <= BOT_COUNT; i++) {
       const botId = `bot${i}`;
       PlayerSystem.createPlayer(this.room, botId);
-      PlayerSystem.spawnPlayer(this.room, botId);
+      PlayerSystem.spawnPlayer(this.room, botId, this.room.tick);
       const eid = PlayerSystem.getPlayerEidByStringId(this.room, botId);
       const strategy = randomStrategy();
       this.botEids.push(eid);

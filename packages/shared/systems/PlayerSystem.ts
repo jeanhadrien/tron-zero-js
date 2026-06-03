@@ -252,6 +252,25 @@ export function buildObstacleLinesExcluding(room: ECSGameRoom, selfEid: number):
   return lines;
 }
 
+function hashString(str: string): number {
+  let hash = 5381;
+  for (let i = 0; i < str.length; i++) {
+    hash = ((hash << 5) + hash) ^ str.charCodeAt(i);
+  }
+  return hash;
+}
+
+/** mulberry32 — fast, good distribution, deterministic given a 32-bit seed. */
+function mulberry32(seed: number): () => number {
+  let s = seed | 0;
+  return () => {
+    s = (s + 0x6D2B79F5) | 0;
+    let t = Math.imul(s ^ (s >>> 15), 1 | s);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
 function generatePlayerColor(): number {
   const r = 0x66 + Math.floor(Math.random() * (0x100 - 0x66));
   const g = 0x66 + Math.floor(Math.random() * (0x100 - 0x66));
@@ -327,7 +346,8 @@ export default class PlayerSystem extends SystemSerializable {
     return eid;
   }
 
-  static spawnPlayer(room: ECSGameRoom, playerId: string) {
+  /** Spawn a player at a deterministic position derived from playerId and the event's tick. */
+  static spawnPlayer(room: ECSGameRoom, playerId: string, seedTick: number) {
     logger.info('&&& Spawning entity', playerId);
     const eid = this.getPlayerEidByStringId(room, playerId);
 
@@ -340,9 +360,10 @@ export default class PlayerSystem extends SystemSerializable {
     const width = AreaWidth[arenaEid];
     const height = AreaHeight[arenaEid];
 
-    const x = 100 + Math.random() * (width - 200);
-    const y = 100 + Math.random() * (height - 200);
-    const direction = Math.floor(Math.random() * 4) * (Math.PI / 2);
+    const rng = mulberry32(hashString(playerId) ^ seedTick);
+    const x = 100 + rng() * (width - 200);
+    const y = 100 + rng() * (height - 200);
+    const direction = Math.floor(rng() * 4) * (Math.PI / 2);
     Position.x[eid] = x;
     Position.y[eid] = y;
     Direction[eid] = direction;
@@ -408,7 +429,7 @@ export default class PlayerSystem extends SystemSerializable {
           PlayerSystem.createPlayer(this.room, event.playerId!);
         }
         if (event.type === GameEventType.PlayerSpawn) {
-          PlayerSystem.spawnPlayer(this.room, event.playerId!);
+          PlayerSystem.spawnPlayer(this.room, event.playerId!, event.tick);
         }
         if (event.type === GameEventType.PlayerLeft) {
           const playerId = event.playerId;

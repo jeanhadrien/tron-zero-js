@@ -168,11 +168,11 @@ self.onmessage = (e: MessageEvent<MainToWorkerMessage>) => {
     }
 
     case 'respawn': {
-      // Client-side respawn prediction — spawn instantly, server confirms later via replay.
+      // Client-side respawn prediction — spawn instantly at the agreed tick, server confirms later via replay.
       const eid = room.localPlayerEid;
       if (eid >= 0 && IsAlive[eid] !== 1) {
-        room.gameEventBuffer.record(room.tick, {
-          tick: room.tick,
+        room.gameEventBuffer.record(msg.tick, {
+          tick: msg.tick,
           type: GameEventType.PlayerSpawn,
           playerId: room.localPlayerId,
         });

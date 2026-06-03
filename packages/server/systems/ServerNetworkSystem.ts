@@ -149,7 +149,7 @@ export class ServerNetworkSystem extends System {
       if (!sessionToken) return;
 
       const clientTick = (data as { clientTick?: number })?.clientTick ?? 0;
-      const targetTick = Math.max(this.room.tick + 1, clientTick);
+      const targetTick = Math.max(this.room.tick, clientTick);
       this.room.serverAddEvent({ type: GameEventType.PlayerSpawn, tick: targetTick, playerId: sessionToken });
     };
   }

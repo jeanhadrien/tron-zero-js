@@ -93,16 +93,10 @@ export class ClientNetworkSystem {
     this.channel.emit('request_init');
   }
 
-  /** Send a predicted input to the server for authoritative processing. */
-  sendInput(obj: { tick: number; turn?: 'left' | 'right'; break?: boolean; alpha?: number }): void {
+  /** Ask the server to respawn the local player at the given simulation tick. */
+  sendRespawn(tick: number): void {
     if (!this._connected) return;
-    this.channel.emit('client_turn', [{ tick: obj.tick, turn: obj.turn, alpha: obj.alpha }]);
-  }
-
-  /** Ask the server to respawn the local player. */
-  sendRespawn(): void {
-    if (!this._connected) return;
-    this.channel.emit('respawn', { clientTick: 0 });
+    this.channel.emit('respawn', { clientTick: tick });
   }
 
   /** Replace the current channel with a new one (tab resume). */

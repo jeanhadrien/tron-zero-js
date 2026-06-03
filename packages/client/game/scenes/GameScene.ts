@@ -11,6 +11,7 @@ import { ClientNetworkSystem, NetworkDataHandler } from '../managers/ClientNetwo
 import { PlayerRenderSystem } from '../systems/PlayerRenderSystem';
 import { ClientChatSystem } from '../managers/ClientChatSystem';
 import { SimulationWorkerManager } from '../workers/SimulationWorkerManager';
+import { InputManager } from '../input/InputManager';
 
 const logger = new Logger('Game');
 const tracer = trace.getTracer('tron-zero-client');
@@ -42,9 +43,9 @@ export class GameScene extends Scene {
   networkClient: ClientNetworkSystem;
   chatSystem: ClientChatSystem;
   workerManager: SimulationWorkerManager;
+  inputManager: InputManager;
 
   private _referenceTickTimeMs: number = DEFAULT_TICK_MS;
-  private _pendingTurnCount: number = 0;
   private _simLoopHandle: number | null = null;
   private _lastSimTime: number = 0;
   private _clockWarmedUp: boolean = false;
@@ -100,13 +101,22 @@ export class GameScene extends Scene {
     // 3. Connect the network
     this.networkClient.connect(host, port);
 
-    // 4. Wire chat after channel exists
+    // 4. Input manager — owns tick/alpha stamping and dispatch
+    this.inputManager = new InputManager(
+      this.networkClient.channel,
+      this.workerManager,
+      () => this.workerManager.latestCurrentTick,
+      () => this.workerManager.computeAlpha(),
+      this.networkClient.sessionToken,
+    );
+
+    // 5. Wire chat after channel exists
     this.chatSystem.wire();
 
-    // 4. Wire render system
+    // 6. Wire render system
     this.renderSystem.init();
 
-    // 5. Debug HUD — read from Worker state
+    // 7. Debug HUD — read from Worker state
     this.debugHud.add('OWD', () => '-');
     this.debugHud.add('TickErr', () => '-');
     this.debugHud.add('Scale', () => '-');
@@ -114,7 +124,7 @@ export class GameScene extends Scene {
     this.debugHud.add('Tick', () => this.workerManager.latestCurrentTick);
     this.debugHud.add('FPS', () => this.game.loop.actualFps);
 
-    // 6. Start the simulation driver loop
+    // 8. Start the simulation driver loop
     this._startSimulationLoop();
   }
 
@@ -248,22 +258,7 @@ export class GameScene extends Scene {
         if (!this.isKeyDown[key]) {
           this.isKeyDown[key] = true;
           if (this.humanEid >= 0) {
-            const targetTick = this.workerManager.latestCurrentTick + this._pendingTurnCount;
-            const input = {
-              tick: targetTick,
-              playerId: this.networkClient.sessionToken,
-              turn: direction as 'left' | 'right',
-              break: false,
-              alpha: 0,
-            };
-
-            // Send to server (authoritative)
-            this.networkClient.sendInput(input);
-
-            // Send to Worker (local prediction)
-            this.workerManager.sendPlayerInput(input, 'local');
-
-            this._pendingTurnCount++;
+            this.inputManager.turn(direction as 'left' | 'right');
           } else {
             logger.warn('Key ignored — humanEid is', this.humanEid);
           }
@@ -305,8 +300,9 @@ export class GameScene extends Scene {
     if (this.phase !== 'playing') {
       if (this.phase === 'stabilizing' && this._clockWarmedUp) {
         this.phase = 'playing';
-        this.networkClient.sendRespawn();
-        this.workerManager.sendRespawn();
+        const tick = this.workerManager.latestCurrentTick;
+        this.networkClient.sendRespawn(tick);
+        this.workerManager.sendRespawn(tick);
         EventBus.emit('game-start');
       }
       this.debugHud.update(_time);
@@ -333,15 +329,16 @@ export class GameScene extends Scene {
         this.restartText.setPosition(cx, cy + 30 / zoom).setScale(1 / zoom);
 
         if (this.spaceKey.isDown) {
-          this.networkClient.sendRespawn();
-          this.workerManager.sendRespawn();
+          const tick = this.workerManager.latestCurrentTick;
+          this.networkClient.sendRespawn(tick);
+          this.workerManager.sendRespawn(tick);
           EventBus.emit('game-start');
         }
       }
     }
 
-    // Reset pending turn counter
-    this._pendingTurnCount = 0;
+    // Reset pending input counter
+    this.inputManager.endFrame();
 
     // Render
     const alpha = this.workerManager.computeAlpha();
