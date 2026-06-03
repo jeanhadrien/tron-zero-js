@@ -2,15 +2,23 @@ import { ClientChannel } from '@geckos.io/client';
 import { PlayerInput } from '@tron0/shared/interfaces/PlayerInput';
 import { SimulationWorkerManager } from '../workers/SimulationWorkerManager';
 
+const MAX_INPUTS_PER_FLUSH = 16;
+const RETENTION_TICKS = 15;
+
 /**
- * Owns input creation, tick/alpha stamping, and dispatch to both
- * the server (via geckos channel) and the local simulation worker.
+ * Owns input creation, tick/alpha stamping, local prediction dispatch,
+ * and redundant server re‑transmission to survive UDP packet loss.
  *
- * GameScene calls turn()/break() on key events; the manager handles
- * everything else — no PlayerInput objects or network calls leak out.
+ * GameScene calls turn()/break() on key events and endFrame() once per
+ * render frame.  The manager sends every queued input to the simulation
+ * worker immediately (once), then re‑emits the full sliding window to
+ * the server every frame so that lost packets are covered by the next
+ * datagram.
  */
 export class InputManager {
   private _pendingInputCount = 0;
+  private _buffer: PlayerInput[] = [];
+  private _sentTick: number = 0;
 
   constructor(
     private _channel: ClientChannel,
@@ -28,33 +36,50 @@ export class InputManager {
       turn: direction,
       alpha: this._getAlpha(),
     };
-    this._dispatch(input);
+    this._buffer.push(input);
+    this._worker.sendPlayerInput(input, 'local');
     this._pendingInputCount++;
   }
 
-  /** Queue a break toggle — no alpha because break is a per‑tick boolean. */
+  /** Queue a break toggle — no alpha because break is per‑tick boolean. */
   break(): void {
     const input: PlayerInput = {
       tick: this._getTick() + this._pendingInputCount,
       playerId: this._playerId,
       break: true,
     };
-    this._dispatch(input);
+    this._buffer.push(input);
+    this._worker.sendPlayerInput(input, 'local');
     this._pendingInputCount++;
   }
 
-  /** Call once per frame to reset the pending input counter. */
+  /** Call once per render frame — resets the pending counter and re‑sends the full buffer. */
   endFrame(): void {
     this._pendingInputCount = 0;
+    this._flushToServer();
   }
 
-  private _dispatch(input: PlayerInput): void {
-    this._channel.emit('client_turn', [{
-      tick: input.tick,
-      turn: input.turn,
-      alpha: input.alpha,
-      break: input.break,
-    }]);
-    this._worker.sendPlayerInput(input, 'local');
+  // ── Internal ──────────────────────────────────────────────────────────────
+
+  /** Trim stale inputs and emit the sliding window to the server. */
+  private _flushToServer(): void {
+    const cutoff = this._getTick() - RETENTION_TICKS;
+
+    // Trim inputs older than the retention window
+    this._buffer = this._buffer.filter((i) => i.tick > cutoff);
+
+    // Safety cap — keep most recent N inputs
+    if (this._buffer.length > MAX_INPUTS_PER_FLUSH) {
+      this._buffer = this._buffer.slice(-MAX_INPUTS_PER_FLUSH);
+    }
+
+    if (this._buffer.length === 0) return;
+
+    this._channel.emit('client_turn', this._buffer.map((i) => ({
+      tick: i.tick,
+      turn: i.turn,
+      alpha: i.alpha,
+      break: i.break,
+    })));
   }
 }
