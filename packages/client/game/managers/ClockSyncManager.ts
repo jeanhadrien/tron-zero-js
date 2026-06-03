@@ -77,15 +77,6 @@ export class ClockSyncManager {
     this.room = room;
   }
 
-  /** Discard all samples and reset stored error (called on disconnect/reconnect). */
-  reset(): void {
-    this.buffer.clear();
-    this._storedTickError = null;
-    this._warmedUp = false;
-    this._stableStreak = 0;
-    this._lastRawOWD = -1;
-  }
-
   // -- data intake -------------------------------------------------------------
 
   /**
@@ -143,13 +134,7 @@ export class ClockSyncManager {
 
   // -- queries -----------------------------------------------------------------
 
-  /** Whether the warmup phase is complete and the EWMA rests on clean data. */
-  isWarmedUp(): boolean {
-    return this._warmedUp;
-  }
-
-  /**
-   * How many ticks the client should jump ahead of the server on init/reset.
+  /** How many ticks the client should jump ahead of the server on init/reset.
    * Falls back to {@link DEFAULT_LEAD_TICKS} when no ping data is available yet.
    */
   getLeadTicks(): number {
@@ -174,10 +159,6 @@ export class ClockSyncManager {
   }
 
   // -- debug / HUD accessors ---------------------------------------------------
-
-  get storedTickError(): number | null {
-    return this._storedTickError;
-  }
 
   get smoothedOWD(): number {
     return this.buffer.getOWD();

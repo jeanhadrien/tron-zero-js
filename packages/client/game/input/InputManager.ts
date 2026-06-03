@@ -9,14 +9,19 @@ const RETENTION_TICKS = 15;
  * Owns input creation, tick/alpha stamping, local prediction dispatch,
  * and redundant server re‑transmission to survive UDP packet loss.
  *
- * GameScene calls turn()/break() on key events and endFrame() once per
- * render frame.  The manager sends every queued input to the simulation
- * worker immediately (once), then re‑emits the full sliding window to
- * the server every frame so that lost packets are covered by the next
- * datagram.
+ * Invariants:
+ * - turn() always advances the tick slot — turns are sequential, never collapsed.
+ * - break() never advances the slot — merges into the current target tick.
+ * - Multiple actions at the same tick are merged into a single PlayerInput.
+ *
+ * GameScene calls turn()/break() on key events and endFrame() once per render
+ * frame.  Every input is sent to the simulation worker immediately (once).  The
+ * full sliding window is re‑emitted to the server every frame so lost packets
+ * are covered by the next datagram.
  */
 export class InputManager {
-  private _pendingInputCount = 0;
+  /** How many turn() calls have been queued this frame. Break does NOT increment this. */
+  private _turnSpread = 0;
   private _buffer: PlayerInput[] = [];
 
   constructor(
@@ -27,47 +32,67 @@ export class InputManager {
     private _playerId: string,
   ) {}
 
-  /** Queue a turn with current tick + alpha for timing precision. */
+  // ── Public API ────────────────────────────────────────────────────────────
+
+  /** Queue a turn — always advances to a fresh tick slot. */
   turn(direction: 'left' | 'right'): void {
-    const input: PlayerInput = {
-      tick: this._getTick() + this._pendingInputCount,
-      playerId: this._playerId,
-      turn: direction,
-      alpha: this._getAlpha(),
-    };
-    this._buffer.push(input);
-    this._worker.sendPlayerInput(input, 'local');
-    this._pendingInputCount++;
+    const tick = this._getTick() + this._turnSpread;
+    const alpha = this._getAlpha();
+    this._turnSpread += 1;
+
+    this._upsert(tick, (input) => {
+      input.turn = direction;
+      input.alpha = alpha;
+    });
   }
 
-  /** Queue a break toggle — no alpha because break is per‑tick boolean. */
+  /**
+   * Queue a break toggle — merges into the current target tick.
+   * Multiple calls to break() at the same tick are idempotent (boolean).
+   */
   break(): void {
-    const input: PlayerInput = {
-      tick: this._getTick() + this._pendingInputCount,
-      playerId: this._playerId,
-      break: true,
-    };
-    this._buffer.push(input);
-    this._worker.sendPlayerInput(input, 'local');
-    this._pendingInputCount++;
+    const tick = this._getTick() + this._turnSpread;
+
+    this._upsert(tick, (input) => {
+      input.break = true;
+    });
   }
 
-  /** Call once per render frame — resets the pending counter and re‑sends the full buffer. */
+  /** Call once per render frame — resets the turn spread and re‑sends the full buffer. */
   endFrame(): void {
-    this._pendingInputCount = 0;
+    this._turnSpread = 0;
     this._flushToServer();
   }
 
   // ── Internal ──────────────────────────────────────────────────────────────
 
+  /**
+   * Insert or merge an input at the given tick.
+   * - If the last buffer entry already has this tick, merge fields into it.
+   * - Otherwise push a new entry.
+   * Always forwards the (potentially merged) input to the worker.
+   */
+  private _upsert(tick: number, apply: (input: PlayerInput) => void): void {
+    const last = this._buffer[this._buffer.length - 1];
+
+    if (last && last.tick === tick) {
+      // Merge into existing entry for this tick
+      apply(last);
+      this._worker.sendPlayerInput(last, 'local');
+    } else {
+      const input: PlayerInput = { tick, playerId: this._playerId };
+      apply(input);
+      this._buffer.push(input);
+      this._worker.sendPlayerInput(input, 'local');
+    }
+  }
+
   /** Trim stale inputs and emit the sliding window to the server. */
   private _flushToServer(): void {
     const cutoff = this._getTick() - RETENTION_TICKS;
 
-    // Trim inputs older than the retention window
     this._buffer = this._buffer.filter((i) => i.tick > cutoff);
 
-    // Safety cap — keep most recent N inputs
     if (this._buffer.length > MAX_INPUTS_PER_FLUSH) {
       this._buffer = this._buffer.slice(-MAX_INPUTS_PER_FLUSH);
     }

@@ -355,18 +355,6 @@ export class GameScene extends Scene {
       }
     }
 
-    // Rubber death detection
-    if (this.humanEid >= 0) {
-      const localDatum = this.renderSystem.getLatest(this.humanEid);
-      if (localDatum && localDatum.rubber <= 0 && localDatum.isAlive) {
-        EventBus.emit('game-over', 'ai');
-      }
-    }
-
     this.debugHud.update(_time);
-  }
-
-  releaseKey(key: string) {
-    this.isKeyDown[key] = false;
   }
 }

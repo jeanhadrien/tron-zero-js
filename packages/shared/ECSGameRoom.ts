@@ -10,7 +10,7 @@ import {
   createSoADeserializer,
 } from 'bitecs/serialization';
 
-export const SNAPSHOT_BUFFER_SIZE = 1024 * 1024 * 5; //  avoids 100MB default in bitecs that kills perf via slice()
+const SNAPSHOT_BUFFER_SIZE = 1024 * 1024 * 5; //  avoids 100MB default in bitecs that kills perf via slice()
 const DIFF_BUFFER_SIZE = 1024 * 1024 * 5;
 
 import { System } from './interfaces/System';
@@ -27,7 +27,7 @@ import GameClock from './GameClock';
 
 const logger = new RoomLogger('GameRoom');
 
-export interface ECSGameRoomOptions {
+interface ECSGameRoomOptions {
   onDeltas?: (deltas: NetworkDiffPayload[]) => void;
   /** Minimum wall-clock time of past snapshots to keep (ms). Default 100ms. */
   minSnapshotCoverageMs?: number;
@@ -143,14 +143,6 @@ export class ECSGameRoom {
       new ArrayBuffer(SNAPSHOT_BUFFER_SIZE)
     );
     this.snapshotDeserialize = createSnapshotDeserializer(this.world, this.components);
-  }
-
-  onNetworkDiff(handler: (diff: NetworkDiffPayload) => void): void {
-    this.networkDiffEmitter.on('diff', handler);
-  }
-
-  offNetworkDiff(handler: (diff: NetworkDiffPayload) => void): void {
-    this.networkDiffEmitter.off('diff', handler);
   }
 
   serverAddEvent(event: GameEvent): void {

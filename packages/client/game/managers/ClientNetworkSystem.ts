@@ -4,7 +4,7 @@ import { ConnectionError, Data } from '@geckos.io/common/lib/types';
 import { decodeMessage, MSG_INIT_STATE, MSG_SYNC_STATE } from '@tron0/shared/NetworkProtocol';
 import { EventBus } from './EventBus';
 
-export const logger = new RoomLogger('ClientNetwork');
+const logger = new RoomLogger('ClientNetwork');
 
 /**
  * Callbacks the network relay invokes when it receives server data.

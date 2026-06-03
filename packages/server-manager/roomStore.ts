@@ -4,6 +4,14 @@ import type { RoomEntry, RegisterPayload } from '@tron0/shared/interfaces/Room';
 const rooms = new Map<string, RoomEntry>();
 
 export function registerRoom(payload: RegisterPayload, id: string): RoomEntry {
+  // Evict any existing room with the same host:port to prevent duplicates on restart
+  for (const [existingId, room] of rooms) {
+    if (room.host === payload.host && room.port === payload.port) {
+      rooms.delete(existingId);
+      break;
+    }
+  }
+
   const entry: RoomEntry = {
     id,
     host: payload.host,
@@ -42,7 +50,3 @@ export function evictStale(maxAgeMs: number): number {
   return removed;
 }
 
-// JSON-serializable snapshot for potential persistence
-export function toJSON(): object {
-  return Array.from(rooms.entries());
-}

@@ -55,15 +55,6 @@ export class PlayerRenderSystem {
     this.driverGraphics = this.scene.add.graphics().setDepth(10);
   }
 
-  destroy(): void {
-    for (const text of this.nameTexts.values()) text.destroy();
-    this.nameTexts.clear();
-    this.staticTrailGraphics?.destroy();
-    this.activeTrailGraphics?.destroy();
-    this.driverGraphics?.destroy();
-    this._initialized = false;
-  }
-
   // ── Data intake from Worker ──────────────────────────────────────────────
 
   /**

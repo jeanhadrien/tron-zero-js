@@ -76,7 +76,6 @@ export default class BotSystem extends System {
   private sightDistance = 100;
   private strategies = new Map<number, Strategy>();
   private botEids: number[] = [];
-  private botIds: string[] = [];
   private room: ECSGameRoom;
 
   getComponents(): object[] {
@@ -96,7 +95,6 @@ export default class BotSystem extends System {
       const eid = PlayerSystem.getPlayerEidByStringId(this.room, botId);
       const strategy = randomStrategy();
       this.botEids.push(eid);
-      this.botIds.push(botId);
       this.strategies.set(eid, strategy);
       const displayName = randomName(strategy);
       logger.info(`Bot initialized: ${displayName} (Strategy: ${strategy})`);

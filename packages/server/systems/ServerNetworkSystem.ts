@@ -6,7 +6,7 @@ import { Logger } from '@tron0/shared/Logger';
 import { ECSGameRoom } from '@tron0/shared/ECSGameRoom';
 import PlayerSystem from '@tron0/shared/systems/PlayerSystem';
 
-export const logger = new Logger('ServerNetworkSystem');
+const logger = new Logger('ServerNetworkSystem');
 
 export class ServerNetworkSystem extends System {
   readonly key = 'server-network';
@@ -30,7 +30,7 @@ export class ServerNetworkSystem extends System {
     this.server.onConnection((channel) => this._onConnection(channel));
   }
 
-  update(getInput: inputGetter, getEvents: eventGetter): void {
+  update(_getInput: inputGetter, getEvents: eventGetter): void {
     if (this.room.replaying) return;
 
     if (getEvents) {

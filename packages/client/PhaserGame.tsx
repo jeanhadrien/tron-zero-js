@@ -3,7 +3,7 @@ import { createStore } from 'solid-js/store';
 import StartGame from './game/main';
 import { EventBus } from './game/managers/EventBus';
 
-export interface IRefPhaserGame {
+interface IRefPhaserGame {
     game: Phaser.Game | null;
     scene: Phaser.Scene | null;
 }
@@ -41,9 +41,7 @@ export const PhaserGame = (props: IProps) => {
         });
 
         const handleVisibility = () => {
-            if (document.hidden) {
-                EventBus.emit('game-pause');
-            } else {
+            if (!document.hidden) {
                 EventBus.emit('game-resume');
             }
         };

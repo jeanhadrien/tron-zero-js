@@ -39,9 +39,6 @@ export class SimulationWorkerManager {
   /** Fires when the Worker sends sim_ready (after init_state is applied). */
   onReady?: (tick: number, leadTicks: number) => void;
 
-  /** Fires when the Worker reports an error. */
-  onError?: (error: ErrorEvent) => void;
-
   // ── Lifecycle ────────────────────────────────────────────────────────────
 
   /** Spawn the Worker and send the init_sim priming message. */
@@ -67,7 +64,6 @@ export class SimulationWorkerManager {
 
     this.worker.onerror = (e: ErrorEvent) => {
       logger.error('Worker error:', e.message);
-      this.onError?.(e);
     };
 
     const msg: MainToWorkerMessage = {

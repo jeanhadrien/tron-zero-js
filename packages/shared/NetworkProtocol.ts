@@ -1,7 +1,7 @@
 export const MSG_INIT_STATE = 0x00;
 export const MSG_SYNC_STATE = 0x01;
 
-export type IncomingMessage =
+type IncomingMessage =
   | { type: typeof MSG_INIT_STATE; tick: number; snapshot: ArrayBuffer }
   | { type: typeof MSG_SYNC_STATE; tick: number; data: ArrayBuffer; struct: ArrayBuffer };
 

@@ -3,7 +3,7 @@
  * Useful for dependency injection — tests can provide a trivial
  * in-memory implementation or a mock.
  */
-export interface ITickRingBuffer<V, K extends string = string> {
+interface ITickRingBuffer<V, K extends string = string> {
   record(tick: number, key: K, value: V): void;
   get(tick: number, key: K): V | null;
   /** Inclusive range [fromTick, toTick]. Gaps are filled by repeating the

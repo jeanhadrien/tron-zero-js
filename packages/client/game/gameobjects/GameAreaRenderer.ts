@@ -1,4 +1,4 @@
-import GameArea from '@tron0/shared/ECSGameArea';
+import type GameArea from '@tron0/shared/systems/GameArenaSystem';
 
 export default class GameAreaRenderer {
   gridGraphics: Phaser.GameObjects.Graphics;

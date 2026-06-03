@@ -1,5 +1,5 @@
 import { Scene } from 'phaser';
-import GameArea from '@tron0/shared/ECSGameArea';
+import type GameArea from '@tron0/shared/systems/GameArenaSystem';
 import { EventBus } from '../managers/EventBus';
 import AudioManager from '../managers/AudioManager';
 
@@ -10,7 +10,6 @@ export default class GameCamera {
 
   public PLAYER_VIEW_WIDTH: number = 800;
   public isCameraFollowing: boolean = true;
-  private humanPlayer: { x: number; y: number } | null = null;
   private lastX: number = 0;
   private lastY: number = 0;
 
@@ -29,14 +28,7 @@ export default class GameCamera {
     });
   }
 
-  setHumanPlayer(player: { x: number; y: number } | null) {
-    this.humanPlayer = player;
-    this.updateCameraView();
-  }
-
   updateCameraView() {
-    if (!this.humanPlayer) return;
-
     const canvasWidth = this.scene.scale.width;
     const canvasHeight = this.scene.scale.height;
 
