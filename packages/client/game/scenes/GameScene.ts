@@ -87,6 +87,7 @@ export class GameScene extends Scene {
       referenceTickTimeMs: this._referenceTickTimeMs,
       snapshotGapTicks: 0, // Worker updates this as ping data arrives
       snapshotPeriodX: 10,
+      minSnapshotCoverageMs: 100,
       sessionToken: this.networkClient.sessionToken,
     });
 

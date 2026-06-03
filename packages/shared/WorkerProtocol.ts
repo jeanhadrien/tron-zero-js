@@ -25,6 +25,7 @@ export interface InitSimMessage {
   referenceTickTimeMs: number;
   snapshotGapTicks: number;
   snapshotPeriodX: number;
+  minSnapshotCoverageMs: number;
   sessionToken: string;
 }
 

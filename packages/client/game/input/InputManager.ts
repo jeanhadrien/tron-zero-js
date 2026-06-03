@@ -18,7 +18,6 @@ const RETENTION_TICKS = 15;
 export class InputManager {
   private _pendingInputCount = 0;
   private _buffer: PlayerInput[] = [];
-  private _sentTick: number = 0;
 
   constructor(
     private _channel: ClientChannel,

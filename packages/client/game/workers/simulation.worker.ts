@@ -91,7 +91,7 @@ self.onmessage = (e: MessageEvent<MainToWorkerMessage>) => {
 
       const systems = [new GameArenaSystem(), new PlayerSystem()];
 
-      room = new ECSGameRoom(clock, systems);
+      room = new ECSGameRoom(clock, systems, { minSnapshotCoverageMs: msg.minSnapshotCoverageMs });
       room.snapshotPeriodX = msg.snapshotPeriodX;
 
       clockSync = new ClockSyncManager();

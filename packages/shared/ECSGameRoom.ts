@@ -27,6 +27,12 @@ import GameClock from './GameClock';
 
 const logger = new RoomLogger('GameRoom');
 
+export interface ECSGameRoomOptions {
+  onDeltas?: (deltas: NetworkDiffPayload[]) => void;
+  /** Minimum wall-clock time of past snapshots to keep (ms). Default 100ms. */
+  minSnapshotCoverageMs?: number;
+}
+
 export class ECSGameRoom {
   clock: GameClock;
   private networkDiffEmitter = new EventEmitter<string>();
@@ -47,10 +53,14 @@ export class ECSGameRoom {
   /** Hook fired after every tick transition (replay or forward). Worker uses this to capture render state. */
   onTick?: (tick: number) => void;
 
-  /** Current valid rewind anchor — always positioned ≤ currentTick - gap - 1. */
-  private _rewindAnchor: { tick: number; buffer: ArrayBuffer } | null = null;
-  /** Next anchor being aged in — promoted to _rewindAnchor once gap+1 ticks have passed. */
-  private _nextAnchor: { tick: number; buffer: ArrayBuffer } | null = null;
+  /** Minimum wall-clock coverage of past snapshots (ms). Ring buffer is sized to hold at least this much history. */
+  minSnapshotCoverageMs: number;
+
+  /** Ring buffer of past world snapshots for rollback anchoring. */
+  private _snapshotRing: Array<{ tick: number; buffer: ArrayBuffer } | null> = [];
+  private _snapshotHead: number = -1;
+  private _snapshotCount: number = 0;
+  private _lastSnapshotTick: number = -1;
   /** Tick gap between client and server (leadTicks + oneWayTicks). 0 disables snapshotting (server). */
   snapshotGapTicks: number = 0;
   /** Tick period between snapshot refreshes (bounds replay distance). */
@@ -67,8 +77,11 @@ export class ECSGameRoom {
   localPlayerId: string;
   channelPlayerIds: Map<string, string>;
 
-  constructor(clock: GameClock, systems: System[] = [], onDeltas?: (deltas: NetworkDiffPayload[]) => void) {
-    if (onDeltas) this.networkDiffEmitter.on('diff', onDeltas);
+  private static readonly DEFAULT_MIN_SNAPSHOT_COVERAGE_MS = 100;
+
+  constructor(clock: GameClock, systems: System[] = [], options?: ECSGameRoomOptions) {
+    if (options?.onDeltas) this.networkDiffEmitter.on('diff', options.onDeltas);
+    this.minSnapshotCoverageMs = options?.minSnapshotCoverageMs ?? ECSGameRoom.DEFAULT_MIN_SNAPSHOT_COVERAGE_MS;
     this.clock = clock;
     this.dirtyEntities = new Set<number>();
     this.channelPlayerIds = new Map();
@@ -100,6 +113,13 @@ export class ECSGameRoom {
 
     logger.setRoom(this);
 
+    // Size snapshot ring: enough slots to cover minCoverageMs even if snapshots are taken infrequently.
+    // Conservative: assume snapshotPeriodX could be as low as 1, so slots = coverage in ticks + buffer.
+    const minCoverageTicks = Math.ceil(this.minSnapshotCoverageMs / clock.referenceTickTimeMs);
+    const maxPeriodTicks = Math.max(1, this.snapshotPeriodX);
+    const ringCapacity = Math.max(4, Math.ceil(minCoverageTicks / maxPeriodTicks) + 3);
+    this._snapshotRing = new Array(ringCapacity).fill(null);
+
     // Initialize all systems before anything else runs
     for (const sys of this.systems) {
       sys.init?.(this);
@@ -110,10 +130,13 @@ export class ECSGameRoom {
     resetWorld(this.world);
     this.snapshotDeserialize(buffer);
     this.tick = tick;
-    // Record the initial state as the rewind anchor (immediately valid)
-    this._rewindAnchor = { tick, buffer: this.snapshotSerialize() };
-    this._nextAnchor = null;
-    // Rebuild serializers (existing code)
+    // Seed the ring buffer with the initial state
+    const initialSnapshot = this.snapshotSerialize();
+    this._snapshotHead = 0;
+    this._snapshotRing[0] = { tick, buffer: initialSnapshot };
+    this._snapshotCount = 1;
+    this._lastSnapshotTick = tick;
+    // Rebuild serializers
     this.snapshotSerialize = createSnapshotSerializer(
       this.world,
       this.components,
@@ -264,48 +287,47 @@ export class ECSGameRoom {
   }
 
   /**
-   * Conditionally refresh the rewind anchor snapshot.
-   *
-   * Uses two slots to avoid the cooldown gap where a freshly-taken snapshot
-   * (at currentTick) is too recent to anchor a replay.  _nextAnchor ages
-   * for gap+1 ticks before being promoted to _rewindAnchor, guaranteeing at
-   * least one valid anchor is always available.
+   * Take a world snapshot at regular intervals and push it into the ring buffer.
+   * The ring keeps multiple past snapshots so rollback anchors are always available
+   * even when snapshotGapTicks is small (e.g. local play with near-zero ping).
    */
   private _tryTakeSnapshot(currentTick: number): void {
     if (this.snapshotPeriodX <= 0 || this.snapshotGapTicks <= 0) return;
 
-    const gap = this.snapshotGapTicks;
+    // Throttle to snapshotPeriodX interval
+    if (this._lastSnapshotTick >= 0 && currentTick - this._lastSnapshotTick < this.snapshotPeriodX) return;
 
-    // Promote the aging candidate once it's old enough to anchor any replay
-    if (this._nextAnchor !== null && currentTick - this._nextAnchor.tick >= gap + 1) {
-      this._rewindAnchor = this._nextAnchor;
-      this._nextAnchor = null;
+    const buf = this.snapshotSerialize();
+
+    this._snapshotHead = (this._snapshotHead + 1) % this._snapshotRing.length;
+    this._snapshotRing[this._snapshotHead] = { tick: currentTick, buffer: buf };
+    this._snapshotCount = Math.min(this._snapshotCount + 1, this._snapshotRing.length);
+    this._lastSnapshotTick = currentTick;
+  }
+
+  /**
+   * Find the best rewind anchor: the most recent snapshot whose tick ≤ targetTick.
+   * The ring naturally provides ageing — older snapshots have had plenty of time for
+   * late network data to arrive.
+   */
+  private _findBestAnchor(targetTick: number): { tick: number; buffer: ArrayBuffer } | null {
+    let best: { tick: number; buffer: ArrayBuffer } | null = null;
+    for (let i = 0; i < this._snapshotRing.length; i++) {
+      const snap = this._snapshotRing[i];
+      if (!snap) continue;
+      if (snap.tick <= targetTick && (!best || snap.tick > best.tick)) {
+        best = snap;
+      }
     }
-
-    // Start aging a new candidate when the current anchor is getting stale
-    // (or if we have no anchor at all — edge case before initFromSnapshot)
-    const needsCandidate =
-      this._nextAnchor === null &&
-      (this._rewindAnchor === null || currentTick - this._rewindAnchor.tick > gap + 1 + this.snapshotPeriodX);
-
-    if (needsCandidate) {
-      this._nextAnchor = {
-        tick: currentTick,
-        buffer: this.snapshotSerialize(),
-      };
-    }
+    return best;
   }
 
   private replayFrom(pastTick: number): void {
     const currentTick = this.tick;
 
-    if (!this._rewindAnchor) {
-      logger.error('No rewind anchor, cannot resimulate.');
-      return;
-    }
-
-    if (this._rewindAnchor.tick > pastTick) {
-      logger.error(`Anchor tick ${this._rewindAnchor.tick} > resim tick ${pastTick}, cannot resimulate.`);
+    const anchor = this._findBestAnchor(pastTick);
+    if (!anchor) {
+      logger.error(`No snapshot ≤ tick ${pastTick} in ring buffer, cannot resimulate.`);
       return;
     }
 
@@ -315,11 +337,11 @@ export class ECSGameRoom {
     this._authStateTicks.clear();
     this.replaying = true;
 
-    this.snapshotDeserialize(this._rewindAnchor.buffer, new Map());
-    this.tick = this._rewindAnchor.tick;
+    this.snapshotDeserialize(anchor.buffer, new Map());
+    this.tick = anchor.tick;
 
     logger.debug(
-      `Replaying from ${this._rewindAnchor.tick} to ${currentTick} (${currentTick - this._rewindAnchor.tick} ticks)`
+      `Replaying from ${anchor.tick} to ${currentTick} (${currentTick - anchor.tick} ticks)`
     );
     for (let _tick = this.tick; _tick < currentTick; _tick++) {
       // Load authorithative state diffs from server

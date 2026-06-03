@@ -49,6 +49,7 @@ export class SimulationWorkerManager {
     referenceTickTimeMs: number;
     snapshotGapTicks: number;
     snapshotPeriodX: number;
+    minSnapshotCoverageMs: number;
     sessionToken: string;
   }): void {
     if (this.worker) {
@@ -74,6 +75,7 @@ export class SimulationWorkerManager {
       referenceTickTimeMs: params.referenceTickTimeMs,
       snapshotGapTicks: params.snapshotGapTicks,
       snapshotPeriodX: params.snapshotPeriodX,
+      minSnapshotCoverageMs: params.minSnapshotCoverageMs,
       sessionToken: params.sessionToken,
     };
     this.worker.postMessage(msg);
