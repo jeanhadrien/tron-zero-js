@@ -152,11 +152,6 @@ export class ECSGameRoom {
     }
     this.gameEventBuffer.record(event.tick, event);
     logger.debug('event at tick', event.tick, 'of type ', GameEventType[event.type]);
-    // Event at tick T is consumed during the update that transitions T-1 → T.
-    const resimTick = event.tick;
-    if (resimTick < this.tick) {
-      //   this.pendingResimTick = this.pendingResimTick === null ? resimTick : Math.min(this.pendingResimTick, resimTick);
-    }
   }
 
   serverAddInput(input: PlayerInput): void {
@@ -172,10 +167,6 @@ export class ECSGameRoom {
       return;
     }
     PingInTicks[eid] = Math.max(0, this.tick - input.tick);
-    const resimTick = input.tick;
-    if (resimTick <= this.tick) {
-      //   this.pendingResimTick = this.pendingResimTick === null ? resimTick : Math.min(this.pendingResimTick, resimTick);
-    }
   }
 
   /** Store a local-predicted input that is consumed on first read and never replayed. */
@@ -214,7 +205,7 @@ export class ECSGameRoom {
       this.replaying && entityId === this.localPlayerId && this._authStateTicks.has(this.tick);
     const input = (entityId: string) => {
       if (isLocal(entityId)) return this.playerInputBuffer.get(this.tick, entityId);
-      return this.localInputBuffer.get(this.tick, entityId) ?? this.playerInputBuffer.get(this.tick, entityId);
+      return this.localInputBuffer.consume(this.tick, entityId) ?? this.playerInputBuffer.get(this.tick, entityId);
     };
     const events = () => this.gameEventBuffer.get(this.tick);
     for (const sys of this.systems) {
@@ -222,6 +213,8 @@ export class ECSGameRoom {
     }
     this.tick += 1;
     this.onTick?.(this.tick);
+    // client-specific because no ClientNetworkSystem consumes it
+    this.dirtyEntities.clear();
   }
 
   /** Batch-mode simulation — consume all accumulated ticks at once (server). */
