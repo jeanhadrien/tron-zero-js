@@ -51,24 +51,30 @@ class PingBuffer {
  * Client-side clock synchronisation layer.
  *
  * Maintains a smoothed one-way-delay estimate via a sliding ping buffer
- * and applies a linear P-controller to `room.clock.tickTimeMs` every frame
- * — not just on pong events — so correction is continuous.
+ * and applies a linear P-controller to `room.clock.tickTimeMs` every frame.
  *
+ * Error is **extrapolated** from the last pong timestamp on each frame, so the
+ * correction naturally decays to zero as the client catches up — no overshoot
+ * from stale snapshots.  Gain ramps from {@link GAIN_MIN} to {@link GAIN}
+ * over the first {@link GAIN_RAMP_SAMPLES} pongs, replacing the old binary
+ * warmup gate with a continuous confidence curve.
  */
 export class ClockSyncManager {
   private buffer = new PingBuffer();
   private room: ECSGameRoom | null = null;
-  private _storedTickError: number | null = null;
 
-  private _warmedUp = false;
-  private _stableStreak = 0;
-  private _lastRawOWD = -1;
+  /** Anchor for per-frame error extrapolation — stored at each pong arrival. */
+  private _lastPongServerTickAtReceive = 0;
+  private _lastPongClientTimeMs = 0;
+  private _lastPongOWDTicks = 0;
+  /** Number of pongs processed since construction. Drives the gain ramp. */
+  private _sampleCount = 0;
 
   private static readonly GAIN = 0.1;
+  private static readonly GAIN_MIN = 0.02;
+  private static readonly GAIN_RAMP_SAMPLES = 5;
   private static readonly MAX_CORRECTION = 0.25;
   private static readonly DEFAULT_LEAD_TICKS = 1;
-  private static readonly STABILITY_THRESHOLD_MS = 5;
-  private static readonly MIN_STABLE_COUNT = 3;
 
   // -- lifecycle ---------------------------------------------------------------
 
@@ -80,45 +86,26 @@ export class ClockSyncManager {
   // -- data intake -------------------------------------------------------------
 
   /**
-   * Called synchronously from {@link ClientNetworkSystem._onPong}.
+   * Called from the Worker when a pong arrives.
    *
-   * During warmup, raw OWD is tracked until it stabilises (3 consecutive
-   * samples within {@link STABILITY_THRESHOLD_MS}).  Once stable, the
-   * polluted warmup samples are discarded and the EWMA starts fresh.
+   * Stores the extrapolation anchor so {@link adjustClock} can recompute the
+   * error on every frame instead of using a frozen snapshot.  Samples are
+   * always pushed — the PingBuffer EWMA and the gain ramp handle stability.
    */
   recordPing(rttMs: number, serverTick: number): void {
     if (!this.room || this.room.replaying) return;
 
     const rawOWD = rttMs / 2;
+    const now = performance.now();
 
-    // -- warmup: wait for raw OWD to settle --------------------------------
-    if (!this._warmedUp) {
-      if (this._lastRawOWD >= 0) {
-        if (Math.abs(rawOWD - this._lastRawOWD) <= ClockSyncManager.STABILITY_THRESHOLD_MS) {
-          this._stableStreak++;
-        } else {
-          this._stableStreak = 0;
-        }
-      }
-      this._lastRawOWD = rawOWD;
-
-      if (this._stableStreak >= ClockSyncManager.MIN_STABLE_COUNT) {
-        this._warmedUp = true;
-        this.buffer.clear();
-        // fall through to normal processing with this clean sample
-      } else {
-        return;
-      }
-    }
-
-    // -- normal: push and compute tickError --------------------------------
     const sample: PingSample = {
       rttMs,
       owdMs: rawOWD,
       serverTick,
-      clientTimeMs: performance.now(),
+      clientTimeMs: now,
     };
     this.buffer.push(sample);
+    this._sampleCount++;
 
     const owdMs = this.buffer.getOWD();
     const refTickMs = this.room.clock.referenceTickTimeMs;
@@ -126,10 +113,10 @@ export class ClockSyncManager {
 
     // Server tick at the instant the pong hit the client NIC
     const serverTickAtReceive = serverTick + owdTicks;
-    // Ideal client tick at that same instant: ahead by OWD + 1 buffer tick
-    const idealClientTick = serverTickAtReceive + owdTicks + 1;
 
-    this._storedTickError = idealClientTick - this.room.tick;
+    this._lastPongServerTickAtReceive = serverTickAtReceive;
+    this._lastPongClientTimeMs = now;
+    this._lastPongOWDTicks = owdTicks;
   }
 
   // -- queries -----------------------------------------------------------------
@@ -145,14 +132,28 @@ export class ClockSyncManager {
   // -- per‑frame adjustment ----------------------------------------------------
 
   /**
-   * Apply the P-controller to `room.clock.tickTimeMs` using the last‑known
-   * `storedTickError`.  Call this *every frame* from the Phaser update loop,
-   * before {@link ECSGameRoom.updateFixed}.
+   * Extrapolate the current tick error from the last pong anchor and apply
+   * the P-controller.  Call every frame before tick processing.
+   *
+   * Gain ramps linearly from {@link GAIN_MIN} to {@link GAIN} over the
+   * first {@link GAIN_RAMP_SAMPLES} pongs so early noisy samples have
+   * negligible authority.
    */
   adjustClock(): void {
-    if (!this.room || this._storedTickError === null) return;
+    if (!this.room || this._sampleCount === 0) return;
 
-    const correction = ClockSyncManager.GAIN * this._storedTickError;
+    // Extrapolate server tick from last pong arrival time
+    const elapsedMs = performance.now() - this._lastPongClientTimeMs;
+    const elapsedTicks = elapsedMs / this.room.clock.referenceTickTimeMs;
+    const estimatedServerTickNow = this._lastPongServerTickAtReceive + elapsedTicks;
+    const idealClientTick = estimatedServerTickNow + this._lastPongOWDTicks + 1;
+    const error = idealClientTick - this.room.tick;
+
+    // Ramped gain: starts conservative, reaches full authority after GAIN_RAMP_SAMPLES pongs
+    const ramp = Math.min(1, this._sampleCount / ClockSyncManager.GAIN_RAMP_SAMPLES);
+    const effectiveGain = ClockSyncManager.GAIN_MIN + (ClockSyncManager.GAIN - ClockSyncManager.GAIN_MIN) * ramp;
+
+    const correction = effectiveGain * error;
     const clamped = Math.max(-ClockSyncManager.MAX_CORRECTION, Math.min(ClockSyncManager.MAX_CORRECTION, correction));
     const scale = 1 - clamped;
     this.room.clock.tickTimeMs = this.room.clock.referenceTickTimeMs * scale;

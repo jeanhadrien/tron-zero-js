@@ -8,7 +8,7 @@ export default class GameCamera {
   private gameArea: GameArea;
   private audioManager: AudioManager;
 
-  public PLAYER_VIEW_WIDTH: number = 800;
+  public PLAYER_VIEW_WIDTH: number = 0; // unused — zoom = 1.0 in follow mode
   public isCameraFollowing: boolean = true;
   private lastX: number = 0;
   private lastY: number = 0;
@@ -34,7 +34,7 @@ export default class GameCamera {
 
     if (this.isCameraFollowing) {
       this.scene.cameras.main.setBounds(0, 0, this.gameArea.width, this.gameArea.height, true);
-      this.scene.cameras.main.setZoom(canvasWidth / this.PLAYER_VIEW_WIDTH);
+      this.scene.cameras.main.setZoom(1);
     } else {
       this.scene.cameras.main.removeBounds();
       const zoomX = canvasWidth / this.gameArea.width;

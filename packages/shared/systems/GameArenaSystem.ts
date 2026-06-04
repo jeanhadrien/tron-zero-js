@@ -8,7 +8,7 @@ export default class GameArea {
   width: number;
   height: number;
 
-  constructor(width: number = 1000, height: number = 1000) {
+  constructor(width: number = 2400, height: number = 2400) {
     this.width = width;
     this.height = height;
   }
@@ -31,7 +31,7 @@ export class GameArenaSystem implements System {
   width: number;
   height: number;
 
-  constructor(width: number = 1000, height: number = 1000) {
+  constructor(width: number = 2400, height: number = 2400) {
     this.width = width;
     this.height = height;
   }

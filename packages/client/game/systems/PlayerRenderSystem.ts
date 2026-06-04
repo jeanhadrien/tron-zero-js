@@ -1,21 +1,8 @@
 import { GameObjects } from 'phaser';
 import type { PlayerRenderDatum, TickRenderOutput } from '@tron0/shared/WorkerProtocol';
 
-interface PlayerStateSnapshot {
-  tick: number;
-  x: number;
-  y: number;
-  direction: number;
-  color: number;
-  speedMult: number;
-  isAlive: boolean;
-  trailXs: number[];
-  trailYs: number[];
-  tickTimeMs: number;
-}
-
-const MAX_SNAPSHOT_AGE = 60;
-const TRAIL_WIDTH = 2;
+const RING_SIZE = 64; // power of 2, covers ~1s of history at 60tps
+const TRAIL_WIDTH = 5;
 
 /**
  * Pure rendering system — consumes {@link TickRenderOutput} batches from the
@@ -32,8 +19,8 @@ export class PlayerRenderSystem {
   private driverGraphics: GameObjects.Graphics;
   private nameTexts: Map<number, GameObjects.Text> = new Map();
 
-  /** Snapshot history per player eid (for remote-player interpolation). */
-  private _history: Map<number, PlayerStateSnapshot[]> = new Map();
+  /** Tick-ring buffer — stores full TickRenderOutput per tick for remote-player interpolation. */
+  private _ring: (TickRenderOutput | null)[] = new Array(RING_SIZE).fill(null);
 
   /** Latest datum per player (for local-player extrapolation and rubber checks). */
   private _latest: Map<number, PlayerRenderDatum> = new Map();
@@ -63,43 +50,8 @@ export class PlayerRenderSystem {
    */
   consumeWorkerOutput(ticks: TickRenderOutput[]): void {
     for (const output of ticks) {
+      this._ring[output.tick % RING_SIZE] = output;
       for (const datum of output.players) {
-        // Respawn detection: trail reset to a single point
-        if (datum.trailXs.length === 1) {
-          this._history.delete(datum.eid);
-        }
-
-        const snapshot: PlayerStateSnapshot = {
-          tick: datum.tick,
-          x: datum.x,
-          y: datum.y,
-          direction: datum.direction,
-          color: datum.color,
-          speedMult: datum.speedMult,
-          isAlive: datum.isAlive,
-          trailXs: datum.trailXs,
-          trailYs: datum.trailYs,
-          tickTimeMs: datum.tickTimeMs,
-        };
-
-        let list = this._history.get(datum.eid);
-        if (!list) {
-          list = [];
-          this._history.set(datum.eid, list);
-        }
-
-        // Replay-safe: overwrite last entry if same tick
-        if (list.length > 0 && list[list.length - 1].tick === datum.tick) {
-          list[list.length - 1] = snapshot;
-        } else {
-          list.push(snapshot);
-        }
-
-        // Trim old entries
-        while (list.length > 0 && list[0].tick < datum.tick - MAX_SNAPSHOT_AGE) {
-          list.shift();
-        }
-
         this._latest.set(datum.eid, datum);
       }
     }
@@ -143,15 +95,20 @@ export class PlayerRenderSystem {
         // Remote player — lerp between two snapshots with scale correction for clock drift
         const delay = Math.round(datum.pingInTicks ?? 0);
         const targetTick = currentTick - delay;
-        const curr = this._lookup(eid, targetTick);
+        const curr = this._findPlayer(eid, targetTick);
         if (!curr) continue;
-        const prev = this._lookup(eid, targetTick - 1);
 
-        const a = Math.min(1, Math.max(0, alpha));
-        const scale = tickTimeMs / curr.tickTimeMs;
-
-        renderX = prev ? prev.x + (curr.x - prev.x) * a * scale : curr.x;
-        renderY = prev ? prev.y + (curr.y - prev.y) * a * scale : curr.y;
+        // Spawn detection: don't lerp from pre-respawn data
+        if (curr.trailXs.length <= 1) {
+          renderX = curr.x;
+          renderY = curr.y;
+        } else {
+          const prev = this._findPlayer(eid, targetTick - 1);
+          const a = Math.min(1, Math.max(0, alpha));
+          const scale = tickTimeMs / curr.tickTimeMs;
+          renderX = prev ? prev.x + (curr.x - prev.x) * a * scale : curr.x;
+          renderY = prev ? prev.y + (curr.y - prev.y) * a * scale : curr.y;
+        }
         direction = curr.direction;
         color = curr.color;
         xs = curr.trailXs;
@@ -185,12 +142,12 @@ export class PlayerRenderSystem {
     const cos = Math.cos(θ);
     const sin = Math.sin(θ);
 
-    const x0 = x + 7 * sin;
-    const y0 = y - 7 * cos;
-    const x1 = x - 7 * cos - 7 * sin;
-    const y1 = y - 7 * sin + 7 * cos;
-    const x2 = x + 7 * cos - 7 * sin;
-    const y2 = y + 7 * sin + 7 * cos;
+    const x0 = x + 17 * sin;
+    const y0 = y - 17 * cos;
+    const x1 = x - 17 * cos - 17 * sin;
+    const y1 = y - 17 * sin + 17 * cos;
+    const x2 = x + 17 * cos - 17 * sin;
+    const y2 = y + 17 * sin + 17 * cos;
 
     this.driverGraphics.fillStyle(color);
     this.driverGraphics.fillTriangle(x0, y0, x1, y1, x2, y2);
@@ -219,7 +176,7 @@ export class PlayerRenderSystem {
     if (!text) {
       text = this.scene.add
         .text(0, 0, '', {
-          fontSize: '10px',
+          fontSize: '16px',
           color: '#ffffff',
           fontFamily: 'Courier New',
         })
@@ -242,12 +199,16 @@ export class PlayerRenderSystem {
     }
   }
 
-  private _lookup(eid: number, targetTick: number): PlayerStateSnapshot | null {
-    const list = this._history.get(eid);
-    if (!list || list.length === 0) return null;
-    for (let i = list.length - 1; i >= 0; i--) {
-      if (list[i].tick <= targetTick) return list[i];
+  /** Walk backward through the tick-ring to find a player's datum at or before targetTick. */
+  private _findPlayer(eid: number, targetTick: number): PlayerRenderDatum | null {
+    for (let t = targetTick; t > targetTick - RING_SIZE; t--) {
+      const slot = this._ring[t % RING_SIZE];
+      if (slot && slot.tick === t) {
+        for (const p of slot.players) {
+          if (p.eid === eid) return p;
+        }
+      }
     }
-    return list[0];
+    return null;
   }
 }

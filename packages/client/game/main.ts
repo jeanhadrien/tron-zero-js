@@ -12,7 +12,7 @@ const config: Phaser.Types.Core.GameConfig = {
   pixelArt: true,
   backgroundColor: '#275b5bff',
   render: {
-    roundPixels: false,
+    roundPixels: true,
   },
   fps: {
     target: 200,

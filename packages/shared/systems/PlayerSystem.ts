@@ -20,10 +20,10 @@ const logger = new Logger('PlayerSystem');
 
 // ─── Constants (mirroring Player statics) ────────────────────────────────────
 const ROTATION_ANGLE = Math.PI / 2;
-const BASE_SPEED = 150;
-const BASE_RUBBER = 30;
+const BASE_SPEED = 360;
+const BASE_RUBBER = 60;
 const EPSILON = 1e-12;
-const SLOW_DOWN_DISTANCE = 10;
+const SLOW_DOWN_DISTANCE = 24;
 const DELTA_STUFF = 12;
 
 // ─── Components (SoA, typed for bitECS serialization) ────────────────────────
@@ -263,7 +263,7 @@ function hashString(str: string): number {
 function mulberry32(seed: number): () => number {
   let s = seed | 0;
   return () => {
-    s = (s + 0x6D2B79F5) | 0;
+    s = (s + 0x6d2b79f5) | 0;
     let t = Math.imul(s ^ (s >>> 15), 1 | s);
     t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
     return ((t ^ (t >>> 14)) >>> 0) / 4294967296;

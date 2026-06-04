@@ -129,7 +129,9 @@ export class SimulationWorkerManager {
   }
 
   private _handleRenderStates(msg: RenderStatesMessage): void {
-    this.latestOutput = msg.ticks;
+    for (const t of msg.ticks) {
+      this.latestOutput.push(t);
+    }
     this.latestCurrentTick = msg.currentTick;
     this.localPlayerEid = msg.localPlayerEid;
     this._lastWorkerAlpha = msg.alpha;

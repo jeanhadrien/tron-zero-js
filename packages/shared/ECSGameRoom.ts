@@ -93,11 +93,11 @@ export class ECSGameRoom {
     this.entityIndex = createEntityIndex();
     this.components = systems.flatMap((s) => s.getComponents());
     this.soaSerialize = createSoASerializer(this.components, {
-      diff: false,
+      diff: true,
       buffer: new ArrayBuffer(DIFF_BUFFER_SIZE),
       epsilon: 0,
     });
-    this.soaDeserialize = createSoADeserializer(this.components, { diff: false });
+    this.soaDeserialize = createSoADeserializer(this.components, { diff: true });
 
     this.world = createWorld({}, this.entityIndex);
     this.components = systems.flatMap((s) => s.getComponents());
@@ -332,9 +332,7 @@ export class ECSGameRoom {
     this.snapshotDeserialize(anchor.buffer, new Map());
     this.tick = anchor.tick;
 
-    logger.debug(
-      `Replaying from ${anchor.tick} to ${currentTick} (${currentTick - anchor.tick} ticks)`
-    );
+    logger.debug(`Replaying from ${anchor.tick} to ${currentTick} (${currentTick - anchor.tick} ticks)`);
     for (let _tick = this.tick; _tick < currentTick; _tick++) {
       // Load authorithative state diffs from server
       const diff = this.networkDiffTickRingBuffer.get(_tick, 'network');

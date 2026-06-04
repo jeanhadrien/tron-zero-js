@@ -94,24 +94,24 @@ Use codegraph for **structural** questions — what calls what, what would break
 
 | Question | Tool |
 |---|---|
-| "Where is X defined?" / "Find symbol named X" | `codegraph_search` |
-| "What calls function Y?" | `codegraph_callers` |
-| "What does Y call?" | `codegraph_callees` |
-| "How does X reach/become Y? / trace the flow from X to Y" | `codegraph_trace` (one call = the whole path, incl. callback/React/JSX dynamic hops) |
-| "What would break if I changed Z?" | `codegraph_impact` |
-| "Show me Y's signature / source / docstring" | `codegraph_node` |
-| "Give me focused context for a task/area" | `codegraph_context` |
-| "See several related symbols' source at once" | `codegraph_explore` |
-| "What files exist under path/" | `codegraph_files` |
-| "Is the index healthy?" | `codegraph_status` |
+| "Where is X defined?" / "Find symbol named X" | `codegraph_codegraph_search` |
+| "What calls function Y?" | `codegraph_codegraph_callers` |
+| "What does Y call?" | `codegraph_codegraph_callees` |
+| "How does X reach/become Y? / trace the flow from X to Y" | `codegraph_codegraph_trace` (one call = the whole path, incl. callback/React/JSX dynamic hops) |
+| "What would break if I changed Z?" | `codegraph_codegraph_impact` |
+| "Show me Y's signature / source / docstring" | `codegraph_codegraph_node` |
+| "Give me focused context for a task/area" | `codegraph_codegraph_context` |
+| "See several related symbols' source at once" | `codegraph_codegraph_explore` |
+| "What files exist under path/" | `codegraph_codegraph_files` |
+| "Is the index healthy?" | `codegraph_codegraph_status` |
 
 ### Rules of thumb
 
-- **Answer directly — don't delegate exploration.** For "how does X work" / architecture questions, answer with 2-3 codegraph calls: `codegraph_context` first, then ONE `codegraph_explore` for the source of the symbols it surfaces. For a specific **flow** ("how does X reach Y") start with `codegraph_trace` from→to — one call returns the whole path with dynamic hops bridged — then ONE `codegraph_explore` for the bodies; don't rebuild the path with `codegraph_search` + `codegraph_callers`. Codegraph IS the pre-built index, so spawning a separate file-reading sub-task/agent — or running a grep + read loop — repeats work codegraph already did and costs more for the same answer.
+- **Answer directly — don't delegate exploration.** For "how does X work" / architecture questions, answer with 2-3 codegraph calls: `codegraph_codegraph_context` first, then ONE `codegraph_codegraph_explore` for the source of the symbols it surfaces. For a specific **flow** ("how does X reach Y") start with `codegraph_codegraph_trace` from→to — one call returns the whole path with dynamic hops bridged — then ONE `codegraph_explore` for the bodies; don't rebuild the path with `codegraph_codegraph_search` + `codegraph_codegraph_callers`. Codegraph IS the pre-built index, so spawning a separate file-reading sub-task/agent — or running a grep + read loop — repeats work codegraph already did and costs more for the same answer.
 - **Trust codegraph results.** They come from a full AST parse. Do NOT re-verify them with grep — that's slower, less accurate, and wastes context.
-- **Don't grep first** when looking up a symbol by name. `codegraph_search` is faster and returns kind + location + signature in one call.
-- **Don't chain `codegraph_search` + `codegraph_node`** when you just want context — `codegraph_context` is one call.
-- **Don't loop `codegraph_node` over many symbols** — one `codegraph_explore` call returns several symbols' source grouped in a single capped call, while each separate node/Read call re-reads the whole context and costs far more.
+- **Don't grep first** when looking up a symbol by name. `codegraph_codegraph_search` is faster and returns kind + location + signature in one call.
+- **Don't chain `codegraph_codegraph_search` + `codegraph_codegraph_node`** when you just want context — `codegraph_codegraph_context` is one call.
+- **Don't loop `codegraph_codegraph_node` over many symbols** — one `codegraph_codegraph_explore` call returns several symbols' source grouped in a single capped call, while each separate node/Read call re-reads the whole context and costs far more.
 - **Index lag**: the file watcher debounces ~500ms behind writes; don't re-query immediately after editing a file in the same turn.
 
 ### If `.codegraph/` doesn't exist
