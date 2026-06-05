@@ -36,7 +36,7 @@ export class ServerNetworkSystem extends System {
     if (getEvents) {
       for (const event of getEvents()) {
         if (event.type === GameEventType.PlayerJoined && event.playerId) {
-          const packet = encodeInitState(this.room.tick, this.room.snapshotSerialize());
+          const packet = encodeInitState(this.room.tick + 1, this.room.snapshotSerialize());
           const channel = this._getChannelBySessionToken(event.playerId);
           if (channel) channel.raw.emit(packet);
         }
@@ -52,7 +52,7 @@ export class ServerNetworkSystem extends System {
 
   private _sendStateToClients(entities: number[]) {
     const diff = {
-      tick: this.room.tick,
+      tick: this.room.tick + 1,
       struct: this.room.observerSerializeNetwork(),
       data: this.room.soaSerialize(entities),
     };

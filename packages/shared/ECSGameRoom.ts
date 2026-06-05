@@ -33,6 +33,8 @@ interface ECSGameRoomOptions {
   minSnapshotCoverageMs?: number;
   /** When true, the client simulates local inputs ahead of the server for snappiness. Default false. */
   predictLocalInputs?: boolean;
+  /** Minimum number of snapshot slots in the ring buffer. Default 16. */
+  snapshotRingCapacity?: number;
 }
 
 export class ECSGameRoom {
@@ -120,7 +122,10 @@ export class ECSGameRoom {
     // Conservative: assume snapshotPeriodX could be as low as 1, so slots = coverage in ticks + buffer.
     const minCoverageTicks = Math.ceil(this.minSnapshotCoverageMs / clock.referenceTickTimeMs);
     const maxPeriodTicks = Math.max(1, this.snapshotPeriodX);
-    const ringCapacity = Math.max(4, Math.ceil(minCoverageTicks / maxPeriodTicks) + 3);
+    const ringCapacity = Math.max(
+      options?.snapshotRingCapacity ?? 16,
+      Math.ceil(minCoverageTicks / maxPeriodTicks) + 3
+    );
     this._snapshotRing = new Array(ringCapacity).fill(null);
 
     // Initialize all systems before anything else runs
@@ -205,8 +210,9 @@ export class ECSGameRoom {
    */
   private update(): void {
     const input = (entityId: string) => {
-      if (this.predictLocalInputs && !this.replaying) {
-        return this.localInputBuffer.consume(this.tick, entityId) ?? this.playerInputBuffer.get(this.tick, entityId);
+      if (this.predictLocalInputs) {
+        const local = this.localInputBuffer.get(this.tick, entityId);
+        if (local) return local;
       }
       return this.playerInputBuffer.get(this.tick, entityId);
     };
@@ -328,9 +334,9 @@ export class ECSGameRoom {
     this.tick = anchor.tick;
 
     logger.debug(`Replaying from ${anchor.tick} to ${currentTick} (${currentTick - anchor.tick} ticks)`);
-    for (let _tick = this.tick; _tick < currentTick; _tick++) {
-      // Load authorithative state diffs from server
-      const diff = this.networkDiffTickRingBuffer.get(_tick, 'network');
+    while (this.tick < currentTick) {
+      // Load authorithative state diff for the tick we are about to re-simulate
+      const diff = this.networkDiffTickRingBuffer.get(this.tick, 'network');
       if (diff) {
         this.soaDeserialize(diff.data);
         this.observerDeserializeNetwork(diff.struct, new Map());

@@ -31,11 +31,11 @@ Because the client simulates ahead, it will occasionally mispredict (e.g., the c
   1. **Movement/State Buffer:** The history of the player's simulated states (positions, velocities, active abilities).
   2. **Input Buffer:** The history of the exact inputs (button presses, turns) submitted for each frame.
 - **The Reconciliation Loop:**
-  1. The client receives an authoritative snapshot from the server for a past frame (e.g., Frame 17).
-  2. The client checks if its local predicted state for Frame 17 matches the server's state.
+  1. The client receives an authoritative snapshot from the server for a past tick (e.g., tick 17).
+  2. The client checks if its local predicted state for tick 17 matches the server's state.
   3. If they agree, the client ignores the packet and continues.
-  4. If they disagree (a misprediction), the client **overwrites** its local Frame 17 state with the server's state.
-  5. The client then **fast-forwards (replays)** all inputs from Frame 18 up to the current predicted frame (e.g., Frame 27) to catch back up to "now".
+  4. If they disagree (a misprediction), the client **overwrites** its local tick 17 state with the server's state.
+  5. The client then **fast-forwards (replays)** all inputs from tick 18 up to the current predicted tick (e.g., tick 27) to catch back up to "now".
 
 ## 5. Network Resilience (Packet Loss & Jitter)
 

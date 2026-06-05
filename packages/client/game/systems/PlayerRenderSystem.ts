@@ -63,13 +63,16 @@ export class PlayerRenderSystem {
    * Render all alive players.
    * @param alpha          0..1 interpolation factor (0 = at tick, 1 = projected to next)
    * @param localPlayerEid EID of the local human player
-   * @param currentTick    Latest simulation tick
-   * @param tickTimeMs     Current tick duration (for remote-player scale correction)
+   * @param currentTick    Latest simulation tick (predicted)
+   * @param leadTicks      How many ticks the client leads the server (for remote-player authoritative tick)
    */
-  render(alpha: number, localPlayerEid: number, currentTick: number, tickTimeMs: number): void {
+  render(alpha: number, localPlayerEid: number, currentTick: number, leadTicks: number): void {
     this.staticTrailGraphics.clear();
     this.activeTrailGraphics.clear();
     this.driverGraphics.clear();
+
+    // Estimated server tick we have authoritative state for
+    const serverTick = currentTick - leadTicks;
 
     for (const [eid, datum] of this._latest) {
       if (!datum.isAlive) continue;
@@ -84,7 +87,7 @@ export class PlayerRenderSystem {
       let ys: number[];
 
       if (isLocal) {
-        // Local player — extrapolate from current position toward next tick
+        // Local player — predicted state at currentTick, extrapolate toward next tick
         renderX = datum.x + (datum.vx / 1000) * alpha;
         renderY = datum.y + (datum.vy / 1000) * alpha;
         direction = datum.direction;
@@ -92,23 +95,20 @@ export class PlayerRenderSystem {
         xs = datum.trailXs;
         ys = datum.trailYs;
       } else {
-        // Remote player — lerp between two snapshots with scale correction for clock drift
-        const delay = Math.round(datum.pingInTicks ?? 0);
-        const targetTick = currentTick - delay;
-        const curr = this._findPlayer(eid, targetTick);
+        // Remote player — authoritative state at serverTick, interpolate toward next tick
+        const curr = this._findPlayer(eid, serverTick);
         if (!curr) continue;
 
-        // Spawn detection: don't lerp from pre-respawn data
-        if (curr.trailXs.length <= 1) {
+        const next = this._findPlayer(eid, serverTick + 1);
+        if (next && next.tick === serverTick + 1) {
+          const a = Math.min(1, Math.max(0, alpha));
+          renderX = curr.x + (next.x - curr.x) * a;
+          renderY = curr.y + (next.y - curr.y) * a;
+        } else {
           renderX = curr.x;
           renderY = curr.y;
-        } else {
-          const prev = this._findPlayer(eid, targetTick - 1);
-          const a = Math.min(1, Math.max(0, alpha));
-          const scale = tickTimeMs / curr.tickTimeMs;
-          renderX = prev ? prev.x + (curr.x - prev.x) * a * scale : curr.x;
-          renderY = prev ? prev.y + (curr.y - prev.y) * a * scale : curr.y;
         }
+
         direction = curr.direction;
         color = curr.color;
         xs = curr.trailXs;

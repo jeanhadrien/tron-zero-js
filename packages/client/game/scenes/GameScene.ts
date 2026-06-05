@@ -343,7 +343,7 @@ export class GameScene extends Scene {
 
     // Render
     const alpha = this.workerManager.computeAlpha();
-    this.renderSystem.render(alpha, this.humanEid, this.workerManager.latestCurrentTick, this.workerManager.tickTimeMs);
+    this.renderSystem.render(alpha, this.humanEid, this.workerManager.latestCurrentTick, this.workerManager.latestLeadTicks);
 
     // Camera follow (use extrapolated position, consistent with render)
     if (this.humanEid >= 0) {

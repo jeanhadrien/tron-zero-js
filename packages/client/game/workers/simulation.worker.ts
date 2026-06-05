@@ -71,6 +71,7 @@ function flushOutput(): void {
     type: 'render_states',
     localPlayerEid: room.localPlayerEid ?? -1,
     currentTick: room.tick,
+    leadTicks: clockSync.getLeadTicks(),
     ticks: pendingOutputs,
     alpha: clock.getAlpha(),
     tickTimeMs: clock.tickTimeMs,
@@ -91,7 +92,7 @@ self.onmessage = (e: MessageEvent<MainToWorkerMessage>) => {
 
       const systems = [new GameArenaSystem(), new PlayerSystem()];
 
-      room = new ECSGameRoom(clock, systems, { minSnapshotCoverageMs: msg.minSnapshotCoverageMs });
+      room = new ECSGameRoom(clock, systems, { minSnapshotCoverageMs: msg.minSnapshotCoverageMs, predictLocalInputs: true });
       room.snapshotPeriodX = msg.snapshotPeriodX;
 
       clockSync = new ClockSyncManager();

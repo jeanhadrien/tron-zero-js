@@ -118,6 +118,8 @@ export interface RenderStatesMessage {
   type: 'render_states';
   localPlayerEid: number;
   currentTick: number;
+  /** How many ticks the client is ahead of the estimated server tick. */
+  leadTicks: number;
   ticks: TickRenderOutput[];
   /** Simulation alpha (accumulator / tickTimeMs) at flush time, for extrapolation. */
   alpha: number;
