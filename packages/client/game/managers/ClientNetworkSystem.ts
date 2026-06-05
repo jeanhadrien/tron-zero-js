@@ -1,7 +1,8 @@
 import { ClientChannel, geckos } from '@geckos.io/client';
 import { RoomLogger } from '@tron0/shared/otel/Logger';
 import { ConnectionError, Data } from '@geckos.io/common/lib/types';
-import { decodeMessage, MSG_INIT_STATE, MSG_SYNC_STATE } from '@tron0/shared/NetworkProtocol';
+import { decodeMessage, MSG_INIT_STATE, MSG_SYNC_STATE_BATCH } from '@tron0/shared/NetworkProtocol';
+import type { NetworkDiffPayload } from '@tron0/shared/interfaces/Network';
 import { EventBus } from './EventBus';
 
 const logger = new RoomLogger('ClientNetwork');
@@ -12,7 +13,7 @@ const logger = new RoomLogger('ClientNetwork');
  */
 export interface NetworkDataHandler {
   onInitState(tick: number, snapshot: ArrayBuffer): void;
-  onSyncState(tick: number, data: ArrayBuffer, struct: ArrayBuffer): void;
+  onSyncStateBatch(serverTick: number, diffs: NetworkDiffPayload[]): void;
   onPong(rttMs: number, serverTick: number): void;
 }
 
@@ -123,8 +124,8 @@ export class ClientNetworkSystem {
         this._initialized = true;
         this.handler?.onInitState(msg.tick, msg.snapshot);
         break;
-      case MSG_SYNC_STATE:
-        this.handler?.onSyncState(msg.tick, msg.data, msg.struct);
+      case MSG_SYNC_STATE_BATCH:
+        this.handler?.onSyncStateBatch(msg.serverTick, msg.diffs);
         break;
       default:
         throw new Error('Unknown message');

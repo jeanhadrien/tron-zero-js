@@ -5,6 +5,7 @@
  */
 
 import type { PlayerInput } from './interfaces/PlayerInput';
+import type { NetworkDiffPayload } from './interfaces/Network';
 import type { GameEvent } from './interfaces/GameEvent';
 
 // ── Main → Worker ────────────────────────────────────────────────────────────
@@ -12,7 +13,7 @@ import type { GameEvent } from './interfaces/GameEvent';
 export type MainToWorkerMessage =
   | InitSimMessage
   | InitStateMessage
-  | SyncStateMessage
+  | SyncStateBatchMessage
   | PongMessage
   | PlayerInputRelayMessage
   | DeltaTimeMessage
@@ -37,14 +38,11 @@ export interface InitStateMessage {
   snapshot: ArrayBuffer;
 }
 
-/** Forward MSG_SYNC_STATE from server — authoritative diff. */
-export interface SyncStateMessage {
-  type: 'sync_state';
-  tick: number;
-  /** Transferable — SoA diff payload. */
-  data: ArrayBuffer;
-  /** Transferable — observer diff payload. */
-  struct: ArrayBuffer;
+/** Forward MSG_SYNC_STATE_BATCH from server — authoritative diffs for a contiguous tick window. */
+export interface SyncStateBatchMessage {
+  type: 'sync_state_batch';
+  serverTick: number;
+  diffs: NetworkDiffPayload[];
 }
 
 /** Ping round-trip measurement for clock synchronisation. */

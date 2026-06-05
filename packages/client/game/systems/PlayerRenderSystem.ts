@@ -1,7 +1,7 @@
 import { GameObjects } from 'phaser';
 import type { PlayerRenderDatum, TickRenderOutput } from '@tron0/shared/WorkerProtocol';
 
-const RING_SIZE = 128; // power of 2, covers ~1s of history at 60tps
+const RING_SIZE = 500; // power of 2, covers ~1s of history at 60tps
 const TRAIL_WIDTH = 5;
 
 /**

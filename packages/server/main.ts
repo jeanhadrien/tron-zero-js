@@ -51,7 +51,6 @@ const ecsRoom = new ECSGameRoom(gameClock, [areaSystem, botSystem, playerSystem,
 
 botSystem.setInputBuffer(ecsRoom.playerInputBuffer);
 
-const TICK_RATE = 1000 / 60;
 let lastTime = performance.now();
 
 setInterval(() => {
@@ -60,7 +59,7 @@ setInterval(() => {
   lastTime = now;
 
   ecsRoom.updateFixed(delta);
-}, TICK_RATE);
+}, gameClock.referenceTickTimeMs);
 
 // ---------------------------------------------------------------------------
 // Server-manager registration

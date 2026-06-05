@@ -27,6 +27,17 @@ import GameClock from './GameClock';
 
 const logger = new RoomLogger('GameRoom');
 
+/** Compare two ArrayBuffers byte-for-byte. */
+function buffersEqual(a: ArrayBuffer, b: ArrayBuffer): boolean {
+  if (a.byteLength !== b.byteLength) return false;
+  const ua = new Uint8Array(a);
+  const ub = new Uint8Array(b);
+  for (let i = 0; i < ua.length; i++) {
+    if (ua[i] !== ub[i]) return false;
+  }
+  return true;
+}
+
 interface ECSGameRoomOptions {
   onDeltas?: (deltas: NetworkDiffPayload[]) => void;
   /** Minimum wall-clock time of past snapshots to keep (ms). Default 100ms. */
@@ -186,16 +197,36 @@ export class ECSGameRoom {
     return this.channelPlayerIds.size;
   }
 
-  addNetworkDiffPayload(diff: NetworkDiffPayload): void {
-    logger.debug(`Applying diff at tick ${diff.tick}`);
-    this.networkDiffTickRingBuffer.record(diff.tick, 'network', {
-      data: diff.data,
-      struct: diff.struct,
-      tick: diff.tick,
-    });
+  /**
+   * Store a batch of authoritative network diffs and trigger at most one resim.
+   * Only rewinds to the first tick whose diff differs from what was already stored.
+   * Byte-identical diffs are skipped — no resim is triggered if nothing changed.
+   */
+  addNetworkDiffBatch(diffs: NetworkDiffPayload[]): void {
+    let earliestChangedTick = Infinity;
+
+    for (const diff of diffs) {
+      const stored = this.networkDiffTickRingBuffer.get(diff.tick, 'network');
+      if (stored && buffersEqual(stored.data, diff.data) && buffersEqual(stored.struct, diff.struct)) {
+        continue;
+      }
+
+      this.networkDiffTickRingBuffer.record(diff.tick, 'network', {
+        data: diff.data,
+        struct: diff.struct,
+        tick: diff.tick,
+      });
+
+      if (diff.tick < earliestChangedTick) {
+        earliestChangedTick = diff.tick;
+      }
+    }
+
+    if (!isFinite(earliestChangedTick)) return;
+
     // Diff at tick T corrects state after the update that transitions T-1 → T.
     // Roll back to T-1 so the diff is applied at the right point during replay.
-    const resimTick = diff.tick - 1;
+    const resimTick = earliestChangedTick - 1;
     if (resimTick < this.tick) {
       this.pendingResimTick = this.pendingResimTick === null ? resimTick : Math.min(this.pendingResimTick, resimTick);
     }
@@ -231,18 +262,17 @@ export class ECSGameRoom {
       this.replayFrom(this.pendingResimTick);
       this.pendingResimTick = null;
     }
-
-    const ticksToProcess = this.clock.update(deltaTime);
-    for (let index = 0; index < ticksToProcess; index++) {
-      this.update();
-      this._tryTakeSnapshot(this.tick);
-    }
     // Also load the diff for current tick
     const diff = this.networkDiffTickRingBuffer.get(this.tick, 'network');
     if (diff) {
       logger.info('loading remote network auth diff');
       this.soaDeserialize(diff.data);
       this.observerDeserializeNetwork(diff.struct, new Map());
+    }
+    const ticksToProcess = this.clock.update(deltaTime);
+    for (let index = 0; index < ticksToProcess; index++) {
+      this.update();
+      this._tryTakeSnapshot(this.tick);
     }
   }
 
@@ -262,7 +292,6 @@ export class ECSGameRoom {
     // 2. Nothing to do — accumulator hasn't filled a tick yet
     if (this.clock.pendingTicks() <= 0) return false;
 
-    // 3. Load network diff for this specific tick
     const diff = this.networkDiffTickRingBuffer.get(this.tick, 'network');
     if (diff) {
       logger.info('loading remote network auth diff');
@@ -270,8 +299,8 @@ export class ECSGameRoom {
       this.observerDeserializeNetwork(diff.struct, new Map());
     }
 
-    // 4. Process one tick
     this.update();
+
     this._tryTakeSnapshot(this.tick);
     this.clock.consumeTicks(1);
 
@@ -314,6 +343,7 @@ export class ECSGameRoom {
     return best;
   }
 
+  // Client only
   private replayFrom(pastTick: number): void {
     const currentTick = this.tick;
 
@@ -332,15 +362,21 @@ export class ECSGameRoom {
     this.tick = anchor.tick;
 
     logger.debug(`Replaying from ${anchor.tick} to ${currentTick} (${currentTick - anchor.tick} ticks)`);
+
+    const ticksReplayed = currentTick - anchor.tick;
     while (this.tick < currentTick) {
-      this.update();
       // Load authorithative state diff for the tick we are about to re-simulate
       const diff = this.networkDiffTickRingBuffer.get(this.tick, 'network');
       if (diff) {
         this.soaDeserialize(diff.data);
         this.observerDeserializeNetwork(diff.struct, new Map());
       }
+      this.update();
+
+      this.onTick?.(this.tick);
     }
+
+    this.clock.consumeTicks(ticksReplayed);
     this.replaying = false;
   }
 }

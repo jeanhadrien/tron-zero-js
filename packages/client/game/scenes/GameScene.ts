@@ -94,7 +94,7 @@ export class GameScene extends Scene {
     // 2. Wire network → Worker relay
     const relay: NetworkDataHandler = {
       onInitState: (tick, snapshot) => this.workerManager.sendInitState(tick, snapshot),
-      onSyncState: (tick, data, struct) => this.workerManager.sendSyncState(tick, data, struct),
+      onSyncStateBatch: (serverTick, diffs) => this.workerManager.sendSyncStateBatch(serverTick, diffs),
       onPong: (rttMs, serverTick) => this.workerManager.sendPong(rttMs, serverTick),
     };
     this.networkClient.setHandler(relay);

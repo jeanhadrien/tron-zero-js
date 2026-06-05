@@ -1,4 +1,5 @@
 import { Logger } from '@tron0/shared/Logger';
+import type { NetworkDiffPayload } from '@tron0/shared/interfaces/Network';
 import type { PlayerInput } from '@tron0/shared/interfaces/PlayerInput';
 import type {
   MainToWorkerMessage,
@@ -94,8 +95,9 @@ export class SimulationWorkerManager {
     this._post({ type: 'init_state', tick, snapshot }, [snapshot]);
   }
 
-  sendSyncState(tick: number, data: ArrayBuffer, struct: ArrayBuffer): void {
-    this._post({ type: 'sync_state', tick, data, struct }, [data, struct]);
+  sendSyncStateBatch(serverTick: number, diffs: NetworkDiffPayload[]): void {
+    const transfers = diffs.flatMap(d => [d.data, d.struct]).filter(b => b.byteLength > 0);
+    this._post({ type: 'sync_state_batch', serverTick, diffs }, transfers);
   }
 
   sendPong(rttMs: number, serverTick: number): void {

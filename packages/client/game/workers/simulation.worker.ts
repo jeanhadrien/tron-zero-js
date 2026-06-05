@@ -34,6 +34,7 @@ let clock: GameClock;
 let clockSync: ClockSyncManager;
 let pendingOutputs: TickRenderOutput[] = [];
 let sessionToken: string;
+let _lastAppliedServerTick = -1;
 
 // ── Render capture ───────────────────────────────────────────────────────────
 
@@ -127,12 +128,10 @@ self.onmessage = (e: MessageEvent<MainToWorkerMessage>) => {
       break;
     }
 
-    case 'sync_state': {
-      room.addNetworkDiffPayload({
-        tick: msg.tick,
-        data: msg.data,
-        struct: msg.struct,
-      });
+    case 'sync_state_batch': {
+      if (msg.serverTick <= _lastAppliedServerTick) break;
+      room.addNetworkDiffBatch(msg.diffs);
+      _lastAppliedServerTick = msg.serverTick;
       break;
     }
 

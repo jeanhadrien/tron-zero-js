@@ -1,5 +1,6 @@
 import { GeckosServer, ServerChannel, Data } from '@geckos.io/server';
-import { encodeInitState, encodeSyncState } from '@tron0/shared/NetworkProtocol';
+import { encodeInitState, encodeSyncStateBatch, SERVER_DIFF_HISTORY_SIZE } from '@tron0/shared/NetworkProtocol';
+import type { NetworkDiffPayload } from '@tron0/shared/interfaces/Network';
 import { eventGetter, inputGetter, System } from '@tron0/shared/interfaces/System';
 import { GameEventType } from '@tron0/shared/interfaces/GameEvent';
 import { Logger } from '@tron0/shared/Logger';
@@ -15,6 +16,7 @@ export class ServerNetworkSystem extends System {
 
   private channels: Map<string, ServerChannel> = new Map();
   private sessionByChannelId: Map<string, string> = new Map();
+  private _diffHistory: NetworkDiffPayload[] = [];
 
   constructor(io: GeckosServer) {
     super();
@@ -44,23 +46,27 @@ export class ServerNetworkSystem extends System {
     }
 
     const dirtyEntities = [...this.room.dirtyEntities];
-    this.room.dirtyEntities.clear();
+    this.room.dirtyEntities.clear(); // on each update, only send entities that have been marked as dirty.
     if (dirtyEntities.length === 0) return;
-
     this._sendStateToClients(dirtyEntities);
   }
 
   private _sendStateToClients(entities: number[]) {
-    const diff = {
+    const diff: NetworkDiffPayload = {
       tick: this.room.tick + 1,
       struct: this.room.observerSerializeNetwork(),
       data: this.room.soaSerialize(entities),
     };
-    if (diff.struct.byteLength > 0 || diff.data.byteLength > 0) {
-      const packet = encodeSyncState(diff.tick, diff.data, diff.struct);
-      for (const channel of this.channels.values()) {
-        channel.raw.emit(packet);
-      }
+
+    this._diffHistory.push(diff);
+    if (this._diffHistory.length > SERVER_DIFF_HISTORY_SIZE) {
+      this._diffHistory.shift();
+    }
+
+    const serverTick = this.room.tick + 1;
+    const packet = encodeSyncStateBatch(serverTick, this._diffHistory);
+    for (const channel of this.channels.values()) {
+      channel.raw.emit(packet);
     }
   }
 
