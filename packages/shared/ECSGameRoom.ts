@@ -22,7 +22,7 @@ import { GameEvent, GameEventType } from './interfaces/GameEvent';
 import { GameEventTickRingBuffer } from './GameEventBuffer';
 import { Networked } from './interfaces/Network';
 import { RoomLogger } from './otel/Logger';
-import PlayerSystem, { Direction, PingInTicks } from './systems/PlayerSystem';
+import PlayerSystem, { PingInTicks } from './systems/PlayerSystem';
 import GameClock from './GameClock';
 
 const logger = new RoomLogger('GameRoom');
@@ -31,6 +31,8 @@ interface ECSGameRoomOptions {
   onDeltas?: (deltas: NetworkDiffPayload[]) => void;
   /** Minimum wall-clock time of past snapshots to keep (ms). Default 100ms. */
   minSnapshotCoverageMs?: number;
+  /** When true, the client simulates local inputs ahead of the server for snappiness. Default false. */
+  predictLocalInputs?: boolean;
 }
 
 export class ECSGameRoom {
@@ -46,9 +48,9 @@ export class ECSGameRoom {
   systems: System[];
   components: object[];
   replaying: boolean;
-  /** Ticks in the current replay pass that have server-authoritative state for the local player. */
-  private _authStateTicks: Set<number> = new Set();
   tick: number = 0;
+  /** When true, forward-simulated ticks use local-input prediction before server confirmation. */
+  predictLocalInputs: boolean = false;
 
   /** Hook fired after every tick transition (replay or forward). Worker uses this to capture render state. */
   onTick?: (tick: number) => void;
@@ -82,6 +84,7 @@ export class ECSGameRoom {
   constructor(clock: GameClock, systems: System[] = [], options?: ECSGameRoomOptions) {
     if (options?.onDeltas) this.networkDiffEmitter.on('diff', options.onDeltas);
     this.minSnapshotCoverageMs = options?.minSnapshotCoverageMs ?? ECSGameRoom.DEFAULT_MIN_SNAPSHOT_COVERAGE_MS;
+    this.predictLocalInputs = options?.predictLocalInputs ?? false;
     this.clock = clock;
     this.dirtyEntities = new Set<number>();
     this.channelPlayerIds = new Map();
@@ -201,11 +204,11 @@ export class ECSGameRoom {
    * @param world
    */
   private update(): void {
-    const isLocal = (entityId: string) =>
-      this.replaying && entityId === this.localPlayerId && this._authStateTicks.has(this.tick);
     const input = (entityId: string) => {
-      if (isLocal(entityId)) return this.playerInputBuffer.get(this.tick, entityId);
-      return this.localInputBuffer.consume(this.tick, entityId) ?? this.playerInputBuffer.get(this.tick, entityId);
+      if (this.predictLocalInputs && !this.replaying) {
+        return this.localInputBuffer.consume(this.tick, entityId) ?? this.playerInputBuffer.get(this.tick, entityId);
+      }
+      return this.playerInputBuffer.get(this.tick, entityId);
     };
     const events = () => this.gameEventBuffer.get(this.tick);
     for (const sys of this.systems) {
@@ -319,7 +322,6 @@ export class ECSGameRoom {
     // Load past world from rewind anchor
     resetWorld(this.world);
     this.dirtyEntities.clear();
-    this._authStateTicks.clear();
     this.replaying = true;
 
     this.snapshotDeserialize(anchor.buffer, new Map());
@@ -330,12 +332,8 @@ export class ECSGameRoom {
       // Load authorithative state diffs from server
       const diff = this.networkDiffTickRingBuffer.get(_tick, 'network');
       if (diff) {
-        const prevDir = this.localPlayerEid >= 0 ? Direction[this.localPlayerEid] : undefined;
         this.soaDeserialize(diff.data);
         this.observerDeserializeNetwork(diff.struct, new Map());
-        if (this.localPlayerEid >= 0 && Direction[this.localPlayerEid] !== prevDir) {
-          this._authStateTicks.add(_tick);
-        }
       }
       this.update();
     }
