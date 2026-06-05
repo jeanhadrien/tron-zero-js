@@ -7,11 +7,11 @@ import { trace } from '@opentelemetry/api';
 import { GameArenaSystem } from '@tron0/shared/systems/GameArenaSystem';
 import GameClock from '@tron0/shared/GameClock';
 import { Logger } from '@tron0/shared/Logger';
-import { ECSGameRoom } from '@tron0/shared/ECSGameRoom';
 import PlayerSystem from '@tron0/shared/systems/PlayerSystem';
 import BotSystem from './systems/ServerBotSystem';
 import { ServerNetworkSystem } from './systems/ServerNetworkSystem';
 import { ServerChatSystem } from './systems/ServerChatSystem';
+import { ServerSimulation } from './ServerSimulation';
 
 const logger = new Logger('Server');
 const tracer = trace.getTracer('tron-zero-server');
@@ -45,11 +45,11 @@ const playerSystem = new PlayerSystem();
 const areaSystem = new GameArenaSystem();
 const botSystem = new BotSystem();
 const networkServerSystem = new ServerNetworkSystem(io);
-const chatSystem = new ServerChatSystem(io);
+const chatSystem = new ServerChatSystem(io, networkServerSystem.channelPlayerIds);
 
-const ecsRoom = new ECSGameRoom(gameClock, [areaSystem, botSystem, playerSystem, networkServerSystem, chatSystem]);
+const serverSim = new ServerSimulation(gameClock, [areaSystem, botSystem, playerSystem, networkServerSystem, chatSystem]);
 
-botSystem.setInputBuffer(ecsRoom.playerInputBuffer);
+botSystem.setInputBuffer(serverSim.room.playerInputBuffer);
 
 let lastTime = performance.now();
 
@@ -58,7 +58,7 @@ setInterval(() => {
   const delta = now - lastTime;
   lastTime = now;
 
-  ecsRoom.updateFixed(delta);
+  serverSim.updateFixed(delta);
 }, gameClock.referenceTickTimeMs);
 
 // ---------------------------------------------------------------------------
@@ -93,7 +93,7 @@ async function registerWithManager() {
         const res = await fetch(`${MANAGER_URL}/api/rooms/${roomId}/heartbeat`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ playerCount: ecsRoom.getPlayerCount() + botSystem.getBotCount() }),
+          body: JSON.stringify({ playerCount: networkServerSystem.getPlayerCount() + botSystem.getBotCount() }),
         });
         if (!res.ok) {
           if (res.status === 404) {

@@ -16,6 +16,7 @@ import PlayerSystem, {
 import { SharedLine, distanceBetween, angleBetween, wrapAngle } from '@tron0/shared/math';
 import { Logger } from '@tron0/shared/Logger';
 import { ECSGameRoom } from '@tron0/shared/ECSGameRoom';
+import type { SimulationContext } from '@tron0/shared/interfaces/SimulationContext';
 import { GameEventType } from '@tron0/shared/interfaces/GameEvent';
 
 const logger = new Logger('BotSystem');
@@ -86,8 +87,8 @@ export default class BotSystem extends System {
     return this.botEids.length;
   }
 
-  init(room: ECSGameRoom): void {
-    this.room = room;
+  init(ctx: SimulationContext): void {
+    this.room = ctx as ECSGameRoom;
     for (let i = 1; i <= BOT_COUNT; i++) {
       const botId = `bot${i}`;
       PlayerSystem.createPlayer(this.room, botId);
@@ -112,7 +113,7 @@ export default class BotSystem extends System {
 
     for (const eid of this.botEids) {
       if (!IsAlive[eid]) {
-        this.room.serverAddEvent({
+        this.room.addEvent({
           type: GameEventType.PlayerSpawn,
           tick: this.room.tick,
           playerId: PlayerId[eid],
@@ -159,7 +160,7 @@ export default class BotSystem extends System {
         } else {
           turn = Math.random() > 0.5 ? 'left' : 'right';
         }
-        this.room.serverAddInput({
+        this.room.addInput({
           tick,
           playerId,
           break: false,
@@ -175,7 +176,7 @@ export default class BotSystem extends System {
         if (wantsToSlide && distLeft > 20 && distRight > 20) {
           if (distFront > 50) {
             if (distLeft < distRight && distLeft < 400) {
-              this.room.serverAddInput({
+              this.room.addInput({
                 tick,
                 playerId,
                 break: false,
@@ -184,7 +185,7 @@ export default class BotSystem extends System {
               this.lastActionTick.set(eid, tick + 18);
               continue;
             } else if (distRight < distLeft && distRight < 400) {
-              this.room.serverAddInput({
+              this.room.addInput({
                 tick,
                 playerId,
                 break: false,
@@ -224,7 +225,7 @@ export default class BotSystem extends System {
     };
   }
 
-  private getNearestEnemy(room: ECSGameRoom, selfEid: number): number | null {
+  private getNearestEnemy(room: SimulationContext, selfEid: number): number | null {
     let nearest: number | null = null;
     let minDistance = Infinity;
 
@@ -283,7 +284,7 @@ export default class BotSystem extends System {
     // General tracking
     if (!relPos.isAhead) {
       if (relPos.isLeft && leftDist > 40) {
-        this.room.serverAddInput({
+        this.room.addInput({
           tick,
           playerId,
           break: false,
@@ -292,7 +293,7 @@ export default class BotSystem extends System {
         this.lastActionTick.set(eid, tick);
         return;
       } else if (!relPos.isLeft && rightDist > 40) {
-        this.room.serverAddInput({
+        this.room.addInput({
           tick,
           playerId,
           break: false,
@@ -307,7 +308,7 @@ export default class BotSystem extends System {
       case 'CUT_OFF':
         if (relHeading === 'PARALLEL' && !relPos.isAhead && relPos.distance < 150) {
           if (relPos.isLeft && leftDist > 50) {
-            this.room.serverAddInput({
+            this.room.addInput({
               tick,
               playerId,
               break: false,
@@ -315,7 +316,7 @@ export default class BotSystem extends System {
             });
             this.lastActionTick.set(eid, tick);
           } else if (!relPos.isLeft && rightDist > 50) {
-            this.room.serverAddInput({
+            this.room.addInput({
               tick,
               playerId,
               break: false,
@@ -325,7 +326,7 @@ export default class BotSystem extends System {
           }
         } else if (relHeading === 'PERPENDICULAR' && relPos.isAhead && relPos.distance < 150) {
           if (relPos.isLeft && leftDist > 50) {
-            this.room.serverAddInput({
+            this.room.addInput({
               tick,
               playerId,
               break: false,
@@ -333,7 +334,7 @@ export default class BotSystem extends System {
             });
             this.lastActionTick.set(eid, tick);
           } else if (!relPos.isLeft && rightDist > 50) {
-            this.room.serverAddInput({
+            this.room.addInput({
               tick,
               playerId,
               break: false,
@@ -348,7 +349,7 @@ export default class BotSystem extends System {
         if (relHeading === 'PARALLEL' && relPos.distance < 200) {
           if (relPos.distance > 100 && relPos.distance < 150) {
             if (relPos.isLeft && leftDist > 100) {
-              this.room.serverAddInput({
+              this.room.addInput({
                 tick,
                 playerId,
                 break: false,
@@ -356,7 +357,7 @@ export default class BotSystem extends System {
               });
               this.lastActionTick.set(eid, tick);
             } else if (!relPos.isLeft && rightDist > 100) {
-              this.room.serverAddInput({
+              this.room.addInput({
                 tick,
                 playerId,
                 break: false,
@@ -367,7 +368,7 @@ export default class BotSystem extends System {
           }
         } else if (relHeading === 'PERPENDICULAR' && relPos.distance < 150) {
           if (relPos.isLeft && leftDist > 30) {
-            this.room.serverAddInput({
+            this.room.addInput({
               tick,
               playerId,
               break: false,
@@ -375,7 +376,7 @@ export default class BotSystem extends System {
             });
             this.lastActionTick.set(eid, tick);
           } else if (!relPos.isLeft && rightDist > 30) {
-            this.room.serverAddInput({
+            this.room.addInput({
               tick,
               playerId,
               break: false,
@@ -389,7 +390,7 @@ export default class BotSystem extends System {
       case 'SPEED_DEMON':
         if (TargetSpeedMult[eid] > 1.2 && relPos.distance < 200) {
           if (relPos.isLeft && leftDist > 20) {
-            this.room.serverAddInput({
+            this.room.addInput({
               tick,
               playerId,
               break: false,
@@ -397,7 +398,7 @@ export default class BotSystem extends System {
             });
             this.lastActionTick.set(eid, tick);
           } else if (!relPos.isLeft && rightDist > 20) {
-            this.room.serverAddInput({
+            this.room.addInput({
               tick,
               playerId,
               break: false,
@@ -411,26 +412,26 @@ export default class BotSystem extends System {
       case 'TRAPPER':
         if (relHeading === 'PARALLEL' && !relPos.isAhead && relPos.distance < 80) {
           if (leftDist > rightDist && leftDist > 50) {
-            this.room.serverAddInput({
+            this.room.addInput({
               tick,
               playerId,
               break: false,
               turn: 'left',
             });
-            this.room.serverAddInput({
+            this.room.addInput({
               tick: tick + 1,
               playerId,
               break: false,
               turn: 'left',
             });
           } else if (rightDist > 50) {
-            this.room.serverAddInput({
+            this.room.addInput({
               tick,
               playerId,
               break: false,
               turn: 'right',
             });
-            this.room.serverAddInput({
+            this.room.addInput({
               tick: tick + 1,
               playerId,
               break: false,
@@ -440,7 +441,7 @@ export default class BotSystem extends System {
           this.lastActionTick.set(eid, tick + 30);
         } else if (relPos.isAhead && relPos.distance > 150) {
           if (relPos.isLeft && leftDist > 50) {
-            this.room.serverAddInput({
+            this.room.addInput({
               tick: tick + 1,
               playerId,
               break: false,
@@ -448,7 +449,7 @@ export default class BotSystem extends System {
             });
             this.lastActionTick.set(eid, tick);
           } else if (!relPos.isLeft && rightDist > 50) {
-            this.room.serverAddInput({
+            this.room.addInput({
               tick,
               playerId,
               break: false,

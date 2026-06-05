@@ -1,6 +1,5 @@
 import { logs, SeverityNumber } from '@opentelemetry/api-logs';
 import type { Logger as OtelLogger } from '@opentelemetry/api-logs';
-import type { ECSGameRoom } from '../ECSGameRoom';
 
 export enum LogLevel {
   Debug = 0,
@@ -103,19 +102,20 @@ export class Logger {
 }
 
 export class RoomLogger extends Logger {
-  private room: ECSGameRoom | null = null;
+  private _tickSource: { tick: number } | null = null;
 
   constructor(tag: string, attributes?: Record<string, unknown>) {
     super(tag, attributes);
   }
 
-  setRoom(room: ECSGameRoom): void {
-    this.room = room;
+  /** Bind to an object with a tick property for log prefixing. */
+  setRoom(source: { tick: number }): void {
+    this._tickSource = source;
   }
 
   private prefixArgs(args: unknown[]): unknown[] {
-    if (!this.room) return args;
-    const prefix = `[${this.room.tick}] -`;
+    if (!this._tickSource) return args;
+    const prefix = `[${this._tickSource.tick}] -`;
     if (args.length > 0 && typeof args[0] === 'string') {
       return [`${prefix} ${args[0]}`, ...args.slice(1)];
     }

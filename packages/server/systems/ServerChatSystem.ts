@@ -1,6 +1,6 @@
 import { GeckosServer, ServerChannel, Data } from '@geckos.io/server';
 import { eventGetter, inputGetter, System } from '@tron0/shared/interfaces/System';
-import { ECSGameRoom } from '@tron0/shared/ECSGameRoom';
+import type { SimulationContext } from '@tron0/shared/interfaces/SimulationContext';
 import { GameEventType, GameEvent } from '@tron0/shared/interfaces/GameEvent';
 import { ChatMessageBuffer } from '@tron0/shared/ChatMessageBuffer';
 import { ChatMessage } from '@tron0/shared/interfaces/ChatMessage';
@@ -9,7 +9,6 @@ import PlayerSystem, { Color } from '@tron0/shared/systems/PlayerSystem';
 
 const logger = new RoomLogger('chat-server');
 
-// Convert a GameEvent to human-friendly chat text, skip noisy events
 function gameEventToText(event: GameEvent): string | null {
   const pid = event.playerId ? event.playerId.substring(0, 16) : '?';
   switch (event.type) {
@@ -37,12 +36,14 @@ export class ServerChatSystem extends System {
 
   private server: GeckosServer;
   private channels: Map<string, ServerChannel> = new Map();
-  private room: ECSGameRoom;
+  private room: SimulationContext;
+  private channelPlayerIds: Map<string, string>;
   buffer: ChatMessageBuffer;
 
-  constructor(io: GeckosServer) {
+  constructor(io: GeckosServer, channelPlayerIds: Map<string, string>) {
     super();
     this.server = io;
+    this.channelPlayerIds = channelPlayerIds;
     this.buffer = new ChatMessageBuffer(100);
   }
 
@@ -50,23 +51,21 @@ export class ServerChatSystem extends System {
     return [];
   }
 
-  init(room: ECSGameRoom): void {
+  init(room: SimulationContext): void {
     this.room = room;
 
     this.server.onConnection((channel) => {
       const channelId = channel.id!;
       this.channels.set(channelId, channel);
 
-      // Send full chat history to newly connected player
       const history = this.buffer.getAll();
       channel.emit('chat', { type: 'history', messages: history });
 
-      // Listen for player chat messages
       channel.on('chat_message', (data: Data) => {
         const text = data as string;
         if (!text || typeof text !== 'string' || text.trim().length === 0) return;
 
-        const playerId = this.room.channelPlayerIds.get(channelId) ?? channelId;
+        const playerId = this.channelPlayerIds.get(channelId) ?? channelId;
         let color: number | undefined;
         try {
           const eid = PlayerSystem.getPlayerEidByStringId(this.room, playerId);
@@ -87,11 +86,8 @@ export class ServerChatSystem extends System {
         logger.log(`${playerId}: ${message.text}`);
 
         this.buffer.push(message);
-
-        // Broadcast to all connected clients
         this.broadcast(message);
 
-        // Easter egg: respond to "hello server"
         if (text.toLowerCase().includes('hello server')) {
           const reply: ChatMessage = {
             tick: this.room.tick,
@@ -112,9 +108,6 @@ export class ServerChatSystem extends System {
   }
 
   update(_getInput: inputGetter, getEvents: eventGetter): void {
-    // Skip events emitted during rollback/resimulation
-    if (this.room.replaying) return;
-
     if (getEvents) {
       for (const event of getEvents()) {
         const text = gameEventToText(event);

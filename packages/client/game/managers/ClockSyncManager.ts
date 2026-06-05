@@ -62,6 +62,7 @@ class PingBuffer {
 export class ClockSyncManager {
   private buffer = new PingBuffer();
   private room: ECSGameRoom | null = null;
+  private _isReplaying: (() => boolean) | null = null;
 
   /** Anchor for per-frame error extrapolation — stored at each pong arrival. */
   private _lastPongServerTickAtReceive = 0;
@@ -78,9 +79,10 @@ export class ClockSyncManager {
 
   // -- lifecycle ---------------------------------------------------------------
 
-  /** Bind to a game room (called after room creation in connectToServer). */
-  attach(room: ECSGameRoom): void {
+  /** Bind to a game room with a replaying-state callback. */
+  attach(room: ECSGameRoom, isReplaying: () => boolean): void {
     this.room = room;
+    this._isReplaying = isReplaying;
   }
 
   // -- data intake -------------------------------------------------------------
@@ -93,7 +95,7 @@ export class ClockSyncManager {
    * always pushed — the PingBuffer EWMA and the gain ramp handle stability.
    */
   recordPing(rttMs: number, serverTick: number): void {
-    if (!this.room || this.room.replaying) return;
+    if (!this.room || (this._isReplaying && this._isReplaying())) return;
 
     const rawOWD = rttMs / 2;
     const now = performance.now();

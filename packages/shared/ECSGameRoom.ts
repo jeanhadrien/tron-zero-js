@@ -1,5 +1,3 @@
-import { EventEmitter } from 'eventemitter3';
-
 import { createWorld, createEntityIndex, resetWorld, World } from 'bitecs';
 import {
   createSnapshotSerializer,
@@ -10,76 +8,42 @@ import {
   createSoADeserializer,
 } from 'bitecs/serialization';
 
-const SNAPSHOT_BUFFER_SIZE = 1024 * 1024 * 5; //  avoids 100MB default in bitecs that kills perf via slice()
-const DIFF_BUFFER_SIZE = 1024 * 1024 * 5;
-
-import { System } from './interfaces/System';
-import { NetworkDiffPayload } from './interfaces/Network';
-import { NetworkDiffTickRingBuffer } from './interfaces/Network';
-import { PlayerInput } from './interfaces/PlayerInput';
-import { PlayerInputTickRingBuffer } from './PlayerInputBuffer';
-import { GameEvent, GameEventType } from './interfaces/GameEvent';
-import { GameEventTickRingBuffer } from './GameEventBuffer';
+import type { System } from './interfaces/System';
 import { Networked } from './interfaces/Network';
+import type { PlayerInput } from './interfaces/PlayerInput';
+import { PlayerInputTickRingBuffer } from './PlayerInputBuffer';
+import type { GameEvent } from './interfaces/GameEvent';
+import { GameEventTickRingBuffer } from './GameEventBuffer';
+import type { SimulationContext } from './interfaces/SimulationContext';
+import { GameEventType } from './interfaces/GameEvent';
 import { RoomLogger } from './otel/Logger';
 import PlayerSystem from './systems/PlayerSystem';
-import GameClock from './GameClock';
+import type GameClock from './GameClock';
+
+const SNAPSHOT_BUFFER_SIZE = 1024 * 1024 * 5;
+const DIFF_BUFFER_SIZE = 1024 * 1024 * 5;
 
 const logger = new RoomLogger('GameRoom');
 
-/** Compare two ArrayBuffers byte-for-byte. */
-function buffersEqual(a: ArrayBuffer, b: ArrayBuffer): boolean {
-  if (a.byteLength !== b.byteLength) return false;
-  const ua = new Uint8Array(a);
-  const ub = new Uint8Array(b);
-  for (let i = 0; i < ua.length; i++) {
-    if (ua[i] !== ub[i]) return false;
-  }
-  return true;
+interface UpdateHooks {
+  /** Override how input is resolved for each entity (client injects local prediction here). */
+  resolveInput?: (playerId: string) => PlayerInput | null;
+  /** Called after tick increments (client hooks render capture here). */
+  postTick?: (tick: number) => void;
 }
 
-interface ECSGameRoomOptions {
-  onDeltas?: (deltas: NetworkDiffPayload[]) => void;
-  /** Minimum wall-clock time of past snapshots to keep (ms). Default 100ms. */
-  minSnapshotCoverageMs?: number;
-  /** When true, the client simulates local inputs ahead of the server for snappiness. Default false. */
-  predictLocalInputs?: boolean;
-  /** Minimum number of snapshot slots in the ring buffer. Default 16. */
-  snapshotRingCapacity?: number;
-}
-
-export class ECSGameRoom {
+export class ECSGameRoom implements SimulationContext {
   clock: GameClock;
-  private networkDiffEmitter = new EventEmitter<string>();
-  private pendingResimTick: number | null = null;
   world: World;
   playerInputBuffer: PlayerInputTickRingBuffer;
-  localInputBuffer: PlayerInputTickRingBuffer;
-  networkDiffTickRingBuffer: NetworkDiffTickRingBuffer;
   gameEventBuffer: GameEventTickRingBuffer;
   entityIndex: object;
   systems: System[];
   components: object[];
-  replaying: boolean;
   tick: number = 0;
-  /** When true, forward-simulated ticks use local-input prediction before server confirmation. */
-  predictLocalInputs: boolean = false;
 
-  /** Hook fired after every tick transition (replay or forward). Worker uses this to capture render state. */
-  onTick?: (tick: number) => void;
-
-  /** Minimum wall-clock coverage of past snapshots (ms). Ring buffer is sized to hold at least this much history. */
-  minSnapshotCoverageMs: number;
-
-  /** Ring buffer of past world snapshots for rollback anchoring. */
-  private _snapshotRing: Array<{ tick: number; buffer: ArrayBuffer } | null> = [];
-  private _snapshotHead: number = -1;
-  private _snapshotCount: number = 0;
-  private _lastSnapshotTick: number = -1;
-  /** Tick gap between client and server (leadTicks + oneWayTicks). 0 disables snapshotting (server). */
-  snapshotGapTicks: number = 0;
-  /** Tick period between snapshot refreshes (bounds replay distance). */
-  snapshotPeriodX: number = 10;
+  /** Entities that were modified this tick. Server reads this to build diffs. */
+  dirtyEntities: Set<number>;
 
   snapshotSerialize: (selectedEntities?: readonly number[]) => ArrayBuffer;
   snapshotDeserialize: (packet: ArrayBuffer, idMapOverride?: Map<number, number>) => Map<number, number>;
@@ -87,27 +51,16 @@ export class ECSGameRoom {
   soaDeserialize: (packet: ArrayBuffer, entityIdMapping?: Map<number, number>) => void;
   observerSerializeNetwork: () => ArrayBuffer;
   observerDeserializeNetwork: (packet: ArrayBuffer, idMap?: Map<number, number>) => Map<number, number>;
-  dirtyEntities: Set<number>;
-  localPlayerEid: number;
-  localPlayerId: string;
-  channelPlayerIds: Map<string, string>;
 
-  private static readonly DEFAULT_MIN_SNAPSHOT_COVERAGE_MS = 100;
-
-  constructor(clock: GameClock, systems: System[] = [], options?: ECSGameRoomOptions) {
-    if (options?.onDeltas) this.networkDiffEmitter.on('diff', options.onDeltas);
-    this.minSnapshotCoverageMs = options?.minSnapshotCoverageMs ?? ECSGameRoom.DEFAULT_MIN_SNAPSHOT_COVERAGE_MS;
-    this.predictLocalInputs = options?.predictLocalInputs ?? false;
+  constructor(clock: GameClock, systems: System[] = []) {
     this.clock = clock;
     this.dirtyEntities = new Set<number>();
-    this.channelPlayerIds = new Map();
     this.systems = systems;
     this.playerInputBuffer = new PlayerInputTickRingBuffer(64);
-    this.localInputBuffer = new PlayerInputTickRingBuffer(64); // client only
-    this.networkDiffTickRingBuffer = new NetworkDiffTickRingBuffer(64);
     this.gameEventBuffer = new GameEventTickRingBuffer(64);
     this.entityIndex = createEntityIndex();
     this.components = systems.flatMap((s) => s.getComponents());
+
     this.soaSerialize = createSoASerializer(this.components, {
       diff: false,
       buffer: new ArrayBuffer(DIFF_BUFFER_SIZE),
@@ -116,7 +69,7 @@ export class ECSGameRoom {
     this.soaDeserialize = createSoADeserializer(this.components, { diff: false });
 
     this.world = createWorld({}, this.entityIndex);
-    this.components = systems.flatMap((s) => s.getComponents());
+
     this.snapshotSerialize = createSnapshotSerializer(
       this.world,
       this.components,
@@ -129,51 +82,13 @@ export class ECSGameRoom {
 
     logger.setRoom(this);
 
-    // Size snapshot ring: enough slots to cover minCoverageMs even if snapshots are taken infrequently.
-    // Conservative: assume snapshotPeriodX could be as low as 1, so slots = coverage in ticks + buffer.
-    const minCoverageTicks = Math.ceil(this.minSnapshotCoverageMs / clock.referenceTickTimeMs);
-    const maxPeriodTicks = Math.max(1, this.snapshotPeriodX);
-    const ringCapacity = Math.max(
-      options?.snapshotRingCapacity ?? 16,
-      Math.ceil(minCoverageTicks / maxPeriodTicks) + 3
-    );
-    this._snapshotRing = new Array(ringCapacity).fill(null);
-
-    // Initialize all systems before anything else runs
     for (const sys of this.systems) {
       sys.init?.(this);
     }
   }
 
-  initFromSnapshot(tick: number, buffer: ArrayBuffer): void {
-    resetWorld(this.world);
-    this.snapshotDeserialize(buffer);
-    this.tick = tick;
-    // Seed the ring buffer with the initial state
-    const initialSnapshot = this.snapshotSerialize();
-    this._snapshotHead = 0;
-    this._snapshotRing[0] = { tick, buffer: initialSnapshot };
-    this._snapshotCount = 1;
-    this._lastSnapshotTick = tick;
-    // Rebuild serializers
-    this.snapshotSerialize = createSnapshotSerializer(
-      this.world,
-      this.components,
-      new ArrayBuffer(SNAPSHOT_BUFFER_SIZE)
-    );
-    this.snapshotDeserialize = createSnapshotDeserializer(this.world, this.components);
-  }
-
-  serverAddEvent(event: GameEvent): void {
-    if (event.tick < this.tick) {
-      logger.error('ignoring event', event);
-      return;
-    }
-    this.gameEventBuffer.record(event.tick, event);
-    logger.debug('event at tick', event.tick, 'of type ', GameEventType[event.type]);
-  }
-
-  serverAddInput(input: PlayerInput): void {
+  /** Queue an authoritative input to be consumed during the next update cycle. */
+  addInput(input: PlayerInput): void {
     if (input.tick < this.tick) {
       logger.error('ignoring input', input);
       return;
@@ -187,196 +102,48 @@ export class ECSGameRoom {
     }
   }
 
-  /** Store a local-predicted input that is consumed on first read and never replayed. */
-  clientAddLocalInput(input: PlayerInput): void {
-    this.localInputBuffer.record(input.tick, input.playerId, input);
-  }
-
-  // How many players are currently connected (have an active WebRTC channel)
-  getPlayerCount(): number {
-    return this.channelPlayerIds.size;
-  }
-
-  /**
-   * Store a batch of authoritative network diffs and trigger at most one resim.
-   * Only rewinds to the first tick whose diff differs from what was already stored.
-   * Byte-identical diffs are skipped — no resim is triggered if nothing changed.
-   */
-  addNetworkDiffBatch(diffs: NetworkDiffPayload[]): void {
-    let earliestChangedTick = Infinity;
-
-    for (const diff of diffs) {
-      const stored = this.networkDiffTickRingBuffer.get(diff.tick, 'network');
-      if (stored && buffersEqual(stored.data, diff.data) && buffersEqual(stored.struct, diff.struct)) {
-        continue;
-      }
-
-      this.networkDiffTickRingBuffer.record(diff.tick, 'network', {
-        data: diff.data,
-        struct: diff.struct,
-        tick: diff.tick,
-      });
-
-      if (diff.tick < earliestChangedTick) {
-        earliestChangedTick = diff.tick;
-      }
-    }
-
-    if (!isFinite(earliestChangedTick)) return;
-
-    // Diff at tick T corrects state after the update that transitions T-1 → T.
-    // Roll back to T-1 so the diff is applied at the right point during replay.
-    const resimTick = earliestChangedTick - 1;
-    if (resimTick < this.tick) {
-      this.pendingResimTick = this.pendingResimTick === null ? resimTick : Math.min(this.pendingResimTick, resimTick);
-    }
-  }
-
-  /**
-   * Runs the world for the current world tick and then updates the world tick.
-   * When reading the world tick externally, the simulation has not happened yet for that tick.
-   * This means it is safe to add events or inputs for that tick that the systems will read.
-   * @param world
-   */
-  private update(): void {
-    const input = (entityId: string) => {
-      if (this.predictLocalInputs) {
-        const local = this.localInputBuffer.get(this.tick, entityId);
-        if (local) return local;
-      }
-      return this.playerInputBuffer.get(this.tick, entityId);
-    };
-    const events = () => this.gameEventBuffer.get(this.tick);
-    for (const sys of this.systems) {
-      if (sys.update) sys?.update(input, events);
-    }
-    this.tick += 1;
-    if (!this.replaying) this.onTick?.(this.tick);
-    // client-specific because no ClientNetworkSystem consumes it
-    this.dirtyEntities.clear();
-  }
-
-  /** Batch-mode simulation — consume all accumulated ticks at once (server). */
-  updateFixed(deltaTime: number): void {
-    if (this.pendingResimTick !== null && this.tick > this.pendingResimTick) {
-      this.replayFrom(this.pendingResimTick);
-      this.pendingResimTick = null;
-    }
-    // Also load the diff for current tick
-    const diff = this.networkDiffTickRingBuffer.get(this.tick, 'network');
-    if (diff) {
-      logger.info('loading remote network auth diff');
-      this.soaDeserialize(diff.data);
-      this.observerDeserializeNetwork(diff.struct, new Map());
-    }
-    const ticksToProcess = this.clock.update(deltaTime);
-    for (let index = 0; index < ticksToProcess; index++) {
-      this.update();
-      this._tryTakeSnapshot(this.tick);
-    }
-  }
-
-  /**
-   * Per-tick simulation — process a single tick, yielding to the event loop between calls.
-   * Designed for the client's {@link setInterval} simulation loop.
-   * @returns true if a simulation tick (or replay) was processed, false if idle.
-   */
-  processNextTick(): boolean {
-    // 1. Handle pending resim first (synchronous — may process many ticks)
-    if (this.pendingResimTick !== null && this.tick > this.pendingResimTick) {
-      this.replayFrom(this.pendingResimTick);
-      this.pendingResimTick = null;
-      return true;
-    }
-
-    // 2. Nothing to do — accumulator hasn't filled a tick yet
-    if (this.clock.pendingTicks() <= 0) return false;
-
-    const diff = this.networkDiffTickRingBuffer.get(this.tick, 'network');
-    if (diff) {
-      logger.info('loading remote network auth diff');
-      this.soaDeserialize(diff.data);
-      this.observerDeserializeNetwork(diff.struct, new Map());
-    }
-
-    this.update();
-
-    this._tryTakeSnapshot(this.tick);
-    this.clock.consumeTicks(1);
-
-    return true;
-  }
-
-  /**
-   * Take a world snapshot at regular intervals and push it into the ring buffer.
-   * The ring keeps multiple past snapshots so rollback anchors are always available
-   * even when snapshotGapTicks is small (e.g. local play with near-zero ping).
-   */
-  private _tryTakeSnapshot(currentTick: number): void {
-    if (this.snapshotPeriodX <= 0 || this.snapshotGapTicks <= 0) return;
-
-    // Throttle to snapshotPeriodX interval
-    if (this._lastSnapshotTick >= 0 && currentTick - this._lastSnapshotTick < this.snapshotPeriodX) return;
-
-    const buf = this.snapshotSerialize();
-
-    this._snapshotHead = (this._snapshotHead + 1) % this._snapshotRing.length;
-    this._snapshotRing[this._snapshotHead] = { tick: currentTick, buffer: buf };
-    this._snapshotCount = Math.min(this._snapshotCount + 1, this._snapshotRing.length);
-    this._lastSnapshotTick = currentTick;
-  }
-
-  /**
-   * Find the best rewind anchor: the most recent snapshot whose tick ≤ targetTick.
-   * The ring naturally provides ageing — older snapshots have had plenty of time for
-   * late network data to arrive.
-   */
-  private _findBestAnchor(targetTick: number): { tick: number; buffer: ArrayBuffer } | null {
-    let best: { tick: number; buffer: ArrayBuffer } | null = null;
-    for (let i = 0; i < this._snapshotRing.length; i++) {
-      const snap = this._snapshotRing[i];
-      if (!snap) continue;
-      if (snap.tick <= targetTick && (!best || snap.tick > best.tick)) {
-        best = snap;
-      }
-    }
-    return best;
-  }
-
-  // Client only
-  private replayFrom(pastTick: number): void {
-    const currentTick = this.tick;
-
-    const anchor = this._findBestAnchor(pastTick);
-    if (!anchor) {
-      logger.error(`No snapshot ≤ tick ${pastTick} in ring buffer, cannot resimulate.`);
+  /** Queue an event to be consumed during the next update cycle. */
+  addEvent(event: GameEvent): void {
+    if (event.tick < this.tick) {
+      logger.error('ignoring event', event);
       return;
     }
+    this.gameEventBuffer.record(event.tick, event);
+    logger.debug('event at tick', event.tick, 'of type ', GameEventType[event.type]);
+  }
 
-    // Load past world from rewind anchor
-    resetWorld(this.world);
-    this.dirtyEntities.clear();
-    this.replaying = true;
+  /**
+   * Advance the simulation by one tick.
+   *
+   * @param hooks  Client-side injection points: resolveInput for local
+   *               prediction, postTick for render capture. Server-side
+   *               callers omit these.
+   */
+  update(hooks?: UpdateHooks): void {
+    const resolveInput = hooks?.resolveInput ?? ((id: string) => this.playerInputBuffer.get(this.tick, id));
+    const events = () => this.gameEventBuffer.get(this.tick);
 
-    this.snapshotDeserialize(anchor.buffer, new Map());
-    this.tick = anchor.tick;
-
-    logger.debug(`Replaying from ${anchor.tick} to ${currentTick} (${currentTick - anchor.tick} ticks)`);
-
-    const ticksReplayed = currentTick - anchor.tick;
-    while (this.tick < currentTick) {
-      // Load authorithative state diff for the tick we are about to re-simulate
-      const diff = this.networkDiffTickRingBuffer.get(this.tick, 'network');
-      if (diff) {
-        this.soaDeserialize(diff.data);
-        this.observerDeserializeNetwork(diff.struct, new Map());
-      }
-      this.update();
-
-      this.onTick?.(this.tick);
+    for (const sys of this.systems) {
+      if (sys.update) sys.update(resolveInput, events);
     }
 
-    this.clock.consumeTicks(ticksReplayed);
-    this.replaying = false;
+    this.tick += 1;
+    hooks?.postTick?.(this.tick);
+    this.dirtyEntities.clear();
+  }
+
+  /** Reset the world to a blank slate (used before loading a snapshot). */
+  resetWorld(): void {
+    resetWorld(this.world);
+  }
+
+  /** Rebuild snapshot serializers after a world reset (the old ones reference stale world state). */
+  rebuildSerializers(): void {
+    this.snapshotSerialize = createSnapshotSerializer(
+      this.world,
+      this.components,
+      new ArrayBuffer(SNAPSHOT_BUFFER_SIZE)
+    );
+    this.snapshotDeserialize = createSnapshotDeserializer(this.world, this.components);
   }
 }

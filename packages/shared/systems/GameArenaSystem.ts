@@ -2,7 +2,7 @@ import { array, f32 } from 'bitecs/serialization';
 
 import { addComponents, addEntity } from 'bitecs';
 import { System } from '../interfaces/System';
-import { ECSGameRoom } from '../ECSGameRoom';
+import type { SimulationContext } from '../interfaces/SimulationContext';
 
 export default class GameArea {
   width: number;
@@ -40,9 +40,9 @@ export class GameArenaSystem implements System {
     return [Arena, AreaWidth, AreaHeight, Lines];
   }
 
-  init(room: ECSGameRoom): void {
-    const eid = addEntity(room.world);
-    addComponents(room.world, eid, this.getComponents());
+  init(ctx: SimulationContext): void {
+    const eid = addEntity(ctx.world);
+    addComponents(ctx.world, eid, this.getComponents());
     AreaWidth[eid] = this.width;
     AreaHeight[eid] = this.height;
 
