@@ -98,7 +98,6 @@ export interface PlayerRenderDatum {
   rubber: number;
   isAlive: boolean;
   playerId: string;
-  pingInTicks: number;
   tickTimeMs: number;
   vx: number;
   vy: number;

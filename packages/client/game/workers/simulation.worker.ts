@@ -11,9 +11,9 @@ import PlayerSystem, {
   SpeedMult,
   Velocity,
   IsAlive,
-  TrailPoints,
+  TrailPointsXs,
+  TrailPointsYs,
   PlayerId,
-  PingInTicks,
   Rubber,
 } from '@tron0/shared/systems/PlayerSystem';
 import { ClockSyncManager } from '../managers/ClockSyncManager';
@@ -52,12 +52,11 @@ function captureRenderState(tick: number): TickRenderOutput {
       rubber: Rubber[eid] ?? 0,
       isAlive: IsAlive[eid] === 1,
       playerId: PlayerId[eid] ?? '',
-      pingInTicks: PingInTicks[eid] ?? 0,
       tickTimeMs: clock.tickTimeMs,
       vx: Velocity.vx[eid] ?? 0,
       vy: Velocity.vy[eid] ?? 0,
-      trailXs: [...(TrailPoints.xs[eid] ?? [])],
-      trailYs: [...(TrailPoints.ys[eid] ?? [])],
+      trailXs: [...(TrailPointsXs.data[eid] ?? [])],
+      trailYs: [...(TrailPointsYs.data[eid] ?? [])],
     });
   }
 
@@ -92,7 +91,10 @@ self.onmessage = (e: MessageEvent<MainToWorkerMessage>) => {
 
       const systems = [new GameArenaSystem(), new PlayerSystem()];
 
-      room = new ECSGameRoom(clock, systems, { minSnapshotCoverageMs: msg.minSnapshotCoverageMs, predictLocalInputs: true });
+      room = new ECSGameRoom(clock, systems, {
+        minSnapshotCoverageMs: msg.minSnapshotCoverageMs,
+        predictLocalInputs: true,
+      });
       room.snapshotPeriodX = msg.snapshotPeriodX;
 
       clockSync = new ClockSyncManager();

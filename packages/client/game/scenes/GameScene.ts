@@ -108,7 +108,7 @@ export class GameScene extends Scene {
       this.workerManager,
       () => this.workerManager.latestCurrentTick,
       () => this.workerManager.computeAlpha(),
-      this.networkClient.sessionToken,
+      this.networkClient.sessionToken
     );
 
     // 5. Wire chat after channel exists
@@ -343,7 +343,15 @@ export class GameScene extends Scene {
 
     // Render
     const alpha = this.workerManager.computeAlpha();
-    this.renderSystem.render(alpha, this.humanEid, this.workerManager.latestCurrentTick, this.workerManager.latestLeadTicks);
+    this.renderSystem.renderMode = 'unified';
+    this.renderSystem.render(
+      alpha,
+      this.humanEid,
+      this.workerManager.latestCurrentTick,
+      this.workerManager.latestLeadTicks
+    );
+
+    // (renderMode can be flipped externally via this.renderSystem.renderMode = 'unified')
 
     // Camera follow (use extrapolated position, consistent with render)
     if (this.humanEid >= 0) {

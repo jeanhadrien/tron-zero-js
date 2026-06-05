@@ -64,16 +64,14 @@ export const Color = u32([]);
 /** Human-readable player id (string) */
 export const PlayerId = str([]);
 
-export const PingInTicks = f32([]);
+/** Trail X coordinates — bitecs object component so the array is serialised correctly. */
+export const TrailPointsXs = { data: array(f32) };
 
-/** Trail points stored as parallel SoA arrays per entity.
- *  TrailPoints.ticks[eid] is a number[], TrailPoints.xs[eid] is a number[], etc.
- *  All arrays for a given entity have the same length. */
-export const TrailPoints = {
-  xs: array(f32),
-  ys: array(f32),
-  dirs: array(f32),
-};
+/** Trail Y coordinates — bitecs object component so the array is serialised correctly. */
+export const TrailPointsYs = { data: array(f32) };
+
+/** Trail directions — bitecs object component so the array is serialised correctly. */
+export const TrailPointsDirs = { data: array(f32) };
 
 /** Marker component — every player entity MUST have this tag */
 export const Player = {};
@@ -93,10 +91,11 @@ export const PLAYER_COMPONENTS = [
   IsColliding,
   Color,
   PlayerId,
-  TrailPoints,
+  TrailPointsXs,
+  TrailPointsYs,
+  TrailPointsDirs,
   Player,
   Networked,
-  PingInTicks,
 ];
 
 // ─── Internal helpers ────────────────────────────────────────────────────────
@@ -122,8 +121,8 @@ function _setSpeedAndVelocity(eid: number, speedMult: number, tickTimeMs: number
 /** Build SharedLine[] from a player's trail for collision detection. */
 export function getPlayerTrailLines(eid: number): SharedLine[] {
   const lines: SharedLine[] = [];
-  const xs = TrailPoints.xs[eid];
-  const ys = TrailPoints.ys[eid];
+  const xs = TrailPointsXs.data[eid];
+  const ys = TrailPointsYs.data[eid];
   const n = xs.length;
 
   for (let i = 0; i < n - 1; i++) {
@@ -188,23 +187,24 @@ export function executeTurn(room: ECSGameRoom, eid: number, type: 'left' | 'righ
   const interpX = Position.x[eid];
   const interpY = Position.y[eid];
 
-  const trailN = TrailPoints.xs[eid].length;
-  const lastX = trailN > 0 ? TrailPoints.xs[eid][trailN - 1] : interpX;
-  const lastY = trailN > 0 ? TrailPoints.ys[eid][trailN - 1] : interpY;
+  const trailN = TrailPointsXs.data[eid].length;
+  const lastX = trailN > 0 ? TrailPointsXs.data[eid][trailN - 1] : interpX;
+  const lastY = trailN > 0 ? TrailPointsYs.data[eid][trailN - 1] : interpY;
 
   // If player hasn't moved since the last trail point, just update it
   if (trailN > 0 && Math.abs(interpX - lastX) <= EPSILON && Math.abs(interpY - lastY) <= EPSILON) {
     Direction[eid] = newDirection;
     _setSpeedAndVelocity(eid, SpeedMult[eid], tickTimeMs);
-    TrailPoints.dirs[eid] = [...TrailPoints.dirs[eid]];
-    TrailPoints.dirs[eid][trailN - 1] = newDirection;
+    TrailPointsDirs.data[eid] = [...TrailPointsDirs.data[eid]];
+    TrailPointsDirs.data[eid][trailN - 1] = newDirection;
+    room.dirtyEntities.add(eid);
     return;
   }
 
   // Add a new trail point at current position
-  TrailPoints.xs[eid] = [...TrailPoints.xs[eid], interpX];
-  TrailPoints.ys[eid] = [...TrailPoints.ys[eid], interpY];
-  TrailPoints.dirs[eid] = [...TrailPoints.dirs[eid], newDirection];
+  TrailPointsXs.data[eid] = [...TrailPointsXs.data[eid], interpX];
+  TrailPointsYs.data[eid] = [...TrailPointsYs.data[eid], interpY];
+  TrailPointsDirs.data[eid] = [...TrailPointsDirs.data[eid], newDirection];
 
   Direction[eid] = newDirection;
   _setSpeedAndVelocity(eid, SpeedMult[eid], tickTimeMs);
@@ -237,8 +237,8 @@ export function buildObstacleLinesExcluding(room: ECSGameRoom, selfEid: number):
 
   for (const eid of Array.from(query(room.world, [Player]))) {
     if (eid === selfEid) continue;
-    const xs = TrailPoints.xs[eid];
-    const ys = TrailPoints.ys[eid];
+    const xs = TrailPointsXs.data[eid];
+    const ys = TrailPointsYs.data[eid];
     const n = xs.length;
     for (let i = 0; i < n - 1; i++) {
       lines.push(new SharedLine(xs[i], ys[i], xs[i + 1], ys[i + 1]));
@@ -334,13 +334,15 @@ export default class PlayerSystem extends SystemSerializable {
     SpeedMult[eid] = 0;
 
     // Empty trail
-    TrailPoints.xs[eid] = [];
-    TrailPoints.ys[eid] = [];
-    TrailPoints.dirs[eid] = [];
+    TrailPointsXs.data[eid] = [];
+    TrailPointsYs.data[eid] = [];
+    TrailPointsDirs.data[eid] = [];
 
     // Zero velocity
     Velocity.vx[eid] = 0;
     Velocity.vy[eid] = 0;
+
+    room.dirtyEntities.add(eid);
 
     return eid;
   }
@@ -376,10 +378,9 @@ export default class PlayerSystem extends SystemSerializable {
     _setSpeedAndVelocity(eid, 1, room.clock.referenceTickTimeMs);
 
     // Single initial trail point at spawn location
-
-    TrailPoints.xs[eid] = [x];
-    TrailPoints.ys[eid] = [y];
-    TrailPoints.dirs[eid] = [direction];
+    TrailPointsXs.data[eid] = [x];
+    TrailPointsYs.data[eid] = [y];
+    TrailPointsDirs.data[eid] = [direction];
     room.dirtyEntities.add(eid);
     logger.debug(PlayerId[eid], 'spawnPlayer()');
   }
@@ -395,9 +396,9 @@ export default class PlayerSystem extends SystemSerializable {
     ShouldHandleDeath[eid] = 0;
     IsSliding[eid] = 0;
     IsColliding[eid] = 0;
-    TrailPoints.xs[eid] = [];
-    TrailPoints.ys[eid] = [];
-    TrailPoints.dirs[eid] = [];
+    TrailPointsXs.data[eid] = [];
+    TrailPointsYs.data[eid] = [];
+    TrailPointsDirs.data[eid] = [];
     room.dirtyEntities.add(eid);
     logger.debug(PlayerId[eid], 'disable()');
   }

@@ -1,16 +1,18 @@
 import { GameObjects } from 'phaser';
 import type { PlayerRenderDatum, TickRenderOutput } from '@tron0/shared/WorkerProtocol';
 
-const RING_SIZE = 64; // power of 2, covers ~1s of history at 60tps
+const RING_SIZE = 128; // power of 2, covers ~1s of history at 60tps
 const TRAIL_WIDTH = 5;
 
 /**
  * Pure rendering system — consumes {@link TickRenderOutput} batches from the
  * simulation Worker and draws lightcycles, trails, and name tags.
  *
- * No longer an ECS System; does not read {@link Position}, {@link TrailPoints},
+ * No longer an ECS System; does not read {@link Position}, {@link TrailPointsXs},
  * or any other ECS component directly.
  */
+export type RenderMode = 'split' | 'unified';
+
 export class PlayerRenderSystem {
   private scene: Phaser.Scene;
 
@@ -24,6 +26,9 @@ export class PlayerRenderSystem {
 
   /** Latest datum per player (for local-player extrapolation and rubber checks). */
   private _latest: Map<number, PlayerRenderDatum> = new Map();
+
+  /** How remote players are displayed. */
+  renderMode: RenderMode = 'split';
 
   constructor(scene: Phaser.Scene) {
     this.scene = scene;
@@ -86,8 +91,8 @@ export class PlayerRenderSystem {
       let xs: number[];
       let ys: number[];
 
-      if (isLocal) {
-        // Local player — predicted state at currentTick, extrapolate toward next tick
+      if (isLocal || this.renderMode === 'unified') {
+        // Local player (or unified mode) — predicted state at currentTick, extrapolate toward next tick
         renderX = datum.x + (datum.vx / 1000) * alpha;
         renderY = datum.y + (datum.vy / 1000) * alpha;
         direction = datum.direction;
@@ -95,7 +100,7 @@ export class PlayerRenderSystem {
         xs = datum.trailXs;
         ys = datum.trailYs;
       } else {
-        // Remote player — authoritative state at serverTick, interpolate toward next tick
+        // Remote player in split mode — authoritative state at serverTick, interpolate toward next tick
         const curr = this._findPlayer(eid, serverTick);
         if (!curr) continue;
 
@@ -205,7 +210,7 @@ export class PlayerRenderSystem {
       const slot = this._ring[t % RING_SIZE];
       if (slot && slot.tick === t) {
         for (const p of slot.players) {
-          if (p.eid === eid) return p;
+          if (p.eid === eid && p.isAlive) return p;
         }
       }
     }

@@ -22,7 +22,7 @@ import { GameEvent, GameEventType } from './interfaces/GameEvent';
 import { GameEventTickRingBuffer } from './GameEventBuffer';
 import { Networked } from './interfaces/Network';
 import { RoomLogger } from './otel/Logger';
-import PlayerSystem, { PingInTicks } from './systems/PlayerSystem';
+import PlayerSystem from './systems/PlayerSystem';
 import GameClock from './GameClock';
 
 const logger = new RoomLogger('GameRoom');
@@ -91,18 +91,18 @@ export class ECSGameRoom {
     this.dirtyEntities = new Set<number>();
     this.channelPlayerIds = new Map();
     this.systems = systems;
-    this.playerInputBuffer = new PlayerInputTickRingBuffer(32);
-    this.localInputBuffer = new PlayerInputTickRingBuffer(32); // client only
-    this.networkDiffTickRingBuffer = new NetworkDiffTickRingBuffer(32);
-    this.gameEventBuffer = new GameEventTickRingBuffer(32);
+    this.playerInputBuffer = new PlayerInputTickRingBuffer(64);
+    this.localInputBuffer = new PlayerInputTickRingBuffer(64); // client only
+    this.networkDiffTickRingBuffer = new NetworkDiffTickRingBuffer(64);
+    this.gameEventBuffer = new GameEventTickRingBuffer(64);
     this.entityIndex = createEntityIndex();
     this.components = systems.flatMap((s) => s.getComponents());
     this.soaSerialize = createSoASerializer(this.components, {
-      diff: true,
+      diff: false,
       buffer: new ArrayBuffer(DIFF_BUFFER_SIZE),
       epsilon: 0,
     });
-    this.soaDeserialize = createSoADeserializer(this.components, { diff: true });
+    this.soaDeserialize = createSoADeserializer(this.components, { diff: false });
 
     this.world = createWorld({}, this.entityIndex);
     this.components = systems.flatMap((s) => s.getComponents());
@@ -174,7 +174,6 @@ export class ECSGameRoom {
       logger.error('No player for input', eid);
       return;
     }
-    PingInTicks[eid] = Math.max(0, this.tick - input.tick);
   }
 
   /** Store a local-predicted input that is consumed on first read and never replayed. */
@@ -221,7 +220,7 @@ export class ECSGameRoom {
       if (sys.update) sys?.update(input, events);
     }
     this.tick += 1;
-    this.onTick?.(this.tick);
+    if (!this.replaying) this.onTick?.(this.tick);
     // client-specific because no ClientNetworkSystem consumes it
     this.dirtyEntities.clear();
   }
@@ -233,18 +232,17 @@ export class ECSGameRoom {
       this.pendingResimTick = null;
     }
 
+    const ticksToProcess = this.clock.update(deltaTime);
+    for (let index = 0; index < ticksToProcess; index++) {
+      this.update();
+      this._tryTakeSnapshot(this.tick);
+    }
     // Also load the diff for current tick
     const diff = this.networkDiffTickRingBuffer.get(this.tick, 'network');
     if (diff) {
       logger.info('loading remote network auth diff');
       this.soaDeserialize(diff.data);
       this.observerDeserializeNetwork(diff.struct, new Map());
-    }
-
-    const ticksToProcess = this.clock.update(deltaTime);
-    for (let index = 0; index < ticksToProcess; index++) {
-      this.update();
-      this._tryTakeSnapshot(this.tick);
     }
   }
 
@@ -335,13 +333,13 @@ export class ECSGameRoom {
 
     logger.debug(`Replaying from ${anchor.tick} to ${currentTick} (${currentTick - anchor.tick} ticks)`);
     while (this.tick < currentTick) {
+      this.update();
       // Load authorithative state diff for the tick we are about to re-simulate
       const diff = this.networkDiffTickRingBuffer.get(this.tick, 'network');
       if (diff) {
         this.soaDeserialize(diff.data);
         this.observerDeserializeNetwork(diff.struct, new Map());
       }
-      this.update();
     }
     this.replaying = false;
   }
