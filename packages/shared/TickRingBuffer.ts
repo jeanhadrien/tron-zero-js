@@ -11,6 +11,10 @@ interface ITickRingBuffer<V, K extends string = string> {
   getWindow(fromTick: number, toTick: number, key: K): (V | null)[];
   /** Values from `lastAckedTick + 1` up to the newest recorded tick. */
   getUnacked(lastAckedTick: number, key: K): (V | null)[];
+  /** Get and remove — one-shot read for forward-prediction inputs. */
+  consume(tick: number, key: K): V | null;
+  /** Discard all entries with tick ≤ upToTick for the given key. */
+  discardUpTo(upToTick: number, key: K): void;
   readonly latestTick: number;
 }
 
@@ -66,7 +70,7 @@ export class TickRingBuffer<V, K extends string = string> implements ITickRingBu
   getUnacked(lastAckedTick: number, key: K): (V | null)[] {
     return this.getWindow(lastAckedTick + 1, this.newestTick, key);
   }
-  /** Get and remove — one-shot read for inputs that must not survive replay. */
+  /** Get and remove — one-shot read for forward-prediction inputs. */
   consume(tick: number, key: K): V | null {
     const val = this.get(tick, key);
     if (val !== null) {
@@ -74,6 +78,14 @@ export class TickRingBuffer<V, K extends string = string> implements ITickRingBu
       slot.map.delete(key);
     }
     return val;
+  }
+  /** Discard all entries with tick ≤ upToTick for the given key. */
+  discardUpTo(upToTick: number, key: K): void {
+    for (const slot of this.slots) {
+      if (slot.tick > -1 && slot.tick <= upToTick) {
+        slot.map.delete(key);
+      }
+    }
   }
   get latestTick(): number {
     return this.newestTick;

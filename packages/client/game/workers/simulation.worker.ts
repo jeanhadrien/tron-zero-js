@@ -129,7 +129,7 @@ self.onmessage = (e: MessageEvent<MainToWorkerMessage>) => {
 
     case 'sync_state_batch': {
       if (msg.serverTick <= _lastAppliedServerTick) break;
-      clientSim.addNetworkDiffBatch(msg.diffs);
+      clientSim.addNetworkDiffBatch(msg.diffs, msg.serverTick);
       _lastAppliedServerTick = msg.serverTick;
       break;
     }

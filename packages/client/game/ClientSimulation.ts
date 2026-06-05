@@ -44,6 +44,11 @@ export class ClientSimulation {
   localPlayerEid: number = -1;
   localPlayerId: string = '';
 
+  /** Highest tick for which the server has consumed inputs.
+   *  During replay, local inputs at ticks ≤ this are skipped — the
+   *  server diff already baked them in. */
+  lastAcknowledgedInputTick: number = -1;
+
   private localInputBuffer: PlayerInputTickRingBuffer;
   private networkDiffTickRingBuffer: NetworkDiffTickRingBuffer;
   private pendingResimTick: number | null = null;
@@ -79,6 +84,7 @@ export class ClientSimulation {
     this.room.rebuildSerializers();
     this.room.snapshotDeserialize(buffer);
     this.room.tick = tick;
+    this.lastAcknowledgedInputTick = tick;
 
     const initialSnapshot = this.room.snapshotSerialize();
     this._snapshotHead = 0;
@@ -96,8 +102,11 @@ export class ClientSimulation {
    * Store a batch of authoritative network diffs and schedule a resim.
    * Only rewinds to the first tick whose diff changed. Byte-identical
    * diffs are skipped.
+   *
+   * @param serverTick The server's `tick + 1` — the next tick to process.
+   *                   All inputs at ticks ≤ serverTick-1 are acknowledged.
    */
-  addNetworkDiffBatch(diffs: NetworkDiffPayload[]): void {
+  addNetworkDiffBatch(diffs: NetworkDiffPayload[], serverTick: number): void {
     let earliestChangedTick = Infinity;
 
     for (const diff of diffs) {
@@ -115,6 +124,12 @@ export class ClientSimulation {
       if (diff.tick < earliestChangedTick) {
         earliestChangedTick = diff.tick;
       }
+    }
+
+    const ackTick = serverTick - 1;
+    if (ackTick > this.lastAcknowledgedInputTick) {
+      this.lastAcknowledgedInputTick = ackTick;
+      this.localInputBuffer.discardUpTo(ackTick, this.localPlayerId);
     }
 
     if (!isFinite(earliestChangedTick)) return;
@@ -147,7 +162,7 @@ export class ClientSimulation {
 
     const resolveInput = (playerId: string): PlayerInput | null => {
       if (this.predictLocalInputs) {
-        const local = this.localInputBuffer.get(this.room.tick, playerId);
+        const local = this.localInputBuffer.consume(this.room.tick, playerId);
         if (local) return local;
       }
       return this.room.playerInputBuffer.get(this.room.tick, playerId);
@@ -214,7 +229,7 @@ export class ClientSimulation {
       }
 
       const resolveInput = (playerId: string): PlayerInput | null => {
-        if (this.predictLocalInputs) {
+        if (this.predictLocalInputs && this.room.tick > this.lastAcknowledgedInputTick) {
           const local = this.localInputBuffer.get(this.room.tick, playerId);
           if (local) return local;
         }
