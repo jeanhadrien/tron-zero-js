@@ -4,19 +4,11 @@ import type { System } from '@tron0/shared/interfaces/System';
 import { NetworkDiffTickRingBuffer, type NetworkDiffPayload } from '@tron0/shared/interfaces/Network';
 import { PlayerInputTickRingBuffer } from '@tron0/shared/PlayerInputBuffer';
 import type { PlayerInput } from '@tron0/shared/interfaces/PlayerInput';
+import { buffersEqual } from '@tron0/shared/utils/buffers';
 import { Logger } from '@tron0/shared/Logger';
+import { SnapshotRing } from './SnapshotRing';
 
 const logger = new Logger('ClientSim');
-
-function buffersEqual(a: ArrayBuffer, b: ArrayBuffer): boolean {
-  if (a.byteLength !== b.byteLength) return false;
-  const ua = new Uint8Array(a);
-  const ub = new Uint8Array(b);
-  for (let i = 0; i < ua.length; i++) {
-    if (ua[i] !== ub[i]) return false;
-  }
-  return true;
-}
 
 interface ClientSimOptions {
   predictLocalInputs?: boolean;
@@ -52,10 +44,7 @@ export class ClientSimulation {
   private localInputBuffer: PlayerInputTickRingBuffer;
   private networkDiffTickRingBuffer: NetworkDiffTickRingBuffer;
   private pendingResimTick: number | null = null;
-  private _snapshotRing: Array<{ tick: number; buffer: ArrayBuffer } | null> = [];
-  private _snapshotHead: number = -1;
-  private _snapshotCount: number = 0;
-  private _lastSnapshotTick: number = -1;
+  private snapshots: SnapshotRing;
   private minSnapshotCoverageMs: number;
   private static readonly DEFAULT_MIN_SNAPSHOT_COVERAGE_MS = 100;
 
@@ -75,7 +64,7 @@ export class ClientSimulation {
       options?.snapshotRingCapacity ?? 16,
       Math.ceil(minCoverageTicks / maxPeriodTicks) + 3
     );
-    this._snapshotRing = new Array(ringCapacity).fill(null);
+    this.snapshots = new SnapshotRing(ringCapacity);
   }
 
   /** Load the initial world snapshot from the server and seed the ring buffer. */
@@ -85,12 +74,7 @@ export class ClientSimulation {
     this.room.snapshotDeserialize(buffer);
     this.room.tick = tick;
     this.lastAcknowledgedInputTick = tick;
-
-    const initialSnapshot = this.room.snapshotSerialize();
-    this._snapshotHead = 0;
-    this._snapshotRing[0] = { tick, buffer: initialSnapshot };
-    this._snapshotCount = 1;
-    this._lastSnapshotTick = tick;
+    this.snapshots.seed(tick, this.room.snapshotSerialize());
   }
 
   /** Queue a local-predicted input (consumed once, never survives replay). */
@@ -154,60 +138,23 @@ export class ClientSimulation {
       return true;
     }
 
-    const diff = this.networkDiffTickRingBuffer.get(this.room.tick, 'network');
-    if (diff) {
-      this.room.soaDeserialize(diff.data);
-      this.room.observerDeserializeNetwork(diff.struct, new Map());
+    this._applyNetworkDiff(this.room.tick);
+
+    this.room.update({ resolveInput: this._makeResolveInput('forward') });
+    this.onTick?.(this.room.tick);
+
+    if (this.snapshots.shouldTake(this.room.tick, this.snapshotPeriodX, this.snapshotGapTicks)) {
+      this.snapshots.push(this.room.tick, this.room.snapshotSerialize());
     }
 
-    const resolveInput = (playerId: string): PlayerInput | null => {
-      if (this.predictLocalInputs) {
-        const local = this.localInputBuffer.consume(this.room.tick, playerId);
-        if (local) return local;
-      }
-      return this.room.playerInputBuffer.get(this.room.tick, playerId);
-    };
-
-    const postTick = (tick: number) => {
-      if (!this.replaying) this.onTick?.(tick);
-    };
-
-    this.room.update({ resolveInput, postTick });
-    this._tryTakeSnapshot(this.room.tick);
     this.clock.consumeTicks(1);
-
     return true;
-  }
-
-  private _tryTakeSnapshot(currentTick: number): void {
-    if (this.snapshotPeriodX <= 0 || this.snapshotGapTicks <= 0) return;
-
-    if (this._lastSnapshotTick >= 0 && currentTick - this._lastSnapshotTick < this.snapshotPeriodX) return;
-
-    const buf = this.room.snapshotSerialize();
-
-    this._snapshotHead = (this._snapshotHead + 1) % this._snapshotRing.length;
-    this._snapshotRing[this._snapshotHead] = { tick: currentTick, buffer: buf };
-    this._snapshotCount = Math.min(this._snapshotCount + 1, this._snapshotRing.length);
-    this._lastSnapshotTick = currentTick;
-  }
-
-  private _findBestAnchor(targetTick: number): { tick: number; buffer: ArrayBuffer } | null {
-    let best: { tick: number; buffer: ArrayBuffer } | null = null;
-    for (let i = 0; i < this._snapshotRing.length; i++) {
-      const snap = this._snapshotRing[i];
-      if (!snap) continue;
-      if (snap.tick <= targetTick && (!best || snap.tick > best.tick)) {
-        best = snap;
-      }
-    }
-    return best;
   }
 
   private replayFrom(pastTick: number): void {
     const currentTick = this.room.tick;
 
-    const anchor = this._findBestAnchor(pastTick);
+    const anchor = this.snapshots.findBestAnchor(pastTick);
     if (!anchor) {
       logger.error(`No snapshot ≤ tick ${pastTick} in ring buffer, cannot resimulate.`);
       return;
@@ -222,25 +169,47 @@ export class ClientSimulation {
 
     const ticksReplayed = currentTick - anchor.tick;
     while (this.room.tick < currentTick) {
-      const diff = this.networkDiffTickRingBuffer.get(this.room.tick, 'network');
-      if (diff) {
-        this.room.soaDeserialize(diff.data);
-        this.room.observerDeserializeNetwork(diff.struct, new Map());
-      }
+      this._applyNetworkDiff(this.room.tick);
 
-      const resolveInput = (playerId: string): PlayerInput | null => {
-        if (this.predictLocalInputs && this.room.tick > this.lastAcknowledgedInputTick) {
-          const local = this.localInputBuffer.get(this.room.tick, playerId);
-          if (local) return local;
-        }
-        return this.room.playerInputBuffer.get(this.room.tick, playerId);
-      };
-
-      this.room.update({ resolveInput });
+      this.room.update({ resolveInput: this._makeResolveInput('replay') });
       this.onTick?.(this.room.tick);
     }
 
     this.clock.consumeTicks(ticksReplayed);
     this.replaying = false;
+  }
+
+  // ── Internal helpers ────────────────────────────────────────────────────────
+
+  /** Apply a server-authoritative network diff for the given tick, if one exists. */
+  private _applyNetworkDiff(tick: number): void {
+    const diff = this.networkDiffTickRingBuffer.get(tick, 'network');
+    if (diff) {
+      this.room.soaDeserialize(diff.data);
+      this.room.observerDeserializeNetwork(diff.struct, new Map());
+    }
+  }
+
+  /**
+   * Build the resolveInput hook for room.update().
+   *
+   * @param mode 'forward' — consume local inputs once (prediction).
+   *             'replay'  — read local inputs without consuming, but only
+   *             for ticks past the server's acknowledgment boundary.
+   */
+  private _makeResolveInput(mode: 'forward' | 'replay'): (playerId: string) => PlayerInput | null {
+    return (playerId: string): PlayerInput | null => {
+      if (this.predictLocalInputs) {
+        if (mode === 'replay' && this.room.tick <= this.lastAcknowledgedInputTick) {
+          // Server already incorporated this tick — skip local
+        } else {
+          const local = mode === 'forward'
+            ? this.localInputBuffer.consume(this.room.tick, playerId)
+            : this.localInputBuffer.get(this.room.tick, playerId);
+          if (local) return local;
+        }
+      }
+      return this.room.playerInputBuffer.get(this.room.tick, playerId);
+    };
   }
 }

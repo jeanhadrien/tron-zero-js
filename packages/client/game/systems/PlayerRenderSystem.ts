@@ -1,5 +1,6 @@
 import { GameObjects } from 'phaser';
 import type { PlayerRenderDatum, TickRenderOutput } from '@tron0/shared/WorkerProtocol';
+import { TickRingBuffer } from '@tron0/shared/TickRingBuffer';
 
 const RING_SIZE = 500; // power of 2, covers ~1s of history at 60tps
 const TRAIL_WIDTH = 5;
@@ -7,9 +8,6 @@ const TRAIL_WIDTH = 5;
 /**
  * Pure rendering system — consumes {@link TickRenderOutput} batches from the
  * simulation Worker and draws lightcycles, trails, and name tags.
- *
- * No longer an ECS System; does not read {@link Position}, {@link TrailPointsXs},
- * or any other ECS component directly.
  */
 export type RenderMode = 'split' | 'unified';
 
@@ -21,8 +19,8 @@ export class PlayerRenderSystem {
   private driverGraphics: GameObjects.Graphics;
   private nameTexts: Map<number, GameObjects.Text> = new Map();
 
-  /** Tick-ring buffer — stores full TickRenderOutput per tick for remote-player interpolation. */
-  private _ring: (TickRenderOutput | null)[] = new Array(RING_SIZE).fill(null);
+  /** Tick-ring buffer — stores per-player render datum indexed by tick for remote-player interpolation. */
+  private _renderRing: TickRingBuffer<PlayerRenderDatum> = new TickRingBuffer(RING_SIZE);
 
   /** Latest datum per player (for local-player extrapolation and rubber checks). */
   private _latest: Map<number, PlayerRenderDatum> = new Map();
@@ -55,8 +53,8 @@ export class PlayerRenderSystem {
    */
   consumeWorkerOutput(ticks: TickRenderOutput[]): void {
     for (const output of ticks) {
-      this._ring[output.tick % RING_SIZE] = output;
       for (const datum of output.players) {
+        this._renderRing.record(output.tick, String(datum.eid), datum);
         this._latest.set(datum.eid, datum);
       }
     }
@@ -75,6 +73,11 @@ export class PlayerRenderSystem {
     this.staticTrailGraphics.clear();
     this.activeTrailGraphics.clear();
     this.driverGraphics.clear();
+
+    // Hide all name texts — only alive players we render below get re-shown
+    for (const text of this.nameTexts.values()) {
+      text.setVisible(false);
+    }
 
     // Estimated server tick we have authoritative state for
     const serverTick = currentTick - leadTicks;
@@ -127,10 +130,8 @@ export class PlayerRenderSystem {
         this._drawStaticTrail(xs, ys, color);
       }
 
-      this._updateNameText(eid, renderX, renderY);
+      this._updateNameText(eid, datum, renderX, renderY);
     }
-
-    this._cleanupTexts();
   }
 
   // ── Query helpers ─────────────────────────────────────────────────────────
@@ -176,7 +177,7 @@ export class PlayerRenderSystem {
     this.staticTrailGraphics.strokePath();
   }
 
-  private _updateNameText(eid: number, x: number, y: number): void {
+  private _updateNameText(eid: number, datum: PlayerRenderDatum, x: number, y: number): void {
     let text = this.nameTexts.get(eid);
     if (!text) {
       text = this.scene.add
@@ -189,30 +190,16 @@ export class PlayerRenderSystem {
         .setDepth(20);
       this.nameTexts.set(eid, text);
     }
-    const datum = this._latest.get(eid);
     text.setVisible(true);
-    text.setText((datum?.playerId ?? '').substring(0, 16));
+    text.setText(datum.playerId.substring(0, 16));
     text.setPosition(x, y - 15);
-  }
-
-  private _cleanupTexts(): void {
-    for (const [eid, text] of this.nameTexts) {
-      const datum = this._latest.get(eid);
-      if (!datum || !datum.isAlive) {
-        text.setVisible(false);
-      }
-    }
   }
 
   /** Walk backward through the tick-ring to find a player's datum at or before targetTick. */
   private _findPlayer(eid: number, targetTick: number): PlayerRenderDatum | null {
     for (let t = targetTick; t > targetTick - RING_SIZE; t--) {
-      const slot = this._ring[t % RING_SIZE];
-      if (slot && slot.tick === t) {
-        for (const p of slot.players) {
-          if (p.eid === eid && p.isAlive) return p;
-        }
-      }
+      const datum = this._renderRing.get(t, String(eid));
+      if (datum && datum.isAlive) return datum;
     }
     return null;
   }
