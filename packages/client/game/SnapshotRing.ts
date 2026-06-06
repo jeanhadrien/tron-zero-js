@@ -34,6 +34,22 @@ export class SnapshotRing {
     this.lastTick = tick;
   }
 
+  /**
+   * Overwrite an existing entry for the given tick, or fall back to push if
+   * none found. Used during replay to replace a local-prediction snapshot
+   * with the authoritative state derived from a server diff.
+   */
+  overwrite(tick: number, buffer: ArrayBuffer): void {
+    for (let i = 0; i < this.ring.length; i++) {
+      if (this.ring[i]?.tick === tick) {
+        this.ring[i] = { tick, buffer };
+        this.lastTick = tick;
+        return;
+      }
+    }
+    this.push(tick, buffer);
+  }
+
   /** Find the best anchor snapshot ≤ targetTick, or null if none found. */
   findBestAnchor(targetTick: number): { tick: number; buffer: ArrayBuffer } | null {
     let best: { tick: number; buffer: ArrayBuffer } | null = null;

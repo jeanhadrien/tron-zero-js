@@ -1,9 +1,16 @@
 import { ClientChannel } from '@geckos.io/client';
-import { PlayerInput } from '@tron0/shared/interfaces/PlayerInput';
 import { SimulationWorkerManager } from '../workers/SimulationWorkerManager';
+import { TurnCommand, BreakCommand } from '../simulation/PlayerCommand';
 
 const MAX_INPUTS_PER_FLUSH = 16;
 const RETENTION_TICKS = 15;
+
+interface BufferedInput {
+  tick: number;
+  turn?: 'left' | 'right';
+  break?: boolean;
+  alpha?: number;
+}
 
 /**
  * Owns input creation, tick/alpha stamping, local prediction dispatch,
@@ -12,7 +19,7 @@ const RETENTION_TICKS = 15;
  * Invariants:
  * - turn() always advances the tick slot — turns are sequential, never collapsed.
  * - break() never advances the slot — merges into the current target tick.
- * - Multiple actions at the same tick are merged into a single PlayerInput.
+ * - Multiple actions at the same tick are merged into a single Entry.
  *
  * GameScene calls turn()/break() on key events and endFrame() once per render
  * frame.  Every input is sent to the simulation worker immediately (once).  The
@@ -22,7 +29,7 @@ const RETENTION_TICKS = 15;
 export class InputManager {
   /** How many turn() calls have been queued this frame. Break does NOT increment this. */
   private _turnSpread = 0;
-  private _buffer: PlayerInput[] = [];
+  private _buffer: BufferedInput[] = [];
 
   constructor(
     private _channel: ClientChannel,
@@ -72,18 +79,25 @@ export class InputManager {
    * - Otherwise push a new entry.
    * Always forwards the (potentially merged) input to the worker.
    */
-  private _upsert(tick: number, apply: (input: PlayerInput) => void): void {
+  private _upsert(tick: number, apply: (input: BufferedInput) => void): void {
     const last = this._buffer[this._buffer.length - 1];
 
     if (last && last.tick === tick) {
-      // Merge into existing entry for this tick
       apply(last);
-      this._worker.sendPlayerInput(last, 'local');
+      if (last.turn) {
+        this._worker.sendPlayerInput(TurnCommand(tick, this._playerId, last.turn, last.alpha), 'local');
+      } else if (last.break) {
+        this._worker.sendPlayerInput(BreakCommand(tick, this._playerId), 'local');
+      }
     } else {
-      const input: PlayerInput = { tick, playerId: this._playerId };
+      const input: BufferedInput = { tick };
       apply(input);
       this._buffer.push(input);
-      this._worker.sendPlayerInput(input, 'local');
+      if (input.turn) {
+        this._worker.sendPlayerInput(TurnCommand(tick, this._playerId, input.turn, input.alpha), 'local');
+      } else if (input.break) {
+        this._worker.sendPlayerInput(BreakCommand(tick, this._playerId), 'local');
+      }
     }
   }
 

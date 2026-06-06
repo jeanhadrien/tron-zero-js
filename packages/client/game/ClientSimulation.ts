@@ -4,212 +4,158 @@ import type { System } from '@tron0/shared/interfaces/System';
 import { NetworkDiffTickRingBuffer, type NetworkDiffPayload } from '@tron0/shared/interfaces/Network';
 import { PlayerInputTickRingBuffer } from '@tron0/shared/PlayerInputBuffer';
 import type { PlayerInput } from '@tron0/shared/interfaces/PlayerInput';
-import { buffersEqual } from '@tron0/shared/utils/buffers';
-import { Logger } from '@tron0/shared/Logger';
 import { SnapshotRing } from './SnapshotRing';
-
-const logger = new Logger('ClientSim');
+import { StateReconciler } from './simulation/StateReconciler';
+import { ForwardPipeline } from './simulation/ForwardPipeline';
+import { ReplayPipeline } from './simulation/ReplayPipeline';
+import {
+  ConsumingLocalSource,
+  NonConsumingLocalSource,
+  AuthoritativeSource,
+  CompositeInputSource,
+  type InputSource,
+} from './simulation/InputSource';
 
 interface ClientSimOptions {
-  predictLocalInputs?: boolean;
   minSnapshotCoverageMs?: number;
   snapshotPeriodX?: number;
   snapshotRingCapacity?: number;
 }
 
 /**
- * Client-side simulation layer wrapping an ECSGameRoom with:
- * - Snapshot ring buffer for rollback anchoring
- * - Network diff reconciliation (addNetworkDiffBatch)
- * - Local input prediction (addLocalInput, injected via update hooks)
- * - Per-tick simulation loop (processNextTick)
+ * Client-side simulation layer wired from injectable components:
+ * - StateReconciler — diff storage, acknowledgment, rollback lifecycle
+ * - ForwardPipeline / ReplayPipeline — tick processing strategies
+ * - InputSource compositions — input resolution priority chains
  */
 export class ClientSimulation {
   readonly room: ECSGameRoom;
   readonly clock: GameClock;
 
-  predictLocalInputs: boolean;
   snapshotGapTicks: number = 0;
   snapshotPeriodX: number = 10;
-  onTick?: (tick: number) => void;
-  replaying: boolean = false;
   localPlayerEid: number = -1;
   localPlayerId: string = '';
 
-  /** Highest tick for which the server has consumed inputs.
-   *  During replay, local inputs at ticks ≤ this are skipped — the
-   *  server diff already baked them in. */
-  lastAcknowledgedInputTick: number = -1;
+  readonly reconciler: StateReconciler;
 
-  private localInputBuffer: PlayerInputTickRingBuffer;
-  private networkDiffTickRingBuffer: NetworkDiffTickRingBuffer;
-  private pendingResimTick: number | null = null;
-  private snapshots: SnapshotRing;
-  private minSnapshotCoverageMs: number;
+  private forwardPipeline: ForwardPipeline;
+  private replayPipeline: ReplayPipeline;
+  private forwardSource: InputSource;
+  private replaySource: InputSource;
   private static readonly DEFAULT_MIN_SNAPSHOT_COVERAGE_MS = 100;
 
   constructor(clock: GameClock, systems: System[], options?: ClientSimOptions) {
     this.clock = clock;
-    this.predictLocalInputs = options?.predictLocalInputs ?? false;
-    this.minSnapshotCoverageMs = options?.minSnapshotCoverageMs ?? ClientSimulation.DEFAULT_MIN_SNAPSHOT_COVERAGE_MS;
     if (options?.snapshotPeriodX !== undefined) this.snapshotPeriodX = options.snapshotPeriodX;
 
-    this.localInputBuffer = new PlayerInputTickRingBuffer(64);
-    this.networkDiffTickRingBuffer = new NetworkDiffTickRingBuffer(64);
+    const localInputBuffer = new PlayerInputTickRingBuffer(64);
+    const networkDiffBuffer = new NetworkDiffTickRingBuffer(64);
     this.room = new ECSGameRoom(clock, systems);
 
-    const minCoverageTicks = Math.ceil(this.minSnapshotCoverageMs / clock.referenceTickTimeMs);
+    const minCoverageMs = options?.minSnapshotCoverageMs ?? ClientSimulation.DEFAULT_MIN_SNAPSHOT_COVERAGE_MS;
+    const minCoverageTicks = Math.ceil(minCoverageMs / clock.referenceTickTimeMs);
     const maxPeriodTicks = Math.max(1, this.snapshotPeriodX);
     const ringCapacity = Math.max(
       options?.snapshotRingCapacity ?? 16,
-      Math.ceil(minCoverageTicks / maxPeriodTicks) + 3
+      Math.ceil(minCoverageTicks / maxPeriodTicks) + 3,
     );
-    this.snapshots = new SnapshotRing(ringCapacity);
+    const snapshots = new SnapshotRing(ringCapacity);
+
+    this.reconciler = new StateReconciler(networkDiffBuffer, localInputBuffer, snapshots);
+
+    const authoritativeSource = new AuthoritativeSource(this.room.playerInputBuffer, this.room);
+    const consumingLocal = new ConsumingLocalSource(localInputBuffer, this.room);
+    this.forwardSource = new CompositeInputSource([consumingLocal, authoritativeSource]);
+
+    this.replayPipeline = new ReplayPipeline(snapshots);
+    this.forwardPipeline = new ForwardPipeline(
+      snapshots,
+      () => {}, // placeholder — replaced in wirePlayer()
+      () => this.snapshotPeriodX,
+      () => this.snapshotGapTicks,
+    );
   }
 
-  /** Load the initial world snapshot from the server and seed the ring buffer. */
+  /** Load the initial world snapshot from the server and seed everything. */
   initFromSnapshot(tick: number, buffer: ArrayBuffer): void {
     this.room.resetWorld();
     this.room.rebuildSerializers();
     this.room.snapshotDeserialize(buffer);
     this.room.tick = tick;
-    this.lastAcknowledgedInputTick = tick;
-    this.snapshots.seed(tick, this.room.snapshotSerialize());
+    this.reconciler.seedInitialState(tick, this.room.snapshotSerialize());
   }
 
-  /** Queue a local-predicted input (consumed once, never survives replay). */
+  /** Queue a local-predicted input into the reconciler's local buffer. */
   addLocalInput(input: PlayerInput): void {
-    this.localInputBuffer.record(input.tick, input.playerId, input);
+    this.reconciler.addLocalInput(input);
   }
 
-  /**
-   * Store a batch of authoritative network diffs and schedule a resim.
-   * Only rewinds to the first tick whose diff changed. Byte-identical
-   * diffs are skipped.
-   *
-   * @param serverTick The server's `tick + 1` — the next tick to process.
-   *                   All inputs at ticks ≤ serverTick-1 are acknowledged.
-   */
+  /** Delegate to reconciler to store diffs and schedule rollback. */
   addNetworkDiffBatch(diffs: NetworkDiffPayload[], serverTick: number): void {
-    let earliestChangedTick = Infinity;
-
-    for (const diff of diffs) {
-      const stored = this.networkDiffTickRingBuffer.get(diff.tick, 'network');
-      if (stored && buffersEqual(stored.data, diff.data) && buffersEqual(stored.struct, diff.struct)) {
-        continue;
-      }
-
-      this.networkDiffTickRingBuffer.record(diff.tick, 'network', {
-        data: diff.data,
-        struct: diff.struct,
-        tick: diff.tick,
-      });
-
-      if (diff.tick < earliestChangedTick) {
-        earliestChangedTick = diff.tick;
-      }
-    }
-
-    const ackTick = serverTick - 1;
-    if (ackTick > this.lastAcknowledgedInputTick) {
-      this.lastAcknowledgedInputTick = ackTick;
-      this.localInputBuffer.discardUpTo(ackTick, this.localPlayerId);
-    }
-
-    if (!isFinite(earliestChangedTick)) return;
-
-    const resimTick = earliestChangedTick - 1;
-    if (resimTick < this.room.tick) {
-      this.pendingResimTick = this.pendingResimTick === null ? resimTick : Math.min(this.pendingResimTick, resimTick);
-    }
+    this.reconciler.addNetworkDiffBatch(diffs, serverTick);
   }
 
   /**
-   * Process a single simulation tick (or a replay batch).
-   * Designed for the client's setInterval loop.
-   * @returns true if a tick was processed, false if idle.
+   * Process a single simulation tick, or a replay batch if a rollback
+   * is pending. Returns true if tick(s) were processed.
    */
   processNextTick(): boolean {
     if (this.clock.pendingTicks() <= 0) return false;
 
-    if (this.pendingResimTick !== null && this.room.tick > this.pendingResimTick) {
-      this.replayFrom(this.pendingResimTick);
-      this.pendingResimTick = null;
+    if (this.reconciler.needsRollback(this.room.tick)) {
+      const pendingTick = this.reconciler.getPendingResimTick()!;
+      const anchor = this.reconciler.findAnchor(pendingTick);
+      if (!anchor) {
+        this.reconciler.clearPendingResim();
+        return false;
+      }
+
+      const currentTick = this.room.tick;
+
+      this.reconciler.rewind(this.room, anchor);
+      this.reconciler.isReplaying = true;
+
+      const ticksReplayed = currentTick - anchor.tick;
+      while (this.room.tick < currentTick) {
+        this.replayPipeline.preTick(this.room, this.reconciler);
+        this.replayPipeline.tick(this.room, this.replaySource);
+        this.replayPipeline.postTick(this.room, this.reconciler);
+      }
+
+      this.clock.consumeTicks(ticksReplayed);
+      this.reconciler.isReplaying = false;
+      this.reconciler.clearPendingResim();
       return true;
     }
 
-    this._applyNetworkDiff(this.room.tick);
-
-    this.room.update({ resolveInput: this._makeResolveInput('forward') });
-    this.onTick?.(this.room.tick);
-
-    if (this.snapshots.shouldTake(this.room.tick, this.snapshotPeriodX, this.snapshotGapTicks)) {
-      this.snapshots.push(this.room.tick, this.room.snapshotSerialize());
-    }
+    this.forwardPipeline.preTick(this.room, this.reconciler);
+    this.forwardPipeline.tick(this.room, this.forwardSource);
+    this.forwardPipeline.postTick(this.room, this.reconciler);
 
     this.clock.consumeTicks(1);
     return true;
   }
 
-  private replayFrom(pastTick: number): void {
-    const currentTick = this.room.tick;
-
-    const anchor = this.snapshots.findBestAnchor(pastTick);
-    if (!anchor) {
-      logger.error(`No snapshot ≤ tick ${pastTick} in ring buffer, cannot resimulate.`);
-      return;
-    }
-
-    this.room.resetWorld();
-    this.replaying = true;
-    this.room.snapshotDeserialize(anchor.buffer, new Map());
-    this.room.tick = anchor.tick;
-
-    logger.debug(`Replaying from ${anchor.tick} to ${currentTick} (${currentTick - anchor.tick} ticks)`);
-
-    const ticksReplayed = currentTick - anchor.tick;
-    while (this.room.tick < currentTick) {
-      this._applyNetworkDiff(this.room.tick);
-
-      this.room.update({ resolveInput: this._makeResolveInput('replay') });
-      this.onTick?.(this.room.tick);
-    }
-
-    this.clock.consumeTicks(ticksReplayed);
-    this.replaying = false;
-  }
-
-  // ── Internal helpers ────────────────────────────────────────────────────────
-
-  /** Apply a server-authoritative network diff for the given tick, if one exists. */
-  private _applyNetworkDiff(tick: number): void {
-    const diff = this.networkDiffTickRingBuffer.get(tick, 'network');
-    if (diff) {
-      this.room.soaDeserialize(diff.data);
-      this.room.observerDeserializeNetwork(diff.struct, new Map());
-    }
-  }
-
   /**
-   * Build the resolveInput hook for room.update().
-   *
-   * @param mode 'forward' — consume local inputs once (prediction).
-   *             'replay'  — read local inputs without consuming, but only
-   *             for ticks past the server's acknowledgment boundary.
+   * Wire the player identity, set up replay input sources, and bind the
+   * render-capture callback. Must be called after initFromSnapshot when
+   * the player eid/stringId are known.
    */
-  private _makeResolveInput(mode: 'forward' | 'replay'): (playerId: string) => PlayerInput | null {
-    return (playerId: string): PlayerInput | null => {
-      if (this.predictLocalInputs) {
-        if (mode === 'replay' && this.room.tick <= this.lastAcknowledgedInputTick) {
-          // Server already incorporated this tick — skip local
-        } else {
-          const local = mode === 'forward'
-            ? this.localInputBuffer.consume(this.room.tick, playerId)
-            : this.localInputBuffer.get(this.room.tick, playerId);
-          if (local) return local;
-        }
-      }
-      return this.room.playerInputBuffer.get(this.room.tick, playerId);
-    };
+  wirePlayer(localPlayerEid: number, localPlayerId: string, onTick: (tick: number) => void): void {
+    this.localPlayerEid = localPlayerEid;
+    this.localPlayerId = localPlayerId;
+
+    this.reconciler.setLocalPlayer(localPlayerId);
+
+    const replayLocalSource = new NonConsumingLocalSource(
+      this.reconciler.inputBuffer,
+      this.room,
+      this.reconciler,
+    );
+    const authoritative = new AuthoritativeSource(this.room.playerInputBuffer, this.room);
+    this.replaySource = new CompositeInputSource([replayLocalSource, authoritative]);
+
+    this.forwardPipeline.setOnTick(onTick);
   }
 }

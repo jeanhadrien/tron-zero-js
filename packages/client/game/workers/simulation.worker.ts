@@ -96,16 +96,11 @@ self.onmessage = (e: MessageEvent<MainToWorkerMessage>) => {
 
       clientSim = new ClientSimulation(clock, systems, {
         minSnapshotCoverageMs: msg.minSnapshotCoverageMs,
-        predictLocalInputs: true,
         snapshotPeriodX: msg.snapshotPeriodX,
       });
 
       clockSync = new ClockSyncManager();
-      clockSync.attach(clientSim.room, () => clientSim.replaying);
-
-      clientSim.onTick = (tick: number) => {
-        pendingOutputs.push(captureRenderState(tick));
-      };
+      clockSync.attach(clientSim.room, () => clientSim.reconciler.isReplaying);
 
       break;
     }
@@ -116,8 +111,12 @@ self.onmessage = (e: MessageEvent<MainToWorkerMessage>) => {
       const leadTicks = clockSync.getLeadTicks();
       clientSim.initFromSnapshot(msg.tick, msg.snapshot);
       clientSim.room.tick = msg.tick + leadTicks;
-      clientSim.localPlayerEid = PlayerSystem.getPlayerEidByStringId(clientSim.room, sessionToken);
-      clientSim.localPlayerId = sessionToken;
+
+      const eid = PlayerSystem.getPlayerEidByStringId(clientSim.room, sessionToken);
+      clientSim.wirePlayer(eid, sessionToken, (tick: number) => {
+        pendingOutputs.push(captureRenderState(tick));
+      });
+
       clock.tickTimeMs = clock.referenceTickTimeMs;
 
       const ready: SimReadyMessage = {
