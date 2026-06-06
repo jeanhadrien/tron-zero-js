@@ -118,10 +118,10 @@ export class GameScene extends Scene {
     this.renderSystem.init();
 
     // 7. Debug HUD — read from Worker state
-    this.debugHud.add('OWD', () => '-');
-    this.debugHud.add('TickErr', () => '-');
-    this.debugHud.add('Scale', () => '-');
-    this.debugHud.add('Lead', () => '-');
+    this.debugHud.add('OWD', () => this.workerManager.latestOWD);
+    this.debugHud.add('TickErr', () => this.workerManager.latestTickError);
+    this.debugHud.add('Scale', () => this.workerManager.latestScale);
+    this.debugHud.add('Lead', () => this.workerManager.latestLeadTicks);
     this.debugHud.add('Tick', () => this.workerManager.latestCurrentTick);
     this.debugHud.add('FPS', () => this.game.loop.actualFps);
 

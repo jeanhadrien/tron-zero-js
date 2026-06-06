@@ -74,6 +74,9 @@ function flushOutput(): void {
     ticks: pendingOutputs,
     alpha: clock.getAlpha(),
     tickTimeMs: clock.tickTimeMs,
+    owd: clockSync.smoothedOWD,
+    tickError: clockSync.lastTickError,
+    scale: clockSync.lastScale,
   };
   self.postMessage(msg);
   pendingOutputs = [];

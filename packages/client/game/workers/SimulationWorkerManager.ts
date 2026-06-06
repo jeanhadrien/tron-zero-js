@@ -32,6 +32,9 @@ export class SimulationWorkerManager {
   latestCurrentTick: number = 0;
   localPlayerEid: number = -1;
   latestLeadTicks: number = 0;
+  latestOWD: number = 0;
+  latestTickError: number = 0;
+  latestScale: number = 1;
 
   /** Current simulation alpha (accumulator / tickTimeMs), upgraded with elapsed time. */
   private _lastWorkerAlpha: number = 0;
@@ -138,6 +141,9 @@ export class SimulationWorkerManager {
     this.latestCurrentTick = msg.currentTick;
     this.localPlayerEid = msg.localPlayerEid;
     this.latestLeadTicks = msg.leadTicks;
+    this.latestOWD = msg.owd;
+    this.latestTickError = msg.tickError;
+    this.latestScale = msg.scale;
     this._lastWorkerAlpha = msg.alpha;
     this._lastWorkerTime = performance.now();
     this._tickTimeMs = msg.tickTimeMs;

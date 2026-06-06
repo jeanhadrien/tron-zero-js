@@ -71,6 +71,10 @@ export class ClockSyncManager {
   /** Number of pongs processed since construction. Drives the gain ramp. */
   private _sampleCount = 0;
 
+  /** Last computed tick error and scale, stored for debug/HUD access. */
+  private _lastTickError = 0;
+  private _lastScale = 1;
+
   private static readonly GAIN = 0.1;
   private static readonly GAIN_MIN = 0.02;
   private static readonly GAIN_RAMP_SAMPLES = 5;
@@ -159,11 +163,22 @@ export class ClockSyncManager {
     const clamped = Math.max(-ClockSyncManager.MAX_CORRECTION, Math.min(ClockSyncManager.MAX_CORRECTION, correction));
     const scale = 1 - clamped;
     this.room.clock.tickTimeMs = this.room.clock.referenceTickTimeMs * scale;
+
+    this._lastTickError = error;
+    this._lastScale = scale;
   }
 
   // -- debug / HUD accessors ---------------------------------------------------
 
   get smoothedOWD(): number {
     return this.buffer.getOWD();
+  }
+
+  get lastTickError(): number {
+    return this._lastTickError;
+  }
+
+  get lastScale(): number {
+    return this._lastScale;
   }
 }

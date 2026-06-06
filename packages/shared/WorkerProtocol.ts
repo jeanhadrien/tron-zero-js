@@ -122,6 +122,12 @@ export interface RenderStatesMessage {
   alpha: number;
   /** Current tick duration (may differ from reference due to clock sync). */
   tickTimeMs: number;
+  /** Smoothed one-way delay estimate in milliseconds. */
+  owd: number;
+  /** Last computed tick synchronization error (idealClientTick - room.tick). */
+  tickError: number;
+  /** Last clock speed multiplier applied to referenceTickTimeMs. */
+  scale: number;
 }
 
 /** Worker confirms initialisation is complete. */
