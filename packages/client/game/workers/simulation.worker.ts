@@ -131,6 +131,12 @@ self.onmessage = (e: MessageEvent<MainToWorkerMessage>) => {
 
     case 'sync_state_batch': {
       if (msg.serverTick <= _lastAppliedServerTick) break;
+      if (msg.serverTick > clientSim.room.tick) {
+        console.warn(
+          `[ClockSync] SERVER AHEAD: serverTick=${msg.serverTick} > clientTick=${clientSim.room.tick} ` +
+          `(client behind by ${msg.serverTick - clientSim.room.tick} ticks)`
+        );
+      }
       clientSim.addNetworkDiffBatch(msg.diffs, msg.serverTick);
       _lastAppliedServerTick = msg.serverTick;
       break;

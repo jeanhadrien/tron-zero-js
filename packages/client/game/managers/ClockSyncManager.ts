@@ -74,12 +74,20 @@ export class ClockSyncManager {
   /** Last computed tick error and scale, stored for debug/HUD access. */
   private _lastTickError = 0;
   private _lastScale = 1;
+  /** Sign of _lastTickError from previous adjustClock() call (1 / -1 / 0). */
+  private _prevErrorSign = 0;
+  /** Whether {@link diagnose} has already been called during this session. */
+  private _diagnoseCalled = false;
 
   private static readonly GAIN = 0.1;
   private static readonly GAIN_MIN = 0.02;
   private static readonly GAIN_RAMP_SAMPLES = 5;
-  private static readonly MAX_CORRECTION = 0.25;
+  private static readonly MAX_CORRECTION = 10;
   private static readonly DEFAULT_LEAD_TICKS = 1;
+  /** Anchor jumps beyond this threshold (in ticks) trigger a warning. */
+  private static readonly ANCHOR_JUMP_WARN_TICKS = 1;
+  /** Error magnitude beyond this threshold (in ticks) triggers a warning. */
+  private static readonly LARGE_ERROR_WARN_TICKS = 2;
 
   // -- lifecycle ---------------------------------------------------------------
 
@@ -113,12 +121,32 @@ export class ClockSyncManager {
     this.buffer.push(sample);
     this._sampleCount++;
 
+    // Auto-diagnose once after the gain ramp has enough samples
+    if (!this._diagnoseCalled && this._sampleCount >= ClockSyncManager.GAIN_RAMP_SAMPLES) {
+      this._diagnoseCalled = true;
+      this.diagnose();
+    }
+
     const owdMs = this.buffer.getOWD();
     const refTickMs = this.room.clock.referenceTickTimeMs;
     const owdTicks = owdMs / refTickMs;
 
     // Server tick at the instant the pong hit the client NIC
     const serverTickAtReceive = serverTick + owdTicks;
+
+    // Warn if the anchor jumps by more than ANCHOR_JUMP_WARN_TICKS from where
+    // we expected it based on extrapolation from the previous anchor.
+    if (this._sampleCount > 1) {
+      const elapsedSinceLastPong = now - this._lastPongClientTimeMs;
+      const extrapolatedAnchor = this._lastPongServerTickAtReceive + elapsedSinceLastPong / refTickMs;
+      const anchorJump = serverTickAtReceive - extrapolatedAnchor;
+      if (Math.abs(anchorJump) > ClockSyncManager.ANCHOR_JUMP_WARN_TICKS) {
+        console.warn(
+          `[ClockSync] anchor jump: ${anchorJump.toFixed(2)} ticks ` +
+            `(extrapolated=${extrapolatedAnchor.toFixed(2)}, actual=${serverTickAtReceive.toFixed(2)})`
+        );
+      }
+    }
 
     this._lastPongServerTickAtReceive = serverTickAtReceive;
     this._lastPongClientTimeMs = now;
@@ -164,6 +192,34 @@ export class ClockSyncManager {
     const scale = 1 - clamped;
     this.room.clock.tickTimeMs = this.room.clock.referenceTickTimeMs * scale;
 
+    // ── Diagnostic warnings ──────────────────────────────────────────────────
+
+    // Oscillation — error sign flipped from last frame
+    const errorSign = Math.sign(error);
+    if (errorSign !== 0 && this._prevErrorSign !== 0 && errorSign !== this._prevErrorSign) {
+      console.warn(
+        `[ClockSync] oscillation: tickError flipped ${this._prevErrorSign > 0 ? '+' : '-'}→${errorSign > 0 ? '+' : '-'} ` +
+          `| error=${error.toFixed(2)} scale=${scale.toFixed(3)} gain=${effectiveGain.toFixed(3)}`
+      );
+    }
+    this._prevErrorSign = errorSign;
+
+    // Large error — controller cannot converge within normal bounds
+    if (Math.abs(error) > ClockSyncManager.LARGE_ERROR_WARN_TICKS) {
+      console.warn(
+        `[ClockSync] large error: tickError=${error.toFixed(2)} ` +
+          `| estimatedServer=${estimatedServerTickNow.toFixed(2)} clientTick=${this.room.tick} scale=${scale.toFixed(3)}`
+      );
+    }
+
+    // Saturation — correction hit the clamp ceiling
+    if (Math.abs(correction) >= ClockSyncManager.MAX_CORRECTION) {
+      console.warn(
+        `[ClockSync] saturation: correction=${correction.toFixed(4)} clamped to ${clamped.toFixed(4)} ` +
+          `| error=${error.toFixed(2)} gain=${effectiveGain.toFixed(3)}`
+      );
+    }
+
     this._lastTickError = error;
     this._lastScale = scale;
   }
@@ -180,5 +236,25 @@ export class ClockSyncManager {
 
   get lastScale(): number {
     return this._lastScale;
+  }
+
+  /**
+   * One-shot health report comparing the init-time lead (from {@link getLeadTicks})
+   * against the P-controller's implicit steady-state target (OWD + 1).  A mismatch
+   * here is a structural misalignment that the controller fights on every frame.
+   */
+  diagnose(): void {
+    if (!this.room || !this.buffer.hasData()) return;
+    const owdTicks = this.buffer.getOWD() / this.room.clock.referenceTickTimeMs;
+    const initLead = this.getLeadTicks();
+    const controllerTarget = owdTicks + 1;
+    const delta = initLead - controllerTarget;
+    console.warn(
+      `[ClockSync] diagnose: OWD=${owdTicks.toFixed(2)}t ` +
+        `leadUsed=${initLead} controllerTarget=${controllerTarget.toFixed(2)} ` +
+        `mismatch=${delta.toFixed(2)}t ` +
+        `| ramp=${Math.min(1, this._sampleCount / ClockSyncManager.GAIN_RAMP_SAMPLES).toFixed(2)} ` +
+        `samples=${this._sampleCount}`
+    );
   }
 }

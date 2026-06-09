@@ -140,7 +140,7 @@ export class ClientNetworkSystem {
     const rttMs = performance.now() - clientTime;
 
     this.handler?.onPong(rttMs, serverTick);
-    logger.warn(`RTT: ${rttMs.toFixed(2)}ms, OWD: ${(rttMs / 2).toFixed(2)}ms`);
+    logger.debug(`RTT: ${rttMs.toFixed(2)}ms, OWD: ${(rttMs / 2).toFixed(2)}ms`);
   }
 
   private _onConnection(error: ConnectionError | undefined): void {
