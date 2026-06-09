@@ -1,5 +1,5 @@
 ---
-description: Architect
+description: Code debugger assistant.
 mode: primary
 permission:
   edit: deny

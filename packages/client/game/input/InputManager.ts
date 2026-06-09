@@ -36,7 +36,7 @@ export class InputManager {
     private _worker: SimulationWorkerManager,
     private _getTick: () => number,
     private _getAlpha: () => number,
-    private _playerId: string,
+    private _playerId: string
   ) {}
 
   // ── Public API ────────────────────────────────────────────────────────────
@@ -113,11 +113,14 @@ export class InputManager {
 
     if (this._buffer.length === 0) return;
 
-    this._channel.emit('client_turn', this._buffer.map((i) => ({
-      tick: i.tick,
-      turn: i.turn,
-      alpha: i.alpha,
-      break: i.break,
-    })));
+    this._channel.emit(
+      'client_turn',
+      this._buffer.map((i) => ({
+        tick: i.tick,
+        turn: i.turn,
+        alpha: i.alpha,
+        break: i.break,
+      }))
+    );
   }
 }

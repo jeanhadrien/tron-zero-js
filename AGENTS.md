@@ -31,6 +31,10 @@ The server uses **jsdom** to run the ECS simulation in a worker context (Node la
 
 Copy `.env.template` to `.env` before running. Key client-side vars: `VITE_MANAGER_URL`, `VITE_OTEL_ENABLED`, `VITE_LOG_LEVEL`. Key server-side vars: `MANAGER_URL`, `ADVERTISED_HOST`, `SERVER_NAME`, `MAX_PLAYERS`, `PORT`, `MANAGER_PORT`.
 
+## CodeGraph
+
+This project has a CodeGraph index (tree-sitter-parsed knowledge graph). Gotcha: codegraph tools have an extra `codegraph_` prefix, i.e: `codegraph_codegraph_explore`. Avoid re-verifying codegraph results with grep.
+
 ## Navigating this project
 
 Limit your scope to the side you are working on (client, server, or server-manager). If you need to read across packages, ask the user first. All shared code comes from `packages/shared/`, imported via `@tron0/shared/*` (resolved via `paths` in each package's `tsconfig.json`). TypeScript references use project references (`tsconfig.json` at root contains a `references` array).

@@ -303,11 +303,11 @@ export default class PlayerSystem extends SystemSerializable {
   }
 
   /** Get the entity id for a given player string id. Returns -1 if not found. */
-  static getPlayerEidByStringId(ctx: SimulationContext, stringId: string): number {
+  static getPlayerEidByStringId(ctx: SimulationContext, stringId: string): number | null {
     for (const eid of Array.from(query(ctx.world, [Player, PlayerId]))) {
       if (PlayerId[eid] === stringId) return eid;
     }
-    throw new Error(`Couldn't get eid for player ${stringId}`);
+    return null;
   }
 
   /** Add a new player entity and return its entity id. */
@@ -351,6 +351,11 @@ export default class PlayerSystem extends SystemSerializable {
   static spawnPlayer(ctx: SimulationContext, playerId: string, seedTick: number) {
     logger.info('&&& Spawning entity', playerId);
     const eid = this.getPlayerEidByStringId(ctx, playerId);
+
+    if (!eid) {
+      logger.error('Skipping spawning playerId', playerId, 'not found');
+      return;
+    }
 
     if (IsAlive[eid]) {
       logger.warn(`Entity ${eid} is already alive, cannot spawn.`);
@@ -427,21 +432,19 @@ export default class PlayerSystem extends SystemSerializable {
       for (const event of getEvents()) {
         if (event.type === GameEventType.PlayerJoined) {
           PlayerSystem.createPlayer(this.ctx, event.playerId!);
-        }
-        if (event.type === GameEventType.PlayerSpawn) {
+        } else if (event.type === GameEventType.PlayerSpawn) {
           PlayerSystem.spawnPlayer(this.ctx, event.playerId!, event.tick);
-        }
-        if (event.type === GameEventType.PlayerLeft) {
+        } else if (event.type === GameEventType.PlayerLeft) {
           const playerId = event.playerId;
           if (playerId) {
-            try {
-              const eid = PlayerSystem.getPlayerEidByStringId(this.ctx, playerId);
-              removeEntity(this.ctx.world, eid);
-              this.ctx.dirtyEntities.add(eid);
-              logger.debug('Removed player', playerId);
-            } catch {
+            const eid = PlayerSystem.getPlayerEidByStringId(this.ctx, playerId);
+            if (!eid) {
               logger.warn(`PlayerLeft for non-existent player: ${playerId}`);
+              continue;
             }
+            removeEntity(this.ctx.world, eid);
+            this.ctx.dirtyEntities.add(eid);
+            logger.debug('Removed player', playerId);
           }
         }
       }

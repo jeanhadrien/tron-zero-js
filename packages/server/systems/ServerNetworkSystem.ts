@@ -120,15 +120,14 @@ export class ServerNetworkSystem extends System {
     this.sessionByChannelId.set(channelId, sessionToken);
     this.channelPlayerIds.set(channelId, sessionToken);
 
-    try {
-      PlayerSystem.getPlayerEidByStringId(this.room, sessionToken);
+    if (PlayerSystem.getPlayerEidByStringId(this.room, sessionToken)) {
       logger.info(`Player reconnected: ${sessionToken}`);
       const packet = encodeInitState(this.room.tick, this.room.snapshotSerialize());
       channel.raw.emit(packet);
-    } catch {
+    } else {
       logger.info(`New player: ${sessionToken}`);
-      this.room.addEvent({ type: GameEventType.PlayerJoined, tick: this.room.tick, playerId: sessionToken });
-      this.room.addEvent({ type: GameEventType.PlayerSpawn, tick: this.room.tick, playerId: sessionToken });
+      this.room.addEvent({ type: GameEventType.PlayerJoined, tick: this.room.tick + 1, playerId: sessionToken });
+      //this.room.addEvent({ type: GameEventType.PlayerSpawn, tick: this.room.tick, playerId: sessionToken });
     }
   }
 

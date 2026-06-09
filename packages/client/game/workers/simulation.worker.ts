@@ -178,8 +178,9 @@ self.onmessage = (e: MessageEvent<MainToWorkerMessage>) => {
     case 'respawn': {
       const eid = clientSim.localPlayerEid;
       if (eid >= 0 && IsAlive[eid] !== 1) {
-        clientSim.room.gameEventBuffer.record(msg.tick, {
-          tick: msg.tick,
+        const tick = clientSim.room.tick;
+        clientSim.room.gameEventBuffer.record(tick, {
+          tick,
           type: GameEventType.PlayerSpawn,
           playerId: clientSim.localPlayerId,
         });

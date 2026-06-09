@@ -301,9 +301,9 @@ export class GameScene extends Scene {
     if (this.phase !== 'playing') {
       if (this.phase === 'stabilizing' && this._clockWarmedUp) {
         this.phase = 'playing';
-        const tick = this.workerManager.latestCurrentTick;
-        this.networkClient.sendRespawn(tick);
-        this.workerManager.sendRespawn(tick);
+        // const tick = this.workerManager.latestCurrentTick;
+        // this.networkClient.sendRespawn(tick);
+        // this.workerManager.sendRespawn(tick);
         EventBus.emit('game-start');
       }
       this.debugHud.update(_time);
