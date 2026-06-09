@@ -35,8 +35,6 @@ Copy `.env.template` to `.env` before running. Key client-side vars: `VITE_MANAG
 
 Limit your scope to the side you are working on (client, server, or server-manager). If you need to read across packages, ask the user first. All shared code comes from `packages/shared/`, imported via `@tron0/shared/*` (resolved via `paths` in each package's `tsconfig.json`). TypeScript references use project references (`tsconfig.json` at root contains a `references` array).
 
-`opencode.jsonc` points at `packages/*/AGENTS.md` for per-package instructions — these files don't exist yet.
-
 ## Documentation and file loading
 
 Use your Read tool to load documentation (@docs/*.md) on a need-to-know basis. Do not preemptively load all references - use lazy loading based on actual need.
@@ -50,6 +48,10 @@ bitECS is the ECS library this project uses for simulating the game world.
 - @docs/bitecs/intro.md : Intro to the bitECS library (large file)
 - @docs/bitecs/serialization.md : Details about serializing world entities and components, snapshotting, etc. (large file)
 
+## Tests
+
+Do not test or try to run tests. To be done later.
+
 ## Commands
 
 ```sh
@@ -57,13 +59,12 @@ bun run dev           # concurrently starts client, server, and server-manager i
 bun run dev:client    # start only the Vite client dev server
 bun run dev:server    # start only the game server (--watch + --inspect=localhost:9229)
 bun run dev:manager   # start only the server-manager (--watch)
-bun run test          # vitest run (tests currently only in packages/shared)
 bun run typecheck     # tsc --noEmit across all 4 packages
 bun run build         # Vite production build (client only)
 bun run server        # start server in production (bun --cwd packages/server start)
 ```
 
-No `lint` script is wired (eslint is configured but must be run manually). Run typecheck first, then tests when verifying changes.
+No `lint` script is wired (eslint is configured but must be run manually). 
 
 ## Dependency Hierarchy
 
