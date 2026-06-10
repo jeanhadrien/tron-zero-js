@@ -1,9 +1,10 @@
 import { GameObjects } from 'phaser';
-import type { PlayerRenderDatum, TickRenderOutput } from '@tron0/shared/WorkerProtocol';
+import type { PlayerRenderDatum, TickRenderOutput } from '../workers/WorkerProtocol';
 import { TickRingBuffer } from '@tron0/shared/TickRingBuffer';
 
 const RING_SIZE = 500; // power of 2, covers ~1s of history at 60tps
 const TRAIL_WIDTH = 5;
+const LIGHTCYCLE_SIZE = 10;
 
 /**
  * Pure rendering system — consumes {@link TickRenderOutput} batches from the
@@ -148,12 +149,12 @@ export class PlayerRenderSystem {
     const cos = Math.cos(θ);
     const sin = Math.sin(θ);
 
-    const x0 = x + 17 * sin;
-    const y0 = y - 17 * cos;
-    const x1 = x - 17 * cos - 17 * sin;
-    const y1 = y - 17 * sin + 17 * cos;
-    const x2 = x + 17 * cos - 17 * sin;
-    const y2 = y + 17 * sin + 17 * cos;
+    const x0 = x + LIGHTCYCLE_SIZE * sin;
+    const y0 = y - LIGHTCYCLE_SIZE * cos;
+    const x1 = x - LIGHTCYCLE_SIZE * cos - LIGHTCYCLE_SIZE * sin;
+    const y1 = y - LIGHTCYCLE_SIZE * sin + LIGHTCYCLE_SIZE * cos;
+    const x2 = x + LIGHTCYCLE_SIZE * cos - LIGHTCYCLE_SIZE * sin;
+    const y2 = y + LIGHTCYCLE_SIZE * sin + LIGHTCYCLE_SIZE * cos;
 
     this.driverGraphics.fillStyle(color);
     this.driverGraphics.fillTriangle(x0, y0, x1, y1, x2, y2);

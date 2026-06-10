@@ -31,11 +31,6 @@ export class StateReconciler {
     return this.localInputBuffer;
   }
 
-  /** Exposed for ForwardPipeline construction — the snapshot ring. */
-  get snapshotRing(): SnapshotRing {
-    return this.snapshots;
-  }
-
   setLocalPlayer(playerId: string): void {
     this.localPlayerId = playerId;
   }

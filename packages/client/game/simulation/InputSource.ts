@@ -1,7 +1,7 @@
 import type { ECSGameRoom } from '@tron0/shared/ECSGameRoom';
 import type { PlayerInput } from '@tron0/shared/interfaces/PlayerInput';
 import type { PlayerInputTickRingBuffer } from '@tron0/shared/PlayerInputBuffer';
-import type { StateReconciler } from './StateReconciler';
+
 
 /** Contract for a single input resolution strategy. */
 export interface InputSource {
@@ -29,11 +29,11 @@ export class NonConsumingLocalSource implements InputSource {
   constructor(
     private localInputBuffer: PlayerInputTickRingBuffer,
     private room: ECSGameRoom,
-    private reconciler: StateReconciler,
+    private getAcknowledgedUpTo: () => number,
   ) {}
 
   resolve(playerId: string): PlayerInput | null {
-    if (this.room.tick <= this.reconciler.getAcknowledgedUpTo()) return null;
+    if (this.room.tick <= this.getAcknowledgedUpTo()) return null;
     return this.localInputBuffer.get(this.room.tick, playerId);
   }
 }

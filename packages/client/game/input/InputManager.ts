@@ -85,18 +85,18 @@ export class InputManager {
     if (last && last.tick === tick) {
       apply(last);
       if (last.turn) {
-        this._worker.sendPlayerInput(TurnCommand(tick, this._playerId, last.turn, last.alpha), 'local');
+        this._worker.sendPlayerInput(TurnCommand(tick, this._playerId, last.turn, last.alpha));
       } else if (last.break) {
-        this._worker.sendPlayerInput(BreakCommand(tick, this._playerId), 'local');
+        this._worker.sendPlayerInput(BreakCommand(tick, this._playerId));
       }
     } else {
       const input: BufferedInput = { tick };
       apply(input);
       this._buffer.push(input);
       if (input.turn) {
-        this._worker.sendPlayerInput(TurnCommand(tick, this._playerId, input.turn, input.alpha), 'local');
+        this._worker.sendPlayerInput(TurnCommand(tick, this._playerId, input.turn, input.alpha));
       } else if (input.break) {
-        this._worker.sendPlayerInput(BreakCommand(tick, this._playerId), 'local');
+        this._worker.sendPlayerInput(BreakCommand(tick, this._playerId));
       }
     }
   }

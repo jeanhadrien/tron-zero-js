@@ -7,7 +7,7 @@ import type {
   SimReadyMessage,
   TickRenderOutput,
   WorkerToMainMessage,
-} from '@tron0/shared/WorkerProtocol';
+} from './WorkerProtocol';
 
 const logger = new Logger('SimWorkerMgr');
 
@@ -49,7 +49,6 @@ export class SimulationWorkerManager {
   /** Spawn the Worker and send the init_sim priming message. */
   init(params: {
     referenceTickTimeMs: number;
-    snapshotGapTicks: number;
     snapshotPeriodX: number;
     minSnapshotCoverageMs: number;
     sessionToken: string;
@@ -59,13 +58,9 @@ export class SimulationWorkerManager {
       return;
     }
 
-    this.worker = new Worker(
-      new URL('./simulation.worker.ts', import.meta.url),
-      { type: 'module' }
-    );
+    this.worker = new Worker(new URL('./simulation.worker.ts', import.meta.url), { type: 'module' });
 
-    this.worker.onmessage = (e: MessageEvent<WorkerToMainMessage>) =>
-      this._onMessage(e.data);
+    this.worker.onmessage = (e: MessageEvent<WorkerToMainMessage>) => this._onMessage(e.data);
 
     this.worker.onerror = (e: ErrorEvent) => {
       logger.error('Worker error:', e.message);
@@ -74,7 +69,6 @@ export class SimulationWorkerManager {
     const msg: MainToWorkerMessage = {
       type: 'init_sim',
       referenceTickTimeMs: params.referenceTickTimeMs,
-      snapshotGapTicks: params.snapshotGapTicks,
       snapshotPeriodX: params.snapshotPeriodX,
       minSnapshotCoverageMs: params.minSnapshotCoverageMs,
       sessionToken: params.sessionToken,
@@ -99,7 +93,7 @@ export class SimulationWorkerManager {
   }
 
   sendSyncStateBatch(serverTick: number, diffs: NetworkDiffPayload[]): void {
-    const transfers = diffs.flatMap(d => [d.data, d.struct]).filter(b => b.byteLength > 0);
+    const transfers = diffs.flatMap((d) => [d.data, d.struct]).filter((b) => b.byteLength > 0);
     this._post({ type: 'sync_state_batch', serverTick, diffs }, transfers);
   }
 
@@ -107,8 +101,8 @@ export class SimulationWorkerManager {
     this._post({ type: 'pong', rttMs, serverTick });
   }
 
-  sendPlayerInput(input: PlayerInput, source: 'local' | 'server'): void {
-    this._post({ type: 'player_input', input, source });
+  sendPlayerInput(input: PlayerInput): void {
+    this._post({ type: 'player_input', input });
   }
 
   sendDeltaTime(deltaMs: number): void {
@@ -185,3 +179,4 @@ export class SimulationWorkerManager {
     }
   }
 }
+
