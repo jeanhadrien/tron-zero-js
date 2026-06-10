@@ -4,7 +4,7 @@
   "type": "module",
   "scripts": {
     "dev": "bun --inspect=localhost:9229 --watch index.ts",
-    "start": "bun index.ts",
+    "start": "bun --no-env-file --env-file=.env.production --env-file=.env.production.local index.ts",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {

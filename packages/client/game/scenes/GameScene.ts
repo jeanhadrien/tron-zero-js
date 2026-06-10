@@ -69,7 +69,7 @@ export class GameScene extends Scene {
   }
 
   /** Connect to a game server, spawning the simulation Worker and wiring everything. */
-  connectToServer(host: string, port: number): void {
+  connectToServer(host: string, port: number, secure?: boolean): void {
     if (this.isConnected) return;
     this.phase = 'stabilizing';
     this._clockWarmedUp = false;
@@ -97,7 +97,7 @@ export class GameScene extends Scene {
     this.networkClient.setHandler(relay);
 
     // 3. Connect the network
-    this.networkClient.connect(host, port);
+    this.networkClient.connect(host, port, secure);
 
     // 4. Wire input dispatch
     this.clientInput.wire({

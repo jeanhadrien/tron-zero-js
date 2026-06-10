@@ -20,6 +20,7 @@ const tracer = trace.getTracer('tron-zero-server');
 const MANAGER_URL = process.env.MANAGER_URL || 'http://localhost:3001';
 const SERVER_NAME = process.env.SERVER_NAME || 'Unnamed Server';
 const MAX_PLAYERS = parseInt(process.env.MAX_PLAYERS || '10', 10);
+const ADVERTISED_SECURE = process.env.ADVERTISED_SECURE === 'true';
 
 const app = express();
 const httpServer = createServer(app);
@@ -85,7 +86,13 @@ async function registerWithManager() {
     const res = await fetch(`${MANAGER_URL}/api/rooms`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ host, port: PORT, displayName: SERVER_NAME, maxPlayers: MAX_PLAYERS }),
+      body: JSON.stringify({
+        host,
+        port: PORT,
+        secure: ADVERTISED_SECURE || undefined,
+        displayName: SERVER_NAME,
+        maxPlayers: MAX_PLAYERS,
+      }),
     });
     if (!res.ok) {
       const text = await res.text();

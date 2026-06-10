@@ -3,6 +3,7 @@ export interface GameRoomInfo {
   id: string;
   host: string;
   port: number;
+  secure?: boolean;
   displayName: string;
   playerCount: number;
   maxPlayers: number;

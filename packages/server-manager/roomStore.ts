@@ -16,6 +16,7 @@ export function registerRoom(payload: RegisterPayload, id: string): RoomEntry {
     id,
     host: payload.host,
     port: payload.port,
+    secure: payload.secure,
     displayName: payload.displayName,
     maxPlayers: payload.maxPlayers,
     playerCount: 0,

@@ -10,10 +10,10 @@ const App = () => {
     const [gameScene, setGameScene] = createSignal<GameScene | null>(null);
 
     onMount(() => {
-        const handler = ({ host, port }: { host: string; port: number }) => {
+        const handler = ({ host, port, secure }: { host: string; port: number; secure?: boolean }) => {
             const scene = gameScene();
             if (scene) {
-                scene.connectToServer(host, port);
+                scene.connectToServer(host, port, secure);
             }
         };
         EventBus.on('connect-to-server', handler);

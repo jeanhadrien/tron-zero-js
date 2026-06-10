@@ -35,7 +35,7 @@ const ServerBrowser = () => {
   });
 
   const handleConnect = (room: GameRoomInfo) => {
-    EventBus.emit('connect-to-server', { host: room.host, port: room.port });
+    EventBus.emit('connect-to-server', { host: room.host, port: room.port, secure: room.secure });
   };
 
   return (

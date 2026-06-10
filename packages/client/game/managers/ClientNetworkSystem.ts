@@ -37,6 +37,7 @@ export class ClientNetworkSystem {
   private _heartbeatTimeout: number | null = null;
   private _host: string = '';
   private _port: number = 0;
+  private _secure: boolean = false;
   private _initialized: boolean = false;
 
   constructor() {
@@ -58,18 +59,20 @@ export class ClientNetworkSystem {
   // ── Connection ───────────────────────────────────────────────────────────
 
   private _createChannel(): ClientChannel {
+    const scheme = this._secure ? 'https' : 'http';
     return geckos({
-      url: `http://${this._host}`,
+      url: `${scheme}://${this._host}`,
       iceServers: [{ urls: 'stun:stun1.l.google.com:19302' }, { urls: 'stun:stun2.l.google.com:19302' }],
       port: this._port,
     });
   }
 
-  connect(host: string, port: number): void {
+  connect(host: string, port: number, secure?: boolean): void {
     if (this._connected) return;
     this._clearHeartbeat();
     this._host = host;
     this._port = port;
+    this._secure = secure ?? false;
     this.channel = this._createChannel();
     this._setupChannel(this.channel);
     this._startPingInterval();
