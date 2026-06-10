@@ -13,7 +13,6 @@ export class StateReconciler {
   /** Tick-indexed authoritative diffs — decoupled from ring-buffer window for dedup + replay. */
   private diffByTick = new Map<number, NetworkDiffPayload>();
 
-  private lastAcknowledgedInputTick: number = -1;
   private pendingResimTick: number | null = null;
   private localPlayerId: string = '';
 
@@ -68,14 +67,6 @@ export class StateReconciler {
       this.pruneDiffs(newestDiffTick);
     }
 
-    const ackTick = serverTick - 1;
-    if (ackTick > this.lastAcknowledgedInputTick) {
-      this.lastAcknowledgedInputTick = ackTick;
-      if (this.localPlayerId) {
-        this.localInputBuffer.discardUpTo(ackTick, this.localPlayerId);
-      }
-    }
-
     if (!isFinite(earliestChangedTick)) return;
 
     // Diff is for the current or a future tick — forward preTick will apply it inline.
@@ -95,7 +86,7 @@ export class StateReconciler {
       if (prev === null || this.pendingResimTick < prev) {
         console.warn(
           `[StateRec] pendingResimTick set: ${this.pendingResimTick} (was ${prev === null ? 'null' : prev}) ` +
-            `| earliestChanged=${earliestChangedTick} serverTick=${serverTick} newDiffs=${diffs.length} ackTick=${ackTick}`
+            `| earliestChanged=${earliestChangedTick} serverTick=${serverTick} newDiffs=${diffs.length}`
         );
       }
     }
@@ -126,8 +117,11 @@ export class StateReconciler {
     return this.diffByTick.get(tick) ?? null;
   }
 
-  getAcknowledgedUpTo(): number {
-    return this.lastAcknowledgedInputTick;
+  /** Discard local input at tick T after authoritative diff T+1 is applied in preTick. */
+  clearLocalInputForSimulatedTick(simulatedTick: number): void {
+    if (this.localPlayerId && simulatedTick >= 0) {
+      this.localInputBuffer.discardUpTo(simulatedTick, this.localPlayerId);
+    }
   }
 
   getPendingResimTick(): number | null {
@@ -139,7 +133,6 @@ export class StateReconciler {
   }
 
   seedInitialState(tick: number, buffer: ArrayBuffer): void {
-    this.lastAcknowledgedInputTick = tick;
     this.pendingResimTick = null;
     this.diffByTick.clear();
     this.snapshots.seed(tick, buffer);

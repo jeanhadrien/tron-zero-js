@@ -29,6 +29,7 @@ export class TickPipeline implements SimulationPipeline {
     if (diff) {
       room.soaDeserialize(diff.data);
       room.observerDeserializeNetwork(diff.struct, new Map());
+      reconciler.clearLocalInputForSimulatedTick(diff.tick - 1);
       this.diffWasApplied = true;
     }
   }

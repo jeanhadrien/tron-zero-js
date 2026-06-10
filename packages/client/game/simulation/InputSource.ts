@@ -8,32 +8,17 @@ export interface InputSource {
   resolve(playerId: string): PlayerInput | null;
 }
 
-/** Reads and consumes from the local prediction buffer (forward mode). */
-export class ConsumingLocalSource implements InputSource {
-  constructor(
-    private localInputBuffer: PlayerInputTickRingBuffer,
-    private room: ECSGameRoom,
-  ) {}
-
-  resolve(playerId: string): PlayerInput | null {
-    return this.localInputBuffer.consume(this.room.tick, playerId);
-  }
-}
-
 /**
- * Reads without consuming from the local prediction buffer (replay mode).
- * Skips ticks ≤ the server's acknowledgment boundary — those inputs were
- * already baked into the authoritative diff.
+ * Reads without consuming from the local prediction buffer.
+ * Inputs stay until cleared by StateReconciler when authoritative diff T+1 is applied.
  */
-export class NonConsumingLocalSource implements InputSource {
+export class LocalPredictionSource implements InputSource {
   constructor(
     private localInputBuffer: PlayerInputTickRingBuffer,
     private room: ECSGameRoom,
-    private getAcknowledgedUpTo: () => number,
   ) {}
 
   resolve(playerId: string): PlayerInput | null {
-    if (this.room.tick <= this.getAcknowledgedUpTo()) return null;
     return this.localInputBuffer.get(this.room.tick, playerId);
   }
 }

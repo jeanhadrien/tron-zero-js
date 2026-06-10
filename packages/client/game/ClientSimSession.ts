@@ -24,8 +24,7 @@ import { SnapshotRing } from './SnapshotRing';
 import { StateReconciler } from './simulation/StateReconciler';
 import { TickPipeline } from './simulation/SimulationPipeline';
 import {
-  ConsumingLocalSource,
-  NonConsumingLocalSource,
+  LocalPredictionSource,
   AuthoritativeSource,
   CompositeInputSource,
   type InputSource,
@@ -109,8 +108,9 @@ export class ClientSimSession {
     this.clockSync.attach(this.room, () => this.reconciler.isReplaying);
 
     const authoritativeSource = new AuthoritativeSource(this.room.playerInputBuffer, this.room);
-    const consumingLocal = new ConsumingLocalSource(localInputBuffer, this.room);
-    this.forwardSource = new CompositeInputSource([consumingLocal, authoritativeSource]);
+    const localPrediction = new LocalPredictionSource(localInputBuffer, this.room);
+    this.forwardSource = new CompositeInputSource([localPrediction, authoritativeSource]);
+    this.replaySource = this.forwardSource;
 
     this.replayPipeline = new TickPipeline(snapshots);
     this.forwardPipeline = new TickPipeline(snapshots, () => {});
@@ -295,12 +295,6 @@ export class ClientSimSession {
     this.localPlayerEid = eid ?? -1;
     this.localPlayerId = this.sessionToken;
     this.reconciler.setLocalPlayer(this.sessionToken);
-
-    const replayLocalSource = new NonConsumingLocalSource(this.reconciler.inputBuffer, this.room, () =>
-      this.reconciler.getAcknowledgedUpTo()
-    );
-    const authoritative = new AuthoritativeSource(this.room.playerInputBuffer, this.room);
-    this.replaySource = new CompositeInputSource([replayLocalSource, authoritative]);
 
     this.forwardPipeline.setOnTick((tick: number) => {
       this.pendingOutputs.push(this.captureRenderState(tick));
