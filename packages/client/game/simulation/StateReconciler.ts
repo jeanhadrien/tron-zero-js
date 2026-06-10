@@ -1,4 +1,4 @@
-import { NetworkDiffTickRingBuffer, type NetworkDiffPayload } from '@tron0/shared/interfaces/Network';
+import type { NetworkDiffPayload } from '@tron0/shared/interfaces/Network';
 import { PlayerInputTickRingBuffer } from '@tron0/shared/PlayerInputBuffer';
 import type { PlayerInput } from '@tron0/shared/interfaces/PlayerInput';
 import { buffersEqual } from '@tron0/shared/utils/buffers';
@@ -7,9 +7,11 @@ import type { ECSGameRoom } from '@tron0/shared/ECSGameRoom';
 
 /** Owns rollback lifecycle: diff storage, acknowledgment, anchor lookup, rewind. */
 export class StateReconciler {
-  private networkDiffBuffer: NetworkDiffTickRingBuffer;
   private localInputBuffer: PlayerInputTickRingBuffer;
   private snapshots: SnapshotRing;
+
+  /** Tick-indexed authoritative diffs — decoupled from ring-buffer window for dedup + replay. */
+  private diffByTick = new Map<number, NetworkDiffPayload>();
 
   private lastAcknowledgedInputTick: number = -1;
   private pendingResimTick: number | null = null;
@@ -17,12 +19,9 @@ export class StateReconciler {
 
   isReplaying: boolean = false;
 
-  constructor(
-    networkDiffBuffer: NetworkDiffTickRingBuffer,
-    localInputBuffer: PlayerInputTickRingBuffer,
-    snapshots: SnapshotRing,
-  ) {
-    this.networkDiffBuffer = networkDiffBuffer;
+  private static readonly MAX_DIFF_RETENTION_TICKS = 512;
+
+  constructor(localInputBuffer: PlayerInputTickRingBuffer, snapshots: SnapshotRing) {
     this.localInputBuffer = localInputBuffer;
     this.snapshots = snapshots;
   }
@@ -47,16 +46,19 @@ export class StateReconciler {
   }
 
   /** Store authoritative diffs, acknowledge inputs, and schedule a rollback if needed. */
-  addNetworkDiffBatch(diffs: NetworkDiffPayload[], serverTick: number): void {
+  addNetworkDiffBatch(diffs: NetworkDiffPayload[], serverTick: number, clientTick: number): void {
     let earliestChangedTick = Infinity;
+    let newestDiffTick = -1;
 
     for (const diff of diffs) {
-      const stored = this.networkDiffBuffer.get(diff.tick, 'network');
+      if (diff.tick > newestDiffTick) newestDiffTick = diff.tick;
+
+      const stored = this.diffByTick.get(diff.tick);
       if (stored && buffersEqual(stored.data, diff.data) && buffersEqual(stored.struct, diff.struct)) {
         continue;
       }
 
-      this.networkDiffBuffer.record(diff.tick, 'network', {
+      this.diffByTick.set(diff.tick, {
         data: diff.data,
         struct: diff.struct,
         tick: diff.tick,
@@ -65,6 +67,10 @@ export class StateReconciler {
       if (diff.tick < earliestChangedTick) {
         earliestChangedTick = diff.tick;
       }
+    }
+
+    if (newestDiffTick >= 0) {
+      this.pruneDiffs(newestDiffTick);
     }
 
     const ackTick = serverTick - 1;
@@ -77,20 +83,40 @@ export class StateReconciler {
 
     if (!isFinite(earliestChangedTick)) return;
 
+    // Diff is for the current or a future tick — forward preTick will apply it inline.
+    if (earliestChangedTick >= clientTick) {
+      console.warn(
+        `[StateRec] diff deferred to forward: earliestChanged=${earliestChangedTick} clientTick=${clientTick}`
+      );
+      return;
+    }
+
     const resimTick = earliestChangedTick - 1;
     if (resimTick >= 0) {
+      const prev = this.pendingResimTick;
       this.pendingResimTick = this.pendingResimTick === null
         ? resimTick
         : Math.min(this.pendingResimTick, resimTick);
+      if (prev === null || this.pendingResimTick < prev) {
+        console.warn(
+          `[StateRec] pendingResimTick set: ${this.pendingResimTick} (was ${prev === null ? 'null' : prev}) ` +
+            `| earliestChanged=${earliestChangedTick} serverTick=${serverTick} newDiffs=${diffs.length} ackTick=${ackTick}`
+        );
+      }
     }
   }
 
   needsRollback(currentTick: number): boolean {
-    return this.pendingResimTick !== null && currentTick >= this.pendingResimTick;
+    return this.pendingResimTick !== null && currentTick > this.pendingResimTick + 1;
   }
 
   findAnchor(targetTick: number): { tick: number; buffer: ArrayBuffer } | null {
     return this.snapshots.findBestAnchor(targetTick);
+  }
+
+  /** Oldest snapshot in the ring — used when pendingResim predates all anchors. */
+  findOldestAnchor(): { tick: number; buffer: ArrayBuffer } | null {
+    return this.snapshots.findOldestAnchor();
   }
 
   /** Rewind the room to a past snapshot anchor. */
@@ -102,7 +128,7 @@ export class StateReconciler {
   }
 
   getDiff(tick: number): NetworkDiffPayload | null {
-    return this.networkDiffBuffer.get(tick, 'network');
+    return this.diffByTick.get(tick) ?? null;
   }
 
   getAcknowledgedUpTo(): number {
@@ -119,6 +145,15 @@ export class StateReconciler {
 
   seedInitialState(tick: number, buffer: ArrayBuffer): void {
     this.lastAcknowledgedInputTick = tick;
+    this.pendingResimTick = null;
+    this.diffByTick.clear();
     this.snapshots.seed(tick, buffer);
+  }
+
+  private pruneDiffs(newestTick: number): void {
+    const cutoff = newestTick - StateReconciler.MAX_DIFF_RETENTION_TICKS;
+    for (const tick of this.diffByTick.keys()) {
+      if (tick < cutoff) this.diffByTick.delete(tick);
+    }
   }
 }

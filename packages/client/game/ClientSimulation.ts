@@ -1,13 +1,12 @@
 import { ECSGameRoom } from '@tron0/shared/ECSGameRoom';
 import GameClock from '@tron0/shared/GameClock';
 import type { System } from '@tron0/shared/interfaces/System';
-import { NetworkDiffTickRingBuffer, type NetworkDiffPayload } from '@tron0/shared/interfaces/Network';
+import type { NetworkDiffPayload } from '@tron0/shared/interfaces/Network';
 import { PlayerInputTickRingBuffer } from '@tron0/shared/PlayerInputBuffer';
-import type { PlayerInput } from '@tron0/shared/interfaces/PlayerInput';
 import { SnapshotRing } from './SnapshotRing';
 import { StateReconciler } from './simulation/StateReconciler';
-import { ForwardPipeline } from './simulation/ForwardPipeline';
-import { ReplayPipeline } from './simulation/ReplayPipeline';
+import { ForwardPipeline } from './simulation/SimulationPipeline';
+import { ReplayPipeline } from './simulation/SimulationPipeline';
 import {
   ConsumingLocalSource,
   NonConsumingLocalSource,
@@ -50,7 +49,6 @@ export class ClientSimulation {
     if (options?.snapshotPeriodX !== undefined) this.snapshotPeriodX = options.snapshotPeriodX;
 
     const localInputBuffer = new PlayerInputTickRingBuffer(64);
-    const networkDiffBuffer = new NetworkDiffTickRingBuffer(64);
     this.room = new ECSGameRoom(clock, systems);
 
     const minCoverageMs = options?.minSnapshotCoverageMs ?? ClientSimulation.DEFAULT_MIN_SNAPSHOT_COVERAGE_MS;
@@ -58,11 +56,11 @@ export class ClientSimulation {
     const maxPeriodTicks = Math.max(1, this.snapshotPeriodX);
     const ringCapacity = Math.max(
       options?.snapshotRingCapacity ?? 16,
-      Math.ceil(minCoverageTicks / maxPeriodTicks) + 3,
+      Math.ceil(minCoverageTicks / maxPeriodTicks) + 3
     );
     const snapshots = new SnapshotRing(ringCapacity);
 
-    this.reconciler = new StateReconciler(networkDiffBuffer, localInputBuffer, snapshots);
+    this.reconciler = new StateReconciler(localInputBuffer, snapshots);
 
     const authoritativeSource = new AuthoritativeSource(this.room.playerInputBuffer, this.room);
     const consumingLocal = new ConsumingLocalSource(localInputBuffer, this.room);
@@ -71,9 +69,7 @@ export class ClientSimulation {
     this.replayPipeline = new ReplayPipeline(snapshots);
     this.forwardPipeline = new ForwardPipeline(
       snapshots,
-      () => {}, // placeholder — replaced in wirePlayer()
-      () => this.snapshotPeriodX,
-      () => this.snapshotGapTicks,
+      () => {} // placeholder — replaced in wirePlayer()
     );
   }
 
@@ -86,14 +82,15 @@ export class ClientSimulation {
     this.reconciler.seedInitialState(tick, this.room.snapshotSerialize());
   }
 
-  /** Queue a local-predicted input into the reconciler's local buffer. */
-  addLocalInput(input: PlayerInput): void {
-    this.reconciler.addLocalInput(input);
-  }
-
   /** Delegate to reconciler to store diffs and schedule rollback. */
   addNetworkDiffBatch(diffs: NetworkDiffPayload[], serverTick: number): void {
-    this.reconciler.addNetworkDiffBatch(diffs, serverTick);
+    this.reconciler.addNetworkDiffBatch(diffs, serverTick, this.room.tick);
+  }
+
+  /** Run a pending rollback immediately — does not require accumulator budget. */
+  reconcilePending(): boolean {
+    if (!this.reconciler.needsRollback(this.room.tick)) return false;
+    return this.processRollback();
   }
 
   /**
@@ -101,39 +98,61 @@ export class ClientSimulation {
    * is pending. Returns true if tick(s) were processed.
    */
   processNextTick(): boolean {
-    if (this.clock.pendingTicks() <= 0) return false;
-
     if (this.reconciler.needsRollback(this.room.tick)) {
-      const pendingTick = this.reconciler.getPendingResimTick()!;
-      const anchor = this.reconciler.findAnchor(pendingTick);
-      if (!anchor) {
-        this.reconciler.clearPendingResim();
-        return false;
-      }
-
-      const currentTick = this.room.tick;
-
-      this.reconciler.rewind(this.room, anchor);
-      this.reconciler.isReplaying = true;
-
-      const ticksReplayed = currentTick - anchor.tick;
-      while (this.room.tick < currentTick) {
-        this.replayPipeline.preTick(this.room, this.reconciler);
-        this.replayPipeline.tick(this.room, this.replaySource);
-        this.replayPipeline.postTick(this.room, this.reconciler);
-      }
-
-      this.clock.consumeTicks(ticksReplayed);
-      this.reconciler.isReplaying = false;
-      this.reconciler.clearPendingResim();
-      return true;
+      return this.processRollback();
     }
+    if (this.clock.pendingTicks() <= 0) return false;
 
     this.forwardPipeline.preTick(this.room, this.reconciler);
     this.forwardPipeline.tick(this.room, this.forwardSource);
     this.forwardPipeline.postTick(this.room, this.reconciler);
 
     this.clock.consumeTicks(1);
+    return true;
+  }
+
+  /** Rewind to the best anchor and replay forward to the current tick. */
+  processRollback(): boolean {
+    const pendingTick = this.reconciler.getPendingResimTick()!;
+    let anchor = this.reconciler.findAnchor(pendingTick);
+    if (!anchor) {
+      anchor = this.reconciler.findOldestAnchor();
+      if (!anchor) {
+        console.warn(
+          `[ClientSim] rollback DEFERRED — no snapshots | pendingResim=${pendingTick} ` +
+            `room.tick=${this.room.tick} pendingAcc=${this.clock.pendingTicks()}`
+        );
+        return false;
+      }
+      console.warn(
+        `[ClientSim] rollback CLAMPED — no anchor ≤ ${pendingTick}, using ${anchor.tick} | ` +
+          `room.tick=${this.room.tick} pendingAcc=${this.clock.pendingTicks()}`
+      );
+    }
+
+    const currentTick = this.room.tick;
+    const replayLen = currentTick - anchor.tick;
+    console.warn(
+      `[ClientSim] rollback START | anchor=${anchor.tick} → current=${currentTick} ` +
+        `replay=${replayLen}t pendingResim=${pendingTick} pendingAcc=${this.clock.pendingTicks()}`
+    );
+
+    this.reconciler.rewind(this.room, anchor);
+    this.reconciler.isReplaying = true;
+
+    while (this.room.tick < currentTick) {
+      this.replayPipeline.preTick(this.room, this.reconciler);
+      this.replayPipeline.tick(this.room, this.replaySource);
+      this.replayPipeline.postTick(this.room, this.reconciler);
+    }
+
+    const consumed = this.clock.consumeTicks(replayLen);
+    this.reconciler.isReplaying = false;
+    this.reconciler.clearPendingResim();
+
+    console.warn(
+      `[ClientSim] rollback DONE | room.tick=${this.room.tick} replayed=${replayLen}t consumed=${consumed}t`
+    );
     return true;
   }
 
@@ -148,11 +167,7 @@ export class ClientSimulation {
 
     this.reconciler.setLocalPlayer(localPlayerId);
 
-    const replayLocalSource = new NonConsumingLocalSource(
-      this.reconciler.inputBuffer,
-      this.room,
-      this.reconciler,
-    );
+    const replayLocalSource = new NonConsumingLocalSource(this.reconciler.inputBuffer, this.room, this.reconciler);
     const authoritative = new AuthoritativeSource(this.room.playerInputBuffer, this.room);
     this.replaySource = new CompositeInputSource([replayLocalSource, authoritative]);
 

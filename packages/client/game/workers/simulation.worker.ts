@@ -34,6 +34,7 @@ let clockSync: ClockSyncManager;
 let pendingOutputs: TickRenderOutput[] = [];
 let sessionToken: string;
 let _lastAppliedServerTick = -1;
+let _lastTrailLengths: Map<number, number> = new Map();
 
 // ── Render capture ───────────────────────────────────────────────────────────
 
@@ -41,6 +42,16 @@ function captureRenderState(tick: number): TickRenderOutput {
   const players: PlayerRenderDatum[] = [];
 
   for (const eid of query(clientSim.room.world, [Player])) {
+    const trailLen = (TrailPointsXs.data[eid] ?? []).length;
+    const prevLen = _lastTrailLengths.get(eid) ?? -1;
+    if (prevLen >= 0 && Math.abs(trailLen - prevLen) > 3) {
+      console.warn(
+        `[SimWkr] trail snap: eid=${eid} tick=${tick} trailLen ${prevLen}→${trailLen} ` +
+          `(Δ=${trailLen - prevLen}) isAlive=${IsAlive[eid] === 1} isReplaying=${clientSim.reconciler.isReplaying}`
+      );
+    }
+    _lastTrailLengths.set(eid, trailLen);
+
     players.push({
       eid,
       tick,
@@ -110,14 +121,26 @@ self.onmessage = (e: MessageEvent<MainToWorkerMessage>) => {
 
       const leadTicks = clockSync.getLeadTicks();
       clientSim.initFromSnapshot(msg.tick, msg.snapshot);
-      clientSim.room.tick = msg.tick + leadTicks;
 
       const eid = PlayerSystem.getPlayerEidByStringId(clientSim.room, sessionToken);
       clientSim.wirePlayer(eid, sessionToken, (tick: number) => {
         pendingOutputs.push(captureRenderState(tick));
       });
 
-      clock.tickTimeMs = clock.referenceTickTimeMs;
+      // Simulate forward to reach the target lead — actual tick advancement, not a counter lie.
+      // The +1 extra reference tick guards against floating-point slop in consumeTicks.
+      clock.accumulatorTimeMs = leadTicks * clock.referenceTickTimeMs + clock.referenceTickTimeMs;
+      for (let i = 0; i < leadTicks; i++) {
+        clientSim.processNextTick();
+      }
+      clock.resetAccumulator();
+
+      console.warn(
+        `[ClockSync] init_state: msg.tick=${msg.tick} leadTicks=${leadTicks} ` +
+          `room.tick=${clientSim.room.tick} owd=${clockSync.smoothedOWD.toFixed(1)}ms`
+      );
+
+      flushOutput();
 
       const ready: SimReadyMessage = {
         type: 'sim_ready',
@@ -131,14 +154,22 @@ self.onmessage = (e: MessageEvent<MainToWorkerMessage>) => {
 
     case 'sync_state_batch': {
       if (msg.serverTick <= _lastAppliedServerTick) break;
-      if (msg.serverTick > clientSim.room.tick) {
+      const aheadBy = msg.serverTick - clientSim.room.tick;
+      if (aheadBy > 0) {
         console.warn(
           `[ClockSync] SERVER AHEAD: serverTick=${msg.serverTick} > clientTick=${clientSim.room.tick} ` +
-          `(client behind by ${msg.serverTick - clientSim.room.tick} ticks)`
+            `(client behind by ${aheadBy} ticks)`
         );
       }
-      clientSim.addNetworkDiffBatch(msg.diffs, msg.serverTick);
+      const diffTicks = msg.diffs.map((d) => d.tick).join(',');
+      console.warn(
+        `[SimWkr] sync_batch: serverTick=${msg.serverTick} clientTick=${clientSim.room.tick} ` +
+          `aheadBy=${aheadBy} diffs=[${diffTicks}] isReplaying=${clientSim.reconciler.isReplaying}`
+      );
+      clientSim.reconciler.addNetworkDiffBatch(msg.diffs, msg.serverTick, clientSim.room.tick);
+      clockSync.recordServerTick(msg.serverTick);
       _lastAppliedServerTick = msg.serverTick;
+      clientSim.reconcilePending();
       break;
     }
 
@@ -151,7 +182,7 @@ self.onmessage = (e: MessageEvent<MainToWorkerMessage>) => {
       if (msg.source === 'server') {
         clientSim.room.addInput(msg.input);
       } else {
-        clientSim.addLocalInput(msg.input);
+        clientSim.reconciler.addLocalInput(msg.input);
       }
       break;
     }
@@ -192,3 +223,4 @@ self.onmessage = (e: MessageEvent<MainToWorkerMessage>) => {
       break;
   }
 };
+

@@ -1,12 +1,12 @@
 /**
  * Fixed-size circular buffer of world snapshots for rollback anchoring.
- * Stores pre-serialized ArrayBuffer snapshots indexed by tick.
+ * Entries are stored only at ticks where an authoritative server diff was
+ * applied — never from pure local prediction.
  */
 export class SnapshotRing {
   private ring: Array<{ tick: number; buffer: ArrayBuffer } | null>;
   private head: number = -1;
   private count: number = 0;
-  private lastTick: number = -1;
 
   constructor(capacity: number) {
     this.ring = new Array(capacity).fill(null);
@@ -17,13 +17,6 @@ export class SnapshotRing {
     this.head = 0;
     this.ring[0] = { tick, buffer };
     this.count = 1;
-    this.lastTick = tick;
-  }
-
-  /** Whether a new snapshot should be taken this tick. */
-  shouldTake(tick: number, periodX: number, gapTicks: number): boolean {
-    if (periodX <= 0 || gapTicks <= 0) return false;
-    return this.lastTick < 0 || tick - this.lastTick >= periodX;
   }
 
   /** Store a pre-serialized snapshot for the given tick. */
@@ -31,7 +24,6 @@ export class SnapshotRing {
     this.head = (this.head + 1) % this.ring.length;
     this.ring[this.head] = { tick, buffer };
     this.count = Math.min(this.count + 1, this.ring.length);
-    this.lastTick = tick;
   }
 
   /**
@@ -43,7 +35,6 @@ export class SnapshotRing {
     for (let i = 0; i < this.ring.length; i++) {
       if (this.ring[i]?.tick === tick) {
         this.ring[i] = { tick, buffer };
-        this.lastTick = tick;
         return;
       }
     }
@@ -60,5 +51,17 @@ export class SnapshotRing {
       }
     }
     return best;
+  }
+
+  /** Find the oldest snapshot in the ring, regardless of target tick. */
+  findOldestAnchor(): { tick: number; buffer: ArrayBuffer } | null {
+    let oldest: { tick: number; buffer: ArrayBuffer } | null = null;
+    for (const snap of this.ring) {
+      if (!snap) continue;
+      if (!oldest || snap.tick < oldest.tick) {
+        oldest = snap;
+      }
+    }
+    return oldest;
   }
 }

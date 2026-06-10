@@ -1,4 +1,4 @@
-import { ClientChannel, geckos } from '@geckos.io/client';
+import { ClientChannel, geckos, RawMessage } from '@geckos.io/client';
 import { RoomLogger } from '@tron0/shared/otel/Logger';
 import { ConnectionError, Data } from '@geckos.io/common/lib/types';
 import { decodeMessage, MSG_INIT_STATE, MSG_SYNC_STATE_BATCH } from '@tron0/shared/NetworkProtocol';
@@ -115,7 +115,7 @@ export class ClientNetworkSystem {
 
   // ── Incoming ─────────────────────────────────────────────────────────────
 
-  private _onRaw(data: Data): void {
+  private _onRaw(data: RawMessage): void {
     this._resetHeartbeat();
     const msg = decodeMessage(data as ArrayBuffer);
 
