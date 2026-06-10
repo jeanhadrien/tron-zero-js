@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.1](https://github.com/jeanhadrien/tron-zero-js/compare/tron-zero-v1.4.0...tron-zero-v1.4.1) (2026-06-10)
+
+
+### Bug Fixes
+
+* **network:** port ([7604c3d](https://github.com/jeanhadrien/tron-zero-js/commit/7604c3d3da08cf1a505e8e1affb55eb34e47060a))
+
 ## [1.4.0](https://github.com/jeanhadrien/tron-zero-js/compare/tron-zero-v1.3.0...tron-zero-v1.4.0) (2026-06-10)
 
 
