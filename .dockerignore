@@ -1,0 +1,13 @@
+node_modules
+**/node_modules
+.git
+.env
+.env.*
+# Negation order matters: all workspace package.json files must stay in context
+# for `bun install --frozen-lockfile` (client/server source is excluded below).
+packages/client/**
+!packages/client/package.json
+packages/server/**
+!packages/server/package.json
+dist
+*.md

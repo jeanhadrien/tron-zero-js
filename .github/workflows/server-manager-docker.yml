@@ -1,0 +1,43 @@
+name: server-manager Docker
+
+on:
+  push:
+    paths:
+      - 'packages/server-manager/**'
+      - 'packages/shared/**'
+      - 'packages/client/package.json'
+      - 'packages/server/package.json'
+      - 'package.json'
+      - 'bun.lock'
+      - '.dockerignore'
+      - 'Dockerfile.server-manager'
+  pull_request:
+    paths:
+      - 'packages/server-manager/**'
+      - 'packages/shared/**'
+      - 'packages/client/package.json'
+      - 'packages/server/package.json'
+      - 'package.json'
+      - 'bun.lock'
+      - '.dockerignore'
+      - 'Dockerfile.server-manager'
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build server-manager image
+        run: docker build --no-cache -f Dockerfile.server-manager -t server-manager .
+      - name: Smoke test server-manager image
+        run: |
+          cid=$(docker run -d -e PORT=8080 -p 8080:8080 server-manager)
+          trap "docker rm -f $cid" EXIT
+          for i in $(seq 1 15); do
+            if curl -sf http://localhost:8080/health; then
+              break
+            fi
+            sleep 1
+          done
+          curl -sf http://localhost:8080/health | grep -q '"ok":true'
+          curl -sf http://localhost:8080/api/rooms | grep -q '\[\]'

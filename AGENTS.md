@@ -88,5 +88,6 @@ No `lint` script is wired (eslint is configured but must be run manually).
 
 ## Deployment
 
-The server requires **UDP** (WebRTC data channels), so it cannot run on Cloud Run. Deploy to **GCE VM** with firewall rules opening TCP:3000 and UDP:10000-20000. See `DEPLOYMENT.md` for full steps. STUN servers are configured in both client and server ICE settings for NAT traversal.
+- **Client + server-manager:** `docs/release-and-deploy.md` (release-please → GitHub Pages + Cloud Run on release)
+- **Game server:** `DEPLOYMENT.md` — requires **UDP** (WebRTC data channels), deploy to **GCE VM** with firewall rules opening TCP:3000 and UDP:10000-20000. STUN servers are configured in both client and server ICE settings for NAT traversal.
 

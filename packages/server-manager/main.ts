@@ -10,10 +10,15 @@ const EVICT_GRACE = 10_000; // extra grace period
 const EVICT_SCAN_MS = 10_000; // scan interval
 
 const logger = new Logger('ServerManager');
+const startedAt = Date.now();
 
 const app = express();
 app.use(cors());
 app.use(express.json());
+
+app.get('/health', (_req, res) => {
+  res.json({ ok: true, uptime: Math.floor((Date.now() - startedAt) / 1000) });
+});
 
 // Register a new game room
 app.post('/api/rooms', (req, res) => {
@@ -63,11 +68,15 @@ app.get('/api/rooms', (_req, res) => {
 });
 
 // Periodic eviction of stale rooms
-setInterval(() => {
+const evictionInterval = setInterval(() => {
   const removed = evictStale(HEARTBEAT_INTERVAL + EVICT_GRACE);
   if (removed > 0) {
     logger.warn(`Evicted ${removed} stale room(s)`);
   }
 }, EVICT_SCAN_MS);
+
+export function stopEviction(): void {
+  clearInterval(evictionInterval);
+}
 
 export default app;

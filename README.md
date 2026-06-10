@@ -23,13 +23,7 @@ bun run dev
 bun run build
 ```
 
-## Deployment (Google Cloud Run)
+## Deployment
 
-```bash
-gcloud run deploy tron-zero \
-  --source . \
-  --platform managed \
-  --allow-unauthenticated \
-  --port 3000 \
-  --project <project>
-```
+- **Client + server-manager (CI/CD):** [docs/release-and-deploy.md](docs/release-and-deploy.md) — release-please, GitHub Pages, Cloud Run
+- **Game server (GCE VM, UDP/WebRTC):** [DEPLOYMENT.md](DEPLOYMENT.md)
