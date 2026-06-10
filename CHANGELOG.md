@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.3.0](https://github.com/jeanhadrien/tron-zero-js/compare/tron-zero-v1.2.0...tron-zero-v1.3.0) (2026-06-10)
+
+
+### Features
+
+* add build ([6bf60a6](https://github.com/jeanhadrien/tron-zero-js/commit/6bf60a63bce8c4111a0ac52c372ebd038ddd3bae))
+
 ## [1.2.0](https://github.com/jeanhadrien/tron-zero-js/compare/tron-zero-v1.1.0...tron-zero-v1.2.0) (2026-06-10)
 
 
