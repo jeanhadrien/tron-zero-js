@@ -1,5 +1,12 @@
 # Changelog
 
+## [1.4.0](https://github.com/jeanhadrien/tron-zero-js/compare/tron-zero-v1.3.0...tron-zero-v1.4.0) (2026-06-10)
+
+
+### Features
+
+* **ci:** ci ([e654e68](https://github.com/jeanhadrien/tron-zero-js/commit/e654e6820580fc81f85318bd75b25a34e7d84901))
+
 ## [1.3.0](https://github.com/jeanhadrien/tron-zero-js/compare/tron-zero-v1.2.0...tron-zero-v1.3.0) (2026-06-10)
 
 
