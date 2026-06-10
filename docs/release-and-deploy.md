@@ -31,8 +31,8 @@ Local dev is unchanged: copy `.env.template` to `.env` and run `bun run dev`. Pr
 |----------|---------|--------------|
 | [`ci.yml`](../.github/workflows/ci.yml) | PRs and pushes to `main` | Typecheck + prod client build (no deploy) |
 | [`server-manager-docker.yml`](../.github/workflows/server-manager-docker.yml) | PRs touching server-manager | Docker build + `/health` smoke test |
-| [`release-please.yml`](../.github/workflows/release-please.yml) | Push to `main` | Opens/updates a Release PR |
-| [`deploy-release.yml`](../.github/workflows/deploy-release.yml) | GitHub Release published | Deploys client + server-manager |
+| [`release-please.yml`](../.github/workflows/release-please.yml) | Push to `main` | Opens/updates a Release PR; deploys on release |
+| [`deploy-release.yml`](../.github/workflows/deploy-release.yml) | Called by release-please, manual release, or `workflow_dispatch` | Deploys client + server-manager |
 
 ## How releases work
 
@@ -43,8 +43,10 @@ Releases are driven by [release-please](https://github.com/googleapis/release-pl
    - `fix:` → patch bump
    - `feat!:` or `BREAKING CHANGE:` → major bump
 2. release-please opens a **Release PR** (e.g. `chore(main): release 1.1.0`) that bumps `package.json`, `.release-please-manifest.json`, and `CHANGELOG.md`.
-3. **Merge the Release PR** → GitHub Release + git tag are created.
-4. `deploy-release.yml` runs automatically and deploys both services.
+3. **Merge the Release PR** → GitHub Release + git tag are created (e.g. `tron-zero-v1.1.0`).
+4. `release-please.yml` calls `deploy-release.yml` and deploys both services.
+
+> **Why not `release: published` alone?** Releases created by release-please use `GITHUB_TOKEN`. GitHub [does not trigger other workflows](https://docs.github.com/en/actions/using-workflows/triggering-a-workflow#triggering-a-workflow-from-a-workflow) from events caused by `GITHUB_TOKEN`. Deploy is chained from `release-please.yml` instead. Manually created releases still trigger `deploy-release.yml` via `release: published`.
 
 To cut a release manually without waiting for commits, run the **release-please** workflow from the Actions tab (`workflow_dispatch`).
 
@@ -298,10 +300,10 @@ See [DEPLOYMENT.md](../DEPLOYMENT.md) for full GCE provisioning steps.
 
 ## Manual redeploy
 
-To redeploy without a new release:
+To redeploy without a new release (e.g. if a past release didn't deploy):
 
 1. Go to **Actions → deploy-release → Run workflow**
-2. Optionally pass a `tag` (e.g. `v1.0.0`); otherwise the current ref is used
+2. Pass the release tag (e.g. `tron-zero-v1.1.0`); otherwise the current ref is used
 
 ## Verifying a deploy
 
@@ -320,6 +322,7 @@ After a game server starts on the VM, it should appear in `/api/rooms` within a 
 
 | Symptom | Likely cause |
 |---------|--------------|
+| Release merged but no deploy | Past releases before the workflow chain fix — run **deploy-release** manually with the tag (e.g. `tron-zero-v1.1.0`) |
 | Release PR never appears | Commits on `main` aren't conventional (`feat:`, `fix:`, etc.) |
 | Pages deploy fails | Pages source not set to **GitHub Actions** |
 | `github-pages` environment missing | Enable Pages in repo Settings first |

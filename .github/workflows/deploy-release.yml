@@ -1,19 +1,25 @@
 name: deploy-release
 
-# Runs when a GitHub Release is published (merge the release-please Release PR on main).
-# One-time setup:
-#   GitHub: Settings → Pages → Source = GitHub Actions
-#   GitHub secrets: GCP_PROJECT_ID, GCP_REGION, GCP_WORKLOAD_IDENTITY_PROVIDER, GCP_SERVICE_ACCOUNT
-#   GitHub variable: VITE_MANAGER_URL (e.g. https://server-manager.tronzero.dev)
-#   GCP project: tron-zero-js — Artifact Registry repo "tron-zero" in europe-west1, WIF (see docs/release-and-deploy.md)
+# Triggered by:
+#   - release-please.yml (workflow_call) when a release is created
+#   - release: published (manual releases only — GITHUB_TOKEN releases do NOT fire this)
+#   - workflow_dispatch (manual redeploy)
+#
+# One-time setup: docs/release-and-deploy.md
 
 on:
+  workflow_call:
+    inputs:
+      tag:
+        description: Release tag to deploy
+        required: true
+        type: string
   release:
     types: [published]
   workflow_dispatch:
     inputs:
       tag:
-        description: Git tag to deploy (defaults to latest release tag)
+        description: Git tag to deploy
         required: false
         type: string
 
@@ -36,7 +42,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.release.tag_name || inputs.tag || github.ref }}
+          ref: ${{ inputs.tag || github.event.release.tag_name || github.event.inputs.tag || github.ref }}
 
       - name: Setup Bun
         uses: oven-sh/setup-bun@v2
@@ -73,7 +79,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
         with:
-          ref: ${{ github.event.release.tag_name || inputs.tag || github.ref }}
+          ref: ${{ inputs.tag || github.event.release.tag_name || github.event.inputs.tag || github.ref }}
 
       - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
@@ -91,7 +97,7 @@ jobs:
         env:
           PROJECT_ID: ${{ secrets.GCP_PROJECT_ID }}
           REGION: ${{ secrets.GCP_REGION }}
-          TAG: ${{ github.event.release.tag_name || inputs.tag || github.ref_name }}
+          TAG: ${{ inputs.tag || github.event.release.tag_name || github.event.inputs.tag || github.ref_name }}
         run: |
           IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/tron-zero/server-manager:${TAG}"
           docker build -f Dockerfile.server-manager -t "${IMAGE}" .
