@@ -76,6 +76,7 @@ setInterval(() => {
 // ---------------------------------------------------------------------------
 
 const PORT = parseInt(process.env.PORT || '3000', 10);
+const ADVERTISED_PORT = parseInt(process.env.ADVERTISED_PORT || String(PORT), 10);
 let roomId: string | null = null;
 let managerHeartbeatInterval: ReturnType<typeof setInterval> | null = null;
 
@@ -88,7 +89,7 @@ async function registerWithManager() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         host,
-        port: PORT,
+        port: ADVERTISED_PORT,
         secure: ADVERTISED_SECURE || undefined,
         displayName: SERVER_NAME,
         maxPlayers: MAX_PLAYERS,
