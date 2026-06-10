@@ -16,10 +16,10 @@ function gameEventToText(event: GameEvent): string | null {
       return `Player ${pid} joined the game`;
     case GameEventType.PlayerLeft:
       return `Player ${pid} left the game`;
-    case GameEventType.PlayerSpawn:
-      return `Player ${pid} spawned`;
-    case GameEventType.PlayerDeath:
-      return `Player ${pid} died`;
+    // case GameEventType.PlayerSpawn:
+    //   return `Player ${pid} spawned`;
+    // case GameEventType.PlayerDeath:
+    //   return `Player ${pid} died`;
     case GameEventType.GameStart:
       return 'Game started';
     case GameEventType.GameStop:
@@ -133,3 +133,4 @@ export class ServerChatSystem extends System {
     }
   }
 }
+
