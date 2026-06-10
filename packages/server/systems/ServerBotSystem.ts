@@ -12,7 +12,7 @@ import type { BotStrategy } from '../bot/BotStrategyWeights';
 
 const logger = new Logger('BotSystem');
 
-const BOT_COUNT = 10;
+const BOT_COUNT = 3;
 
 const FIRST_NAMES = [
   'Kova',

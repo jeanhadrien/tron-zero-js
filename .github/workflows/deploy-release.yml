@@ -54,10 +54,11 @@ jobs:
 
       - name: Build client
         env:
-          VITE_MANAGER_URL: ${{ vars.VITE_MANAGER_URL || 'https://server-manager.tronzero.dev' }}
-          VITE_OTEL_ENABLED: false
-          VITE_LOG_LEVEL: INFO
-        run: bun run build
+          TAG: ${{ inputs.tag || github.event.release.tag_name || github.event.inputs.tag || github.ref_name }}
+          VITE_MANAGER_URL: ${{ vars.VITE_MANAGER_URL != '' && vars.VITE_MANAGER_URL || 'https://server-manager.tronzero.dev' }}
+        run: |
+          export APP_VERSION="${TAG#tron-zero-}"
+          bun run build
 
       - name: Setup Pages
         uses: actions/configure-pages@v5

@@ -38,7 +38,7 @@ const App = () => {
                 'pointer-events': 'none',
                 'z-index': 1000
             }}>
-                v{__APP_VERSION__}
+                {__APP_VERSION__}
             </div>
         </div>
     );

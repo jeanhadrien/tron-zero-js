@@ -10,7 +10,7 @@
     "dev:client": "bun --cwd packages/client dev",
     "dev:server": "bun --cwd packages/server dev",
     "dev:manager": "bun --cwd packages/server-manager dev",
-    "build": "bun --cwd packages/client run build",
+    "build": "bun run --filter @tron0/client build",
     "test": "vitest run",
     "typecheck": "concurrently \"bun --cwd packages/shared typecheck\" \"bun --cwd packages/client typecheck\" \"bun --cwd packages/server typecheck\" \"bun --cwd packages/server-manager typecheck\"",
     "server": "bun --cwd packages/server start"

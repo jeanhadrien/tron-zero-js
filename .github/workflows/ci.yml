@@ -41,7 +41,4 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Build
-        env:
-          VITE_MANAGER_URL: https://server-manager.tronzero.dev
-          VITE_OTEL_ENABLED: false
         run: bun run build

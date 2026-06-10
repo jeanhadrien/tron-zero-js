@@ -77,7 +77,7 @@ Optional: add required reviewers on the `production` environment to gate Cloud R
 |------|---------------|
 | `VITE_MANAGER_URL` | `https://server-manager.tronzero.dev` |
 
-Used when building the client in CI. Falls back to `https://server-manager.tronzero.dev` if unset.
+Optional override for CI builds. Client env files and Vite mode behavior: [`packages/client/README.md`](../packages/client/README.md).
 
 ### Repository secrets
 
@@ -327,6 +327,7 @@ After a game server starts on the VM, it should appear in `/api/rooms` within a 
 | Pages deploy fails | Pages source not set to **GitHub Actions** |
 | `github-pages` environment missing | Enable Pages in repo Settings first |
 | Cloud Run deploy fails | WIF misconfigured — see [WIF troubleshooting](#wif-troubleshooting) |
+| Client fetches `localhost:3001` in prod | Stale committed `dist/` or broken root `bun run build` — rebuild with fixed script; see [`packages/client/.env.production`](../packages/client/.env.production) |
 | Client shows no servers | `VITE_MANAGER_URL` wrong at build time, or game server not registered |
 | `DNS_PROBE_*` for manager | CNAME not propagated yet, or domain mapping in wrong region |
 | HTTPS fails after DNS works | Cloud Run cert still provisioning (wait 15–30 min) |
