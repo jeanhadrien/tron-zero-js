@@ -99,7 +99,7 @@ jobs:
           REGION: ${{ secrets.GCP_REGION }}
           TAG: ${{ inputs.tag || github.event.release.tag_name || github.event.inputs.tag || github.ref_name }}
         run: |
-          IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/tron-zero/server-manager:${TAG}"
+          IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/tron/server-manager:${TAG}"
           docker build -f Dockerfile.server-manager -t "${IMAGE}" .
           docker push "${IMAGE}"
           echo "IMAGE=${IMAGE}" >> "$GITHUB_ENV"
