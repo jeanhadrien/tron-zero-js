@@ -124,6 +124,7 @@ export class ClientSimSession {
     this.room.resetWorld();
     this.room.rebuildSerializers();
     this.room.snapshotDeserialize(buffer);
+    this.room.spatialGrid?.rebuildFromWorld(this.room);
     this.room.tick = tick;
     this.reconciler.seedInitialState(tick, this.room.snapshotSerialize());
 

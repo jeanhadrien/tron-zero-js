@@ -5,6 +5,7 @@ import geckos from '@geckos.io/server';
 import path from 'path';
 import { trace } from '@opentelemetry/api';
 import { GameArenaSystem } from '@tron0/shared/systems/GameArenaSystem';
+import { SpatialGridSystem } from '@tron0/shared/systems/SpatialGridSystem';
 import GameClock from '@tron0/shared/GameClock';
 import { Logger } from '@tron0/shared/Logger';
 import PlayerSystem from '@tron0/shared/systems/PlayerSystem';
@@ -43,11 +44,19 @@ const gameClock = new GameClock();
 
 const playerSystem = new PlayerSystem();
 const areaSystem = new GameArenaSystem();
+const spatialGridSystem = new SpatialGridSystem();
 const botSystem = new BotSystem();
 const networkServerSystem = new ServerNetworkSystem(io);
 const chatSystem = new ServerChatSystem(io, networkServerSystem.channelPlayerIds);
 
-const serverSim = new ServerSimulation(gameClock, [areaSystem, botSystem, playerSystem, networkServerSystem, chatSystem]);
+const serverSim = new ServerSimulation(gameClock, [
+  areaSystem,
+  spatialGridSystem,
+  botSystem,
+  playerSystem,
+  networkServerSystem,
+  chatSystem,
+]);
 
 botSystem.setInputBuffer(serverSim.room.playerInputBuffer);
 

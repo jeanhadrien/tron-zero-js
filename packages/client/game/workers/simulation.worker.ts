@@ -1,6 +1,7 @@
 /// <reference lib="webworker" />
 import GameClock from '@tron0/shared/GameClock';
 import { GameArenaSystem } from '@tron0/shared/systems/GameArenaSystem';
+import { SpatialGridSystem } from '@tron0/shared/systems/SpatialGridSystem';
 import PlayerSystem from '@tron0/shared/systems/PlayerSystem';
 import { ClientSimSession } from '../ClientSimSession';
 import type { MainToWorkerMessage, RenderStatesMessage, SimReadyMessage } from './WorkerProtocol';
@@ -31,7 +32,7 @@ self.onmessage = (e: MessageEvent<MainToWorkerMessage>) => {
   switch (msg.type) {
     case 'init_sim': {
       const clock = new GameClock(msg.referenceTickTimeMs);
-      const systems = [new GameArenaSystem(), new PlayerSystem()];
+      const systems = [new GameArenaSystem(), new SpatialGridSystem(), new PlayerSystem()];
 
       session = new ClientSimSession(clock, systems, {
         minSnapshotCoverageMs: msg.minSnapshotCoverageMs,

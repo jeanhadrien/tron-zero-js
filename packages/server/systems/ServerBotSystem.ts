@@ -1,29 +1,18 @@
-import { query } from 'bitecs';
 import { eventGetter, inputGetter, System } from '@tron0/shared/interfaces/System';
 import { PlayerInputTickRingBuffer } from '@tron0/shared/PlayerInputBuffer';
-import PlayerSystem, {
-  buildDetectionLines,
-  buildObstacleLinesExcluding,
-  getClosestIntersectingPoint,
-  getPlayerTrailLines,
-  Position,
-  Direction,
-  TargetSpeedMult,
-  IsAlive,
-  PlayerId,
-  Player,
-} from '@tron0/shared/systems/PlayerSystem';
-import { SharedLine, distanceBetween, angleBetween, wrapAngle } from '@tron0/shared/math';
+import PlayerSystem, { IsAlive, PlayerId } from '@tron0/shared/systems/PlayerSystem';
 import { Logger } from '@tron0/shared/Logger';
 import { ECSGameRoom } from '@tron0/shared/ECSGameRoom';
 import type { SimulationContext } from '@tron0/shared/interfaces/SimulationContext';
 import { GameEventType } from '@tron0/shared/interfaces/GameEvent';
+import { BOT_AI_BUDGET } from '@tron0/shared/spatial/BotAiBudget';
+import { BotBrain } from '../bot/BotBrain';
+import { resolveDegradationLevel } from '../bot/BotDegradation';
+import type { BotStrategy } from '../bot/BotStrategyWeights';
 
 const logger = new Logger('BotSystem');
 
-const BOT_COUNT = 3;
-
-type Strategy = 'CUT_OFF' | 'BOX_IN' | 'SPEED_DEMON' | 'TRAPPER';
+const BOT_COUNT = 10;
 
 const FIRST_NAMES = [
   'Kova',
@@ -42,42 +31,33 @@ const FIRST_NAMES = [
   'Boby',
 ];
 
-const TITLES: Record<Strategy, string> = {
+const TITLES: Record<BotStrategy, string> = {
   CUT_OFF: 'The Slicer',
   BOX_IN: 'The Constrictor',
   SPEED_DEMON: 'The Demon',
   TRAPPER: 'The Trapper',
 };
 
-function randomStrategy(): Strategy {
-  const strategies: Strategy[] = ['CUT_OFF', 'BOX_IN', 'SPEED_DEMON', 'TRAPPER'];
+function randomStrategy(): BotStrategy {
+  const strategies: BotStrategy[] = ['CUT_OFF', 'BOX_IN', 'SPEED_DEMON', 'TRAPPER'];
   return strategies[Math.floor(Math.random() * strategies.length)];
 }
 
-function randomName(strategy: Strategy): string {
+function randomName(strategy: BotStrategy): string {
   const name = FIRST_NAMES[Math.floor(Math.random() * FIRST_NAMES.length)];
   return `${name} ${TITLES[strategy]}`;
 }
-
-interface RelativePosition {
-  distance: number;
-  angleDiff: number;
-  isAhead: boolean;
-  isLeft: boolean;
-}
-
-type RelativeHeading = 'PARALLEL' | 'HEAD_ON' | 'PERPENDICULAR';
 
 export default class BotSystem extends System {
   readonly key = 'bot';
 
   private inputBuffer: PlayerInputTickRingBuffer | null = null;
   private lastActionTick = new Map<number, number>();
-  private actionCooldownTicks = 8;
-  private sightDistance = 100;
-  private strategies = new Map<number, Strategy>();
+  private cooldownUntilTick = new Map<number, number>();
+  private actionCooldownTicks = BOT_AI_BUDGET.ACTION_COOLDOWN_TICKS;
   private botEids: number[] = [];
-  private room: ECSGameRoom;
+  private brains = new Map<number, BotBrain>();
+  private room!: ECSGameRoom;
 
   getComponents(): object[] {
     return [];
@@ -89,16 +69,20 @@ export default class BotSystem extends System {
 
   init(ctx: SimulationContext): void {
     this.room = ctx as ECSGameRoom;
+
     for (let i = 1; i <= BOT_COUNT; i++) {
       const botId = `bot${i}`;
       PlayerSystem.createPlayer(this.room, botId);
       PlayerSystem.spawnPlayer(this.room, botId, this.room.tick);
       const eid = PlayerSystem.getPlayerEidByStringId(this.room, botId);
+      if (eid === null) {
+        logger.error('Failed to create bot', botId);
+        continue;
+      }
       const strategy = randomStrategy();
       this.botEids.push(eid);
-      this.strategies.set(eid, strategy);
-      const displayName = randomName(strategy);
-      logger.info(`Bot initialized: ${displayName} (Strategy: ${strategy})`);
+      this.brains.set(eid, new BotBrain(strategy));
+      logger.info(`Bot initialized: ${randomName(strategy)} (Strategy: ${strategy})`);
     }
   }
 
@@ -110,355 +94,60 @@ export default class BotSystem extends System {
     if (!this.inputBuffer) return;
 
     const tick = this.room.tick;
+    const degradationLevel = resolveDegradationLevel(this.room.ticksInBatch ?? 1);
 
     for (const eid of this.botEids) {
       if (!IsAlive[eid]) {
+        this.brains.get(eid)?.memory.reset();
         this.room.addEvent({
           type: GameEventType.PlayerSpawn,
-          tick: this.room.tick,
+          tick,
           playerId: PlayerId[eid],
         });
         continue;
       }
 
-      const playerId = PlayerId[eid];
+      if (this.shouldSkipInput(eid, tick, getInput)) continue;
 
-      if (getInput?.(playerId)?.turn) continue;
+      const brain = this.brains.get(eid);
+      if (!brain) continue;
 
-      const lastTick = this.lastActionTick.get(eid) ?? 0;
-      if (tick - lastTick < this.actionCooldownTicks) continue;
+      const t0 = performance.now();
+      const decision = brain.decide(this.room, eid, tick, { degradationLevel });
+      const elapsed = performance.now() - t0;
 
-      const { distFront, distLeft, distRight } = this.computeDistances(eid);
-
-      const nearestEnemyEid = this.getNearestEnemy(this.room, eid);
-      const relPos = nearestEnemyEid !== null ? this.getRelativePosition(eid, nearestEnemyEid) : null;
-
-      const strategy = this.strategies.get(eid) || 'CUT_OFF';
-
-      let wantsToSlide = false;
-      if (relPos) {
-        if (strategy === 'SPEED_DEMON' || relPos.distance > 150) {
-          if (TargetSpeedMult[eid] < 1.8 && (distLeft > 15 || distRight > 15)) {
-            wantsToSlide = true;
-          }
-        }
-      }
-
-      let currentSightDistance = wantsToSlide ? 9.5 : this.sightDistance;
-
-      if (distLeft < 20 && distRight < 20) {
-        currentSightDistance = Math.max(currentSightDistance, 50);
-      }
-
-      // Phase 1: Survival override
-      if (distFront < currentSightDistance) {
-        let turn: 'left' | 'right';
-        if (distLeft > distRight + 5) {
-          turn = 'left';
-        } else if (distRight > distLeft + 5) {
-          turn = 'right';
-        } else {
-          turn = Math.random() > 0.5 ? 'left' : 'right';
-        }
-        this.room.addInput({
-          tick,
-          playerId,
-          break: false,
-          turn,
+      if (decision) {
+        logger.debug('bot decision', {
+          eid,
+          mode: decision.mode,
+          inputs: decision.inputs.length,
+          ms: elapsed.toFixed(2),
+          degraded: degradationLevel,
         });
+
+        const playerId = PlayerId[eid];
+        for (const input of decision.inputs) {
+          this.room.addInput({ tick: input.tick, playerId, break: false, turn: input.turn });
+        }
         this.lastActionTick.set(eid, tick);
-        continue;
-      }
-
-      // Phase 2: Attack execution & trail seeking
-      if (nearestEnemyEid !== null && relPos) {
-        // Trail seeking for speed
-        if (wantsToSlide && distLeft > 20 && distRight > 20) {
-          if (distFront > 50) {
-            if (distLeft < distRight && distLeft < 400) {
-              this.room.addInput({
-                tick,
-                playerId,
-                break: false,
-                turn: 'left',
-              });
-              this.lastActionTick.set(eid, tick + 18);
-              continue;
-            } else if (distRight < distLeft && distRight < 400) {
-              this.room.addInput({
-                tick,
-                playerId,
-                break: false,
-                turn: 'right',
-              });
-              this.lastActionTick.set(eid, tick + 18);
-              continue;
-            }
-          }
+        if (decision.cooldownUntilTick !== undefined) {
+          this.cooldownUntilTick.set(eid, decision.cooldownUntilTick);
         }
-
-        this.executeAttackPhase(eid, nearestEnemyEid, distLeft, distRight, tick, playerId);
       }
     }
   }
 
-  // ─── Helpers ────────────────────────────────────────────────────────────────
+  /** Independent checks: pre-queued input, standard cooldown, extended TRAPPER cooldown. */
+  private shouldSkipInput(eid: number, tick: number, getInput?: inputGetter): boolean {
+    const playerId = PlayerId[eid];
+    if (getInput?.(playerId)?.turn) return true;
 
-  private computeDistances(eid: number) {
-    const sensorFront = new SharedLine();
-    const sensorLeft = new SharedLine();
-    const sensorRight = new SharedLine();
-    buildDetectionLines(eid, sensorFront, sensorLeft, sensorRight);
+    const lastTick = this.lastActionTick.get(eid) ?? 0;
+    if (tick - lastTick < this.actionCooldownTicks) return true;
 
-    const selfLines = getPlayerTrailLines(eid);
-    const obstacleLines = buildObstacleLinesExcluding(this.room, eid);
-    const collisionLines = [...obstacleLines, ...selfLines];
+    const until = this.cooldownUntilTick.get(eid);
+    if (until !== undefined && tick < until) return true;
 
-    const pointFront = getClosestIntersectingPoint(sensorFront, collisionLines, Position.x[eid], Position.y[eid]);
-    const pointLeft = getClosestIntersectingPoint(sensorLeft, collisionLines, Position.x[eid], Position.y[eid]);
-    const pointRight = getClosestIntersectingPoint(sensorRight, collisionLines, Position.x[eid], Position.y[eid]);
-
-    return {
-      distFront: distanceBetween(Position.x[eid], Position.y[eid], pointFront.x, pointFront.y),
-      distLeft: distanceBetween(Position.x[eid], Position.y[eid], pointLeft.x, pointLeft.y),
-      distRight: distanceBetween(Position.x[eid], Position.y[eid], pointRight.x, pointRight.y),
-    };
-  }
-
-  private getNearestEnemy(room: SimulationContext, selfEid: number): number | null {
-    let nearest: number | null = null;
-    let minDistance = Infinity;
-
-    for (const eid of Array.from(query(room.world, [Player]))) {
-      if (eid === selfEid || !IsAlive[eid]) continue;
-      const dist = distanceBetween(Position.x[selfEid], Position.y[selfEid], Position.x[eid], Position.y[eid]);
-      if (dist < minDistance) {
-        minDistance = dist;
-        nearest = eid;
-      }
-    }
-    return nearest;
-  }
-
-  private getRelativePosition(selfEid: number, enemyEid: number): RelativePosition {
-    const dist = distanceBetween(Position.x[selfEid], Position.y[selfEid], Position.x[enemyEid], Position.y[enemyEid]);
-    const angleToEnemy = angleBetween(
-      Position.x[selfEid],
-      Position.y[selfEid],
-      Position.x[enemyEid],
-      Position.y[enemyEid]
-    );
-
-    const normalizedBotDir = wrapAngle(Direction[selfEid]);
-    const normalizedAngleToEnemy = wrapAngle(angleToEnemy);
-    const angleDiff = wrapAngle(normalizedAngleToEnemy - normalizedBotDir);
-
-    const isAhead = Math.abs(angleDiff) < Math.PI / 2;
-    const isLeft = angleDiff < 0;
-
-    return { distance: dist, angleDiff, isAhead, isLeft };
-  }
-
-  private getRelativeHeading(selfEid: number, enemyEid: number): RelativeHeading {
-    const normalizedBotDir = wrapAngle(Direction[selfEid]);
-    const normalizedEnemyDir = wrapAngle(Direction[enemyEid]);
-    const headingDiff = Math.abs(wrapAngle(normalizedEnemyDir - normalizedBotDir));
-
-    if (headingDiff < 0.5) return 'PARALLEL';
-    if (headingDiff > Math.PI - 0.5) return 'HEAD_ON';
-    return 'PERPENDICULAR';
-  }
-
-  private executeAttackPhase(
-    eid: number,
-    enemyEid: number,
-    leftDist: number,
-    rightDist: number,
-    tick: number,
-    playerId: string
-  ): void {
-    const relPos = this.getRelativePosition(eid, enemyEid);
-    const relHeading = this.getRelativeHeading(eid, enemyEid);
-    const strategy = this.strategies.get(eid) || 'CUT_OFF';
-
-    // General tracking
-    if (!relPos.isAhead) {
-      if (relPos.isLeft && leftDist > 40) {
-        this.room.addInput({
-          tick,
-          playerId,
-          break: false,
-          turn: 'left',
-        });
-        this.lastActionTick.set(eid, tick);
-        return;
-      } else if (!relPos.isLeft && rightDist > 40) {
-        this.room.addInput({
-          tick,
-          playerId,
-          break: false,
-          turn: 'right',
-        });
-        this.lastActionTick.set(eid, tick);
-        return;
-      }
-    }
-
-    switch (strategy) {
-      case 'CUT_OFF':
-        if (relHeading === 'PARALLEL' && !relPos.isAhead && relPos.distance < 150) {
-          if (relPos.isLeft && leftDist > 50) {
-            this.room.addInput({
-              tick,
-              playerId,
-              break: false,
-              turn: 'left',
-            });
-            this.lastActionTick.set(eid, tick);
-          } else if (!relPos.isLeft && rightDist > 50) {
-            this.room.addInput({
-              tick,
-              playerId,
-              break: false,
-              turn: 'right',
-            });
-            this.lastActionTick.set(eid, tick);
-          }
-        } else if (relHeading === 'PERPENDICULAR' && relPos.isAhead && relPos.distance < 150) {
-          if (relPos.isLeft && leftDist > 50) {
-            this.room.addInput({
-              tick,
-              playerId,
-              break: false,
-              turn: 'left',
-            });
-            this.lastActionTick.set(eid, tick);
-          } else if (!relPos.isLeft && rightDist > 50) {
-            this.room.addInput({
-              tick,
-              playerId,
-              break: false,
-              turn: 'right',
-            });
-            this.lastActionTick.set(eid, tick);
-          }
-        }
-        break;
-
-      case 'BOX_IN':
-        if (relHeading === 'PARALLEL' && relPos.distance < 200) {
-          if (relPos.distance > 100 && relPos.distance < 150) {
-            if (relPos.isLeft && leftDist > 100) {
-              this.room.addInput({
-                tick,
-                playerId,
-                break: false,
-                turn: 'left',
-              });
-              this.lastActionTick.set(eid, tick);
-            } else if (!relPos.isLeft && rightDist > 100) {
-              this.room.addInput({
-                tick,
-                playerId,
-                break: false,
-                turn: 'right',
-              });
-              this.lastActionTick.set(eid, tick);
-            }
-          }
-        } else if (relHeading === 'PERPENDICULAR' && relPos.distance < 150) {
-          if (relPos.isLeft && leftDist > 30) {
-            this.room.addInput({
-              tick,
-              playerId,
-              break: false,
-              turn: 'left',
-            });
-            this.lastActionTick.set(eid, tick);
-          } else if (!relPos.isLeft && rightDist > 30) {
-            this.room.addInput({
-              tick,
-              playerId,
-              break: false,
-              turn: 'right',
-            });
-            this.lastActionTick.set(eid, tick);
-          }
-        }
-        break;
-
-      case 'SPEED_DEMON':
-        if (TargetSpeedMult[eid] > 1.2 && relPos.distance < 200) {
-          if (relPos.isLeft && leftDist > 20) {
-            this.room.addInput({
-              tick,
-              playerId,
-              break: false,
-              turn: 'left',
-            });
-            this.lastActionTick.set(eid, tick);
-          } else if (!relPos.isLeft && rightDist > 20) {
-            this.room.addInput({
-              tick,
-              playerId,
-              break: false,
-              turn: 'right',
-            });
-            this.lastActionTick.set(eid, tick);
-          }
-        }
-        break;
-
-      case 'TRAPPER':
-        if (relHeading === 'PARALLEL' && !relPos.isAhead && relPos.distance < 80) {
-          if (leftDist > rightDist && leftDist > 50) {
-            this.room.addInput({
-              tick,
-              playerId,
-              break: false,
-              turn: 'left',
-            });
-            this.room.addInput({
-              tick: tick + 1,
-              playerId,
-              break: false,
-              turn: 'left',
-            });
-          } else if (rightDist > 50) {
-            this.room.addInput({
-              tick,
-              playerId,
-              break: false,
-              turn: 'right',
-            });
-            this.room.addInput({
-              tick: tick + 1,
-              playerId,
-              break: false,
-              turn: 'right',
-            });
-          }
-          this.lastActionTick.set(eid, tick + 30);
-        } else if (relPos.isAhead && relPos.distance > 150) {
-          if (relPos.isLeft && leftDist > 50) {
-            this.room.addInput({
-              tick: tick + 1,
-              playerId,
-              break: false,
-              turn: 'left',
-            });
-            this.lastActionTick.set(eid, tick);
-          } else if (!relPos.isLeft && rightDist > 50) {
-            this.room.addInput({
-              tick,
-              playerId,
-              break: false,
-              turn: 'right',
-            });
-            this.lastActionTick.set(eid, tick);
-          }
-        }
-        break;
-    }
+    return false;
   }
 }

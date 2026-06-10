@@ -1,0 +1,1 @@
+/** Vitest global setup for @tron0/shared unit tests. */

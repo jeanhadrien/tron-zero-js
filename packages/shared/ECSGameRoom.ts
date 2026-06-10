@@ -15,6 +15,8 @@ import { PlayerInputTickRingBuffer } from './PlayerInputBuffer';
 import type { GameEvent } from './interfaces/GameEvent';
 import { GameEventTickRingBuffer } from './GameEventBuffer';
 import type { SimulationContext } from './interfaces/SimulationContext';
+import type { ISpatialQuery } from './spatial/SpatialQuery';
+import type { ISpatialGridMutator } from './spatial/SpatialGridMutator';
 import { GameEventType } from './interfaces/GameEvent';
 import { RoomLogger } from './otel/Logger';
 import PlayerSystem from './systems/PlayerSystem';
@@ -44,6 +46,10 @@ export class ECSGameRoom implements SimulationContext {
 
   /** Entities that were modified this tick. Server reads this to build diffs. */
   dirtyEntities: Set<number>;
+
+  spatialQuery?: ISpatialQuery;
+  spatialGrid?: ISpatialGridMutator;
+  ticksInBatch = 1;
 
   snapshotSerialize: (selectedEntities?: readonly number[]) => ArrayBuffer;
   snapshotDeserialize: (packet: ArrayBuffer, idMapOverride?: Map<number, number>) => Map<number, number>;
@@ -85,6 +91,7 @@ export class ECSGameRoom implements SimulationContext {
     for (const sys of this.systems) {
       sys.init?.(this);
     }
+    this.spatialGrid?.rebuildFromWorld(this);
   }
 
   /** Queue an authoritative input to be consumed during the next update cycle. */

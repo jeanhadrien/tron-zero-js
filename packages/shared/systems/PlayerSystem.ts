@@ -8,8 +8,12 @@
 
 import { addEntity, addComponents, hasComponent, query, removeEntity, World } from 'bitecs';
 import { createSnapshotSerializer, createSnapshotDeserializer, f32, u8, u32, str, array } from 'bitecs/serialization';
-import { SharedLine, lineToLineIntersection, distanceBetween, clamp, aabbOverlapsRay, EPSILON } from '../math';
+import { SharedLine, distanceBetween, clamp, EPSILON } from '../math';
 import { TRAIL_MAX_LENGTH, consumeTrailFromTailPure, computeTrailArcLengthFromArrays } from '../trail';
+import { closestHitAmongLines } from '../spatial/rayIntersection';
+import { SPATIAL_SHADOW_DIFF } from '../spatial/constants';
+import { diffTrailConsume } from '../spatial/trailDiff';
+
 import { Arena, AreaWidth, AreaHeight, Lines } from './GameArenaSystem';
 import { Logger } from '../Logger';
 import { SystemSerializable, eventGetter, inputGetter } from '../interfaces/System';
@@ -106,6 +110,16 @@ function _normalizeDirection(d: number): number {
   return nd;
 }
 
+function _resolveActiveSegmentOwners(ctx: SimulationContext): number[] {
+  const result: number[] = [];
+  for (const eid of Array.from(query(ctx.world, [Player]))) {
+    if (IsAlive[eid] !== 1) continue;
+    if (TrailPointsXs.data[eid].length === 0) continue;
+    result.push(eid);
+  }
+  return result;
+}
+
 function _setSpeedAndVelocity(eid: number, speedMult: number, tickTimeMs: number): void {
   let vx = Math.cos(Direction[eid]) * BASE_SPEED * speedMult * tickTimeMs;
   let vy = Math.sin(Direction[eid]) * BASE_SPEED * speedMult * tickTimeMs;
@@ -127,7 +141,13 @@ export function computeTrailArcLength(eid: number): number {
   );
 }
 
-export function consumeTrailFromTail(eid: number, distance: number): void {
+export function consumeTrailFromTail(ctx: SimulationContext, eid: number, distance: number): void {
+  const before = {
+    xs: TrailPointsXs.data[eid],
+    ys: TrailPointsYs.data[eid],
+    n: TrailPointsXs.data[eid].length,
+  };
+
   const { xs, ys, dirs } = consumeTrailFromTailPure(
     TrailPointsXs.data[eid],
     TrailPointsYs.data[eid],
@@ -140,13 +160,16 @@ export function consumeTrailFromTail(eid: number, distance: number): void {
   TrailPointsXs.data[eid] = xs;
   TrailPointsYs.data[eid] = ys;
   TrailPointsDirs.data[eid] = dirs;
+
+  const diff = diffTrailConsume(before, { xs, ys, n: xs.length }, Position.x[eid], Position.y[eid]);
+  ctx.spatialGrid?.onTrailTailConsumed(eid, diff);
 }
 
 function enforceTrailMaxLength(ctx: SimulationContext, eid: number): void {
   const excess = computeTrailArcLength(eid) - TRAIL_MAX_LENGTH * ctx.clock.referenceTickTimeMs;
   if (excess > EPSILON) {
     const nBefore = TrailPointsXs.data[eid].length;
-    consumeTrailFromTail(eid, excess);
+    consumeTrailFromTail(ctx, eid, excess);
     const nAfter = TrailPointsXs.data[eid].length;
     if (nBefore - nAfter >= 2) {
       logger.debug(`trail trim eid=${eid} consumed=${excess.toFixed(2)} points=${nBefore}→${nAfter}`);
@@ -155,8 +178,8 @@ function enforceTrailMaxLength(ctx: SimulationContext, eid: number): void {
   }
 }
 
-/** Build SharedLine[] from a player's trail for collision detection. */
-export function getPlayerTrailLines(eid: number): SharedLine[] {
+/** Build SharedLine[] from a player's trail — shadow-diff / legacy fallback only. */
+function getPlayerTrailLines(eid: number): SharedLine[] {
   const lines: SharedLine[] = [];
   const xs = TrailPointsXs.data[eid];
   const ys = TrailPointsYs.data[eid];
@@ -181,26 +204,7 @@ export function getClosestIntersectingPoint(
   originX: number,
   originY: number
 ): { x: number; y: number } {
-  const closestPoint = { x: Infinity, y: Infinity };
-  const point = { x: -1, y: -1 };
-
-  for (const line of obstacleLines) {
-    if (!aabbOverlapsRay(sensorLine, line)) continue;
-    point.x = -1;
-    point.y = -1;
-
-    if (lineToLineIntersection(sensorLine, line, point)) {
-      const pointDistance = distanceBetween(point.x, point.y, originX, originY);
-      if (pointDistance < EPSILON) continue;
-
-      if (pointDistance < distanceBetween(originX, originY, closestPoint.x, closestPoint.y)) {
-        closestPoint.x = point.x;
-        closestPoint.y = point.y;
-      }
-    }
-  }
-
-  return closestPoint;
+  return closestHitAmongLines(sensorLine, obstacleLines, originX, originY);
 }
 
 // ─── Core simulation tick ────────────────────────────────────────────────────
@@ -243,6 +247,9 @@ export function executeTurn(ctx: SimulationContext, eid: number, type: 'left' | 
   TrailPointsYs.data[eid] = [...TrailPointsYs.data[eid], interpY];
   TrailPointsDirs.data[eid] = [...TrailPointsDirs.data[eid], newDirection];
 
+  const newPointIndex = TrailPointsXs.data[eid].length - 1;
+  ctx.spatialGrid?.onTrailTurnNewPoint(eid, newPointIndex);
+
   Direction[eid] = newDirection;
   _setSpeedAndVelocity(eid, SpeedMult[eid], tickTimeMs);
   ctx.dirtyEntities.add(eid);
@@ -259,8 +266,8 @@ export function buildDetectionLines(eid: number, front: SharedLine, left: Shared
   right.setToAngle(Position.x[eid], Position.y[eid], Direction[eid] + Math.PI / 2, lookAheadLength);
 }
 
-/** Build obstacle lines from arena boundaries + all player trails except selfEid. */
-export function buildObstacleLinesExcluding(ctx: SimulationContext, selfEid: number): SharedLine[] {
+/** Build obstacle lines — shadow-diff / legacy fallback only. */
+function buildObstacleLinesExcluding(ctx: SimulationContext, selfEid: number): SharedLine[] {
   const lines: SharedLine[] = [];
 
   const [arenaEid] = query(ctx.world, [Arena]);
@@ -341,6 +348,15 @@ export default class PlayerSystem extends SystemSerializable {
     return Array.from(query(ctx.world, [Player]));
   }
 
+  /** Return eids of alive players. */
+  static getAlivePlayerEids(ctx: SimulationContext): number[] {
+    const result: number[] = [];
+    for (const eid of Array.from(query(ctx.world, [Player]))) {
+      if (IsAlive[eid] === 1) result.push(eid);
+    }
+    return result;
+  }
+
   /** Get the entity id for a given player string id. Returns -1 if not found. */
   static getPlayerEidByStringId(ctx: SimulationContext, stringId: string): number | null {
     for (const eid of Array.from(query(ctx.world, [Player, PlayerId]))) {
@@ -382,6 +398,7 @@ export default class PlayerSystem extends SystemSerializable {
     Velocity.vy[eid] = 0;
 
     ctx.dirtyEntities.add(eid);
+    ctx.spatialGrid?.onPlayerSpawn(eid);
 
     return eid;
   }
@@ -443,6 +460,7 @@ export default class PlayerSystem extends SystemSerializable {
     TrailPointsXs.data[eid] = [];
     TrailPointsYs.data[eid] = [];
     TrailPointsDirs.data[eid] = [];
+    ctx.spatialGrid?.onPlayerDisabled(eid);
     ctx.dirtyEntities.add(eid);
     logger.debug(PlayerId[eid], 'disable()');
   }
@@ -460,6 +478,7 @@ export default class PlayerSystem extends SystemSerializable {
       return;
     }
     if (eid >= 0) {
+      ctx.spatialGrid?.onPlayerRemoved(eid);
       removeEntity(ctx.world, eid);
       logger.debug('--- Removed player', playerId);
       return;
@@ -481,6 +500,7 @@ export default class PlayerSystem extends SystemSerializable {
               logger.warn(`PlayerLeft for non-existent player: ${playerId}`);
               continue;
             }
+            this.ctx.spatialGrid?.onPlayerRemoved(eid);
             removeEntity(this.ctx.world, eid);
             this.ctx.dirtyEntities.add(eid);
             logger.debug('Removed player', playerId);
@@ -512,19 +532,44 @@ export default class PlayerSystem extends SystemSerializable {
       const sensorRight = new SharedLine();
       buildDetectionLines(eid, sensorFront, sensorLeft, sensorRight);
 
-      // Combine obstacle lines with self-trail for collision check
-      const selfLines = getPlayerTrailLines(eid);
-      const obstacleLines = buildObstacleLinesExcluding(this.ctx, eid);
-      const collisionLines = [...obstacleLines, ...selfLines];
+      const spatial = this.ctx.spatialQuery;
+      const rayOpts = { includeActiveFor: _resolveActiveSegmentOwners(this.ctx) };
+      const ox = Position.x[eid];
+      const oy = Position.y[eid];
 
-      // Find closest intersections
-      const pointFront = getClosestIntersectingPoint(sensorFront, collisionLines, Position.x[eid], Position.y[eid]);
-      const pointLeft = getClosestIntersectingPoint(sensorLeft, collisionLines, Position.x[eid], Position.y[eid]);
-      const pointRight = getClosestIntersectingPoint(sensorRight, collisionLines, Position.x[eid], Position.y[eid]);
+      let distFront: number;
+      let distLeft: number;
+      let distRight: number;
 
-      const distFront = distanceBetween(Position.x[eid], Position.y[eid], pointFront.x, pointFront.y);
-      const distLeft = distanceBetween(Position.x[eid], Position.y[eid], pointLeft.x, pointLeft.y);
-      const distRight = distanceBetween(Position.x[eid], Position.y[eid], pointRight.x, pointRight.y);
+      if (spatial) {
+        const hitFront = spatial.queryNearestAlongRay(sensorFront, ox, oy, rayOpts);
+        const hitLeft = spatial.queryNearestAlongRay(sensorLeft, ox, oy, rayOpts);
+        const hitRight = spatial.queryNearestAlongRay(sensorRight, ox, oy, rayOpts);
+        distFront = hitFront.distance;
+        distLeft = hitLeft.distance;
+        distRight = hitRight.distance;
+
+        if (SPATIAL_SHADOW_DIFF) {
+          const selfLines = getPlayerTrailLines(eid);
+          const obstacleLines = buildObstacleLinesExcluding(this.ctx, eid);
+          const collisionLines = [...obstacleLines, ...selfLines];
+          const legacyFront = getClosestIntersectingPoint(sensorFront, collisionLines, ox, oy);
+          const legacyDist = distanceBetween(ox, oy, legacyFront.x, legacyFront.y);
+          if (Math.abs(distFront - legacyDist) > EPSILON) {
+            logger.debug('spatial shadow diff', { eid, ray: 'front', spatial: distFront, legacy: legacyDist });
+          }
+        }
+      } else {
+        const selfLines = getPlayerTrailLines(eid);
+        const obstacleLines = buildObstacleLinesExcluding(this.ctx, eid);
+        const collisionLines = [...obstacleLines, ...selfLines];
+        const pointFront = getClosestIntersectingPoint(sensorFront, collisionLines, ox, oy);
+        const pointLeft = getClosestIntersectingPoint(sensorLeft, collisionLines, ox, oy);
+        const pointRight = getClosestIntersectingPoint(sensorRight, collisionLines, ox, oy);
+        distFront = distanceBetween(ox, oy, pointFront.x, pointFront.y);
+        distLeft = distanceBetween(ox, oy, pointLeft.x, pointLeft.y);
+        distRight = distanceBetween(ox, oy, pointRight.x, pointRight.y);
+      }
 
       // ─── Collision response ──────────────────────────────────────────────────
       IsColliding[eid] = 0;

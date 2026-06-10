@@ -110,6 +110,7 @@ export class StateReconciler {
     room.resetWorld();
     room.rebuildSerializers();
     room.snapshotDeserialize(anchor.buffer, new Map());
+    room.spatialGrid?.rebuildFromWorld(room);
     room.tick = anchor.tick;
   }
 

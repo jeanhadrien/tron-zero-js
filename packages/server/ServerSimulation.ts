@@ -68,8 +68,10 @@ export class ServerSimulation {
     }
 
     const ticksToProcess = this.clock.update(deltaTime);
+    this.room.ticksInBatch = ticksToProcess;
     for (let i = 0; i < ticksToProcess; i++) {
       this.room.update();
     }
+    this.room.ticksInBatch = 1;
   }
 }
