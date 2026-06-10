@@ -30,6 +30,13 @@ const Chat = () => {
       listRef.scrollTop + listRef.clientHeight >= listRef.scrollHeight - threshold;
   };
 
+  const send = () => {
+    const value = inputRef?.value.trim();
+    if (!value) return;
+    EventBus.emit('chat-send', value);
+    if (inputRef) inputRef.value = '';
+  };
+
   onMount(() => {
     const handler = (msg: ChatMessage) => {
       const d = new Date(msg.timestamp);
@@ -39,8 +46,12 @@ const Chat = () => {
     };
     EventBus.on('chat-message', handler);
 
+    const onChatSend = () => send();
+    EventBus.on('input:chat-send', onChatSend);
+
     onCleanup(() => {
       EventBus.removeListener('chat-message', handler);
+      EventBus.off('input:chat-send', onChatSend);
     });
   });
 
@@ -50,20 +61,6 @@ const Chat = () => {
       requestAnimationFrame(scrollToBottom);
     }
   });
-
-  const send = () => {
-    const value = inputRef?.value.trim();
-    if (!value) return;
-    EventBus.emit('chat-send', value);
-    if (inputRef) inputRef.value = '';
-  };
-
-  const handleKeyDown = (e: KeyboardEvent) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      send();
-    }
-  };
 
   const opacity = () => {
     if (focused()) return 1;
@@ -138,7 +135,7 @@ const Chat = () => {
             ref={inputRef}
             type="text"
             placeholder="Say something..."
-            onKeyDown={handleKeyDown}
+            data-input-role="chat"
             onFocus={() => setFocused(true)}
             onBlur={() => setFocused(false)}
             style={{

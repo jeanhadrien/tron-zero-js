@@ -8,7 +8,8 @@
 
 import { addEntity, addComponents, hasComponent, query, removeEntity, World } from 'bitecs';
 import { createSnapshotSerializer, createSnapshotDeserializer, f32, u8, u32, str, array } from 'bitecs/serialization';
-import { SharedLine, lineToLineIntersection, distanceBetween, clamp, aabbOverlapsRay } from '../math';
+import { SharedLine, lineToLineIntersection, distanceBetween, clamp, aabbOverlapsRay, EPSILON } from '../math';
+import { TRAIL_MAX_LENGTH, consumeTrailFromTailPure, computeTrailArcLengthFromArrays } from '../trail';
 import { Arena, AreaWidth, AreaHeight, Lines } from './GameArenaSystem';
 import { Logger } from '../Logger';
 import { SystemSerializable, eventGetter, inputGetter } from '../interfaces/System';
@@ -22,7 +23,6 @@ const logger = new Logger('PlayerSystem');
 const ROTATION_ANGLE = Math.PI / 2;
 const BASE_SPEED = 360;
 const BASE_RUBBER = 60;
-const EPSILON = 1e-12;
 const SLOW_DOWN_DISTANCE = 24;
 const DELTA_STUFF = 12;
 
@@ -117,6 +117,43 @@ function _setSpeedAndVelocity(eid: number, speedMult: number, tickTimeMs: number
 }
 
 // ─── Public geometry helpers ─────────────────────────────────────────────────
+
+export function computeTrailArcLength(eid: number): number {
+  return computeTrailArcLengthFromArrays(
+    TrailPointsXs.data[eid],
+    TrailPointsYs.data[eid],
+    Position.x[eid],
+    Position.y[eid]
+  );
+}
+
+export function consumeTrailFromTail(eid: number, distance: number): void {
+  const { xs, ys, dirs } = consumeTrailFromTailPure(
+    TrailPointsXs.data[eid],
+    TrailPointsYs.data[eid],
+    TrailPointsDirs.data[eid],
+    Position.x[eid],
+    Position.y[eid],
+    Direction[eid],
+    distance
+  );
+  TrailPointsXs.data[eid] = xs;
+  TrailPointsYs.data[eid] = ys;
+  TrailPointsDirs.data[eid] = dirs;
+}
+
+function enforceTrailMaxLength(ctx: SimulationContext, eid: number): void {
+  const excess = computeTrailArcLength(eid) - TRAIL_MAX_LENGTH * ctx.clock.referenceTickTimeMs;
+  if (excess > EPSILON) {
+    const nBefore = TrailPointsXs.data[eid].length;
+    consumeTrailFromTail(eid, excess);
+    const nAfter = TrailPointsXs.data[eid].length;
+    if (nBefore - nAfter >= 2) {
+      logger.debug(`trail trim eid=${eid} consumed=${excess.toFixed(2)} points=${nBefore}→${nAfter}`);
+    }
+    //ctx.dirtyEntities.add(eid);
+  }
+}
 
 /** Build SharedLine[] from a player's trail for collision detection. */
 export function getPlayerTrailLines(eid: number): SharedLine[] {
@@ -290,6 +327,8 @@ export default class PlayerSystem extends SystemSerializable {
 
   init(ctx: SimulationContext) {
     this.ctx = ctx;
+    this._serializers.clear();
+    this._deserializers.clear();
   }
 
   /** Return true if the entity is a player. */
@@ -520,6 +559,9 @@ export default class PlayerSystem extends SystemSerializable {
       // ─── Move ────────────────────────────────────────────────────────────────
       Position.x[eid] += Velocity.vx[eid] / 1000;
       Position.y[eid] += Velocity.vy[eid] / 1000;
+
+      // ─── Fixed-distance trail ────────────────────────────────────────────────
+      enforceTrailMaxLength(this.ctx, eid);
 
       // Clamp rubber
       Rubber[eid] = clamp(Rubber[eid], 0, BASE_RUBBER);

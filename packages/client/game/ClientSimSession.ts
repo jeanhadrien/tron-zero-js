@@ -306,13 +306,7 @@ export class ClientSimSession {
 
     for (const eid of query(this.room.world, [Player])) {
       const trailLen = (TrailPointsXs.data[eid] ?? []).length;
-      const prevLen = this.lastTrailLengths.get(eid) ?? -1;
-      if (prevLen >= 0 && Math.abs(trailLen - prevLen) > 3) {
-        console.warn(
-          `[SimWkr] trail snap: eid=${eid} tick=${tick} trailLen ${prevLen}→${trailLen} ` +
-            `(Δ=${trailLen - prevLen}) isAlive=${IsAlive[eid] === 1} isReplaying=${this.reconciler.isReplaying}`
-        );
-      }
+
       this.lastTrailLengths.set(eid, trailLen);
 
       players.push({

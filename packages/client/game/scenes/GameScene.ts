@@ -11,7 +11,7 @@ import { ClientNetworkSystem, NetworkDataHandler } from '../managers/ClientNetwo
 import { PlayerRenderSystem } from '../systems/PlayerRenderSystem';
 import { ClientChatSystem } from '../managers/ClientChatSystem';
 import { SimulationWorkerManager } from '../workers/SimulationWorkerManager';
-import { InputManager } from '../input/InputManager';
+import { ClientInput } from '../input/ClientInput';
 
 const logger = new Logger('Game');
 const tracer = trace.getTracer('tron-zero-client');
@@ -22,10 +22,8 @@ export class GameScene extends Scene {
   CANVAS_WIDTH: number;
   CANVAS_HEIGHT: number;
 
-  isKeyDown: Record<string, boolean>;
   gameOverText: Phaser.GameObjects.Text;
   restartText: Phaser.GameObjects.Text;
-  spaceKey: Phaser.Input.Keyboard.Key;
 
   humanEid: number = -1;
 
@@ -43,7 +41,7 @@ export class GameScene extends Scene {
   networkClient: ClientNetworkSystem;
   chatSystem: ClientChatSystem;
   workerManager: SimulationWorkerManager;
-  inputManager: InputManager;
+  clientInput: ClientInput;
 
   private _referenceTickTimeMs: number = DEFAULT_TICK_MS;
   private _simLoopHandle: number | null = null;
@@ -101,14 +99,16 @@ export class GameScene extends Scene {
     // 3. Connect the network
     this.networkClient.connect(host, port);
 
-    // 4. Input manager — owns tick/alpha stamping and dispatch
-    this.inputManager = new InputManager(
-      this.networkClient.channel,
-      this.workerManager,
-      () => this.workerManager.latestCurrentTick,
-      () => this.workerManager.computeAlpha(),
-      this.networkClient.sessionToken
-    );
+    // 4. Wire input dispatch
+    this.clientInput.wire({
+      channel: this.networkClient.channel,
+      worker: this.workerManager,
+      getTick: () => this.workerManager.latestCurrentTick,
+      getAlpha: () => this.workerManager.computeAlpha(),
+      playerId: this.networkClient.sessionToken,
+    });
+    this.clientInput.setGamePhase(this.phase);
+    this.clientInput.setCanRespawn(false);
 
     // 5. Wire chat after channel exists
     this.chatSystem.wire();
@@ -159,6 +159,13 @@ export class GameScene extends Scene {
     }
   }
 
+  private _handleRespawn(): void {
+    const tick = this.workerManager.latestCurrentTick;
+    this.networkClient.sendRespawn(tick);
+    this.workerManager.sendRespawn(tick);
+    EventBus.emit('game-start');
+  }
+
   // ── Phaser lifecycle ─────────────────────────────────────────────────────
 
   preload() {
@@ -176,8 +183,6 @@ export class GameScene extends Scene {
       this.CANVAS_WIDTH = gameSize.width;
       this.CANVAS_HEIGHT = gameSize.height;
     });
-
-    this.isKeyDown = {};
 
     this.gameOverText = this.add
       .text(0, 0, 'GAME OVER', {
@@ -199,15 +204,19 @@ export class GameScene extends Scene {
       .setDepth(1000)
       .setVisible(false);
 
+    this.clientInput = new ClientInput(() => this._handleRespawn());
+
     EventBus.on('chat-send', (text: string) => {
       this.chatSystem.sendMessage(text);
     });
 
     EventBus.on('menu-open', () => {
       this.menuOpen = true;
+      this.clientInput.setMenuOpen(true);
     });
     EventBus.on('menu-closed', () => {
       this.menuOpen = false;
+      this.clientInput.setMenuOpen(false);
     });
     EventBus.on('connection-state', (state: string) => {
       this.isConnected = state === 'connected';
@@ -216,6 +225,7 @@ export class GameScene extends Scene {
     const onGameResume = () => {
       logger.info('Tab resumed, syncing...');
       this.audioManager.resume();
+      this.clientInput.reset();
       if (this.networkClient.isConnected()) {
         this.networkClient.requestInitState();
       } else {
@@ -229,44 +239,14 @@ export class GameScene extends Scene {
       this.audioManager.resume();
       this.gameOverText.setVisible(false);
       this.restartText.setVisible(false);
-      this.isKeyDown = {};
+      this.clientInput.reset();
     });
 
     this.events.on('shutdown', () => {
       EventBus.off('game-resume', onGameResume);
       this._stopSimulationLoop();
+      this.clientInput.destroy();
       this.workerManager.destroy();
-    });
-
-    this.spaceKey = this.input.keyboard!.addKey(Phaser.Input.Keyboard.KeyCodes.SPACE);
-    this.input.keyboard!.removeCapture(Phaser.Input.Keyboard.KeyCodes.SPACE);
-
-    const keyMappings = {
-      Q: 'left',
-      S: 'left',
-      D: 'left',
-      LEFT: 'left',
-      K: 'right',
-      L: 'right',
-      M: 'right',
-      RIGHT: 'right',
-    };
-
-    Object.entries(keyMappings).forEach(([key, direction]) => {
-      this.input.keyboard?.on(`keydown-${key}`, () => {
-        if (this.menuOpen || this.phase !== 'playing') return;
-        if (!this.isKeyDown[key]) {
-          this.isKeyDown[key] = true;
-          if (this.humanEid >= 0) {
-            this.inputManager.turn(direction as 'left' | 'right');
-          } else {
-            logger.warn('Key ignored — humanEid is', this.humanEid);
-          }
-        }
-      });
-      this.input.keyboard?.on(`keyup-${key}`, () => {
-        this.isKeyDown[key] = false;
-      });
     });
 
     EventBus.emit('current-scene-ready', this);
@@ -296,13 +276,15 @@ export class GameScene extends Scene {
     // Sync local player EID from Worker
     this.humanEid = this.workerManager.localPlayerEid;
 
+    this.clientInput.setGamePhase(this.phase);
+    this.clientInput.setCanTurn(this.humanEid >= 0);
+
     // -- non-playing phases: wait for clock stabilisation --------------------
     if (this.phase !== 'playing') {
+      this.clientInput.setCanRespawn(false);
       if (this.phase === 'stabilizing' && this._clockWarmedUp) {
         this.phase = 'playing';
-        // const tick = this.workerManager.latestCurrentTick;
-        // this.networkClient.sendRespawn(tick);
-        // this.workerManager.sendRespawn(tick);
+        this.clientInput.setGamePhase(this.phase);
         EventBus.emit('game-start');
       }
       this.debugHud.update(_time);
@@ -318,27 +300,25 @@ export class GameScene extends Scene {
     }
 
     // Game over overlay
+    let canRespawn = false;
     if (this.humanEid >= 0) {
       const localDatum = this.renderSystem.getLatest(this.humanEid);
       if (localDatum && !localDatum.isAlive) {
+        canRespawn = true;
         const cx = this.cameras.main.worldView.centerX;
         const cy = this.cameras.main.worldView.centerY;
         const zoom = this.cameras.main.zoom;
 
-        this.gameOverText.setPosition(cx, cy - 30 / zoom).setScale(1 / zoom);
-        this.restartText.setPosition(cx, cy + 30 / zoom).setScale(1 / zoom);
-
-        if (this.spaceKey.isDown) {
-          const tick = this.workerManager.latestCurrentTick;
-          this.networkClient.sendRespawn(tick);
-          this.workerManager.sendRespawn(tick);
-          EventBus.emit('game-start');
-        }
+        this.gameOverText.setPosition(cx, cy - 30 / zoom).setScale(1 / zoom).setVisible(true);
+        this.restartText.setPosition(cx, cy + 30 / zoom).setScale(1 / zoom).setVisible(true);
+      } else {
+        this.gameOverText.setVisible(false);
+        this.restartText.setVisible(false);
       }
     }
+    this.clientInput.setCanRespawn(canRespawn);
 
-    // Reset pending input counter
-    this.inputManager.endFrame();
+    this.clientInput.endFrame();
 
     // Render
     const alpha = this.workerManager.computeAlpha();
@@ -349,8 +329,6 @@ export class GameScene extends Scene {
       this.workerManager.latestCurrentTick,
       this.workerManager.latestLeadTicks
     );
-
-    // (renderMode can be flipped externally via this.renderSystem.renderMode = 'unified')
 
     // Camera follow (use extrapolated position, consistent with render)
     if (this.humanEid >= 0) {

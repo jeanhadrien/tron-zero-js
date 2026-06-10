@@ -1,4 +1,4 @@
-const EPSILON = 1e-12;
+export const EPSILON = 1e-12;
 
 export class SharedLine {
   x1: number;

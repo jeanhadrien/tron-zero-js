@@ -1,6 +1,7 @@
 import { createSignal, createEffect, onMount, onCleanup, Show, Switch, Match } from 'solid-js';
 import { EventBus } from '../game/managers/EventBus';
 import ServerBrowser from './ServerBrowser';
+import SettingsPanel from './SettingsPanel';
 
 const MainMenu = () => {
   const [show, setShow] = createSignal(true);
@@ -11,12 +12,8 @@ const MainMenu = () => {
   });
 
   onMount(() => {
-    const handleKeydown = (e: KeyboardEvent) => {
-      if (e.key === 'Escape') {
-        setShow((prev) => !prev);
-      }
-    };
-    window.addEventListener('keydown', handleKeydown);
+    const onMenuToggle = () => setShow((prev) => !prev);
+    EventBus.on('input:menu-toggle', onMenuToggle);
 
     const onConnectionState = (state: string) => {
       if (state === 'connected') {
@@ -28,7 +25,7 @@ const MainMenu = () => {
     EventBus.on('connection-state', onConnectionState);
 
     onCleanup(() => {
-      window.removeEventListener('keydown', handleKeydown);
+      EventBus.off('input:menu-toggle', onMenuToggle);
       EventBus.off('connection-state', onConnectionState);
     });
   });
@@ -59,7 +56,7 @@ const MainMenu = () => {
               <ServerBrowser />
             </Match>
             <Match when={tab() === 'settings'}>
-              <div style={{ 'text-align': 'center', padding: '24px', color: '#666' }}>Settings placeholder</div>
+              <SettingsPanel />
             </Match>
           </Switch>
         </div>

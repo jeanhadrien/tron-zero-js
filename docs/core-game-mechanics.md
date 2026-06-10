@@ -19,6 +19,9 @@ Each player controls a continuous-moving lightcycle.
 ## 3. Trails & Obstacles
 
 - **Trail Generation:** As players move, they leave behind turn points. The trail consists of the lines between all the points and the current state position (active trail).
+- **Fixed Maximum Trail Length:** Each alive player's total trail arc length (static segments plus the active segment to current position) is capped at `TRAIL_MAX_LENGTH = 1080` px (~3 seconds of travel at base speed `360` px/s, or ~45% of the default `2400×2400` arena width). Before the cap is reached, the trail grows naturally with movement. Once at cap, each tick shortens the trail from the **tail** (oldest end) by the excess length after movement, so the net arc length stays constant while the head continues to extend.
+- **Tail Consumption:** The oldest trail point slides along its segment toward the next point (or current position) before being removed. On a straight path with only one turn point, the tail re-anchors at `TRAIL_MAX_LENGTH` behind the player along the active trail segment (`P₀ → Position`, coincident with heading on axis-aligned straight movement) — a moving player always retains a full-length collidable wall behind them, never a zero-length trail.
+- **Self-Trapping:** Players can no longer permanently partition the arena with an infinitely growing trail. Riding parallel to one's own shortening tail remains possible; the trail behind the player is always bounded to `TRAIL_MAX_LENGTH`.
 - **Collision Lines:** The collidable environment is constructed dynamically each tick. It consists of:
   - The outer boundaries of the game area.
   - All player trails including player's own trail.

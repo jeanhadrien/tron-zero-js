@@ -19,6 +19,12 @@ export const PhaserGame = (props: IProps) => {
     const [instance, setInstance] = createStore<IRefPhaserGame>({ game: null, scene: null });
 
     onMount(() => {
+        const container = document.getElementById('game-container');
+        if (container) {
+            container.tabIndex = 0;
+            container.addEventListener('pointerdown', () => container.focus());
+        }
+
         const gameInstance = StartGame("game-container");
         setInstance("game", gameInstance);
 
@@ -61,6 +67,6 @@ export const PhaserGame = (props: IProps) => {
     });
 
     return (
-        <div id="game-container" ref={gameContainer} style={{ width: '100%', height: '100%', flex: 1 }}></div>
+        <div id="game-container" ref={gameContainer} tabIndex={0} style={{ width: '100%', height: '100%', flex: 1, outline: 'none' }}></div>
     );
 };
