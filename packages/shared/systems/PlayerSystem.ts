@@ -26,7 +26,7 @@ const logger = new Logger('PlayerSystem');
 // ─── Constants (mirroring Player statics) ────────────────────────────────────
 const ROTATION_ANGLE = Math.PI / 2;
 const BASE_SPEED = 360;
-const BASE_RUBBER = 120;
+export const BASE_RUBBER = 120;
 const SLOW_DOWN_DISTANCE = 12;
 const DELTA_STUFF = 12;
 

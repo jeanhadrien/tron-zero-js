@@ -82,6 +82,7 @@ export interface PlayerRenderDatum {
   color: number;
   speedMult: number;
   rubber: number;
+  isColliding: boolean;
   isAlive: boolean;
   playerId: string;
   tickTimeMs: number;

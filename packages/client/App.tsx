@@ -1,6 +1,5 @@
 import { createSignal, onMount, onCleanup } from 'solid-js';
 import { PhaserGame } from './PhaserGame';
-import DebugConsole from './components/DebugConsole';
 import Chat from './components/Chat';
 import MainMenu from './components/MainMenu';
 import { EventBus } from './game/managers/EventBus';
@@ -26,7 +25,6 @@ const App = () => {
                 currentActiveScene={(scene) => setGameScene(scene as GameScene)}
             />
             <MainMenu />
-            <DebugConsole />
             <Chat />
             <div style={{
                 position: 'absolute',

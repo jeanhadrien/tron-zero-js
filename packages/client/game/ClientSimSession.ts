@@ -19,6 +19,7 @@ import PlayerSystem, {
   TrailPointsYs,
   PlayerId,
   Rubber,
+  IsColliding,
 } from '@tron0/shared/systems/PlayerSystem';
 import { SnapshotRing } from './SnapshotRing';
 import { StateReconciler } from './simulation/StateReconciler';
@@ -323,6 +324,7 @@ export class ClientSimSession {
         color: Color[eid] ?? 0xffffff,
         speedMult: SpeedMult[eid] ?? 1,
         rubber: Rubber[eid] ?? 0,
+        isColliding: IsColliding[eid] === 1,
         isAlive: IsAlive[eid] === 1,
         playerId: PlayerId[eid] ?? '',
         tickTimeMs: this.clock.tickTimeMs,

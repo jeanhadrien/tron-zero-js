@@ -55,6 +55,7 @@ export class ClientInput {
   private _onVisibility: () => void;
   private _onControlsChanged: (settings: ControlSettings) => void;
   private _onControlsListenActive: (active: boolean) => void;
+  private _onSpectateCycle: ((direction: 'left' | 'right') => void) | null = null;
 
   constructor(private _onRespawn: () => void) {
     this._applyBindings(controlSettings.getSettings());
@@ -98,6 +99,11 @@ export class ClientInput {
 
   setCanRespawn(can: boolean): void {
     this._canRespawn = can;
+  }
+
+  /** Wire left/right turn keys to cycle spectate targets while dead. */
+  setOnSpectateCycle(handler: ((direction: 'left' | 'right') => void) | null): void {
+    this._onSpectateCycle = handler;
   }
 
   /** Clear pressed-key state — call on game-start, menu open, tab blur. */
@@ -175,13 +181,21 @@ export class ClientInput {
     const binding = normalizeBindingKey(e.key);
     if (this._leftKeys.has(binding)) {
       e.preventDefault();
-      this._queueTurn('left');
+      if (this._canTurn) {
+        this._queueTurn('left');
+      } else if (this._canRespawn) {
+        this._onSpectateCycle?.('left');
+      }
       return;
     }
 
     if (this._rightKeys.has(binding)) {
       e.preventDefault();
-      this._queueTurn('right');
+      if (this._canTurn) {
+        this._queueTurn('right');
+      } else if (this._canRespawn) {
+        this._onSpectateCycle?.('right');
+      }
     }
   }
 

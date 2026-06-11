@@ -142,6 +142,17 @@ export class PlayerRenderSystem {
     return this._latest.get(eid);
   }
 
+  /** Get latest datums for all alive players, optionally excluding one eid. */
+  getAliveDatums(excludeEid?: number): PlayerRenderDatum[] {
+    const result: PlayerRenderDatum[] = [];
+    for (const [eid, datum] of this._latest) {
+      if (!datum.isAlive) continue;
+      if (excludeEid !== undefined && eid === excludeEid) continue;
+      result.push(datum);
+    }
+    return result;
+  }
+
   // ── Private drawing ──────────────────────────────────────────────────────
 
   private _drawLightcycle(x: number, y: number, direction: number, color: number): void {

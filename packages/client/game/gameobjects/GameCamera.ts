@@ -1,15 +1,13 @@
 import { Scene } from 'phaser';
 import type GameArea from '@tron0/shared/systems/GameArenaSystem';
-import { EventBus } from '../managers/EventBus';
 import AudioManager from '../managers/AudioManager';
 
+/** Follow-mode camera: bounds-clamped, zoom 1, lerped center-on. */
 export default class GameCamera {
   private scene: Scene;
   private gameArea: GameArea;
   private audioManager: AudioManager;
 
-  public PLAYER_VIEW_WIDTH: number = 0; // unused — zoom = 1.0 in follow mode
-  public isCameraFollowing: boolean = true;
   private lastX: number = 0;
   private lastY: number = 0;
 
@@ -18,10 +16,7 @@ export default class GameCamera {
     this.gameArea = gameArea;
     this.audioManager = audioManager;
 
-    EventBus.on('toggle-camera-follow', (followState: boolean) => {
-      this.isCameraFollowing = followState;
-      this.updateCameraView();
-    });
+    this.updateCameraView();
 
     this.scene.scale.on('resize', () => {
       this.updateCameraView();
@@ -29,31 +24,19 @@ export default class GameCamera {
   }
 
   updateCameraView() {
-    const canvasWidth = this.scene.scale.width;
-    const canvasHeight = this.scene.scale.height;
-
-    if (this.isCameraFollowing) {
-      this.scene.cameras.main.setBounds(0, 0, this.gameArea.width, this.gameArea.height, true);
-      this.scene.cameras.main.setZoom(1);
-    } else {
-      this.scene.cameras.main.removeBounds();
-      const zoomX = canvasWidth / this.gameArea.width;
-      const zoomY = canvasHeight / this.gameArea.height;
-      this.scene.cameras.main.setZoom(Math.min(zoomX, zoomY));
-      this.scene.cameras.main.centerOn(this.gameArea.width / 2, this.gameArea.height / 2);
-    }
+    this.scene.cameras.main.setBounds(0, 0, this.gameArea.width, this.gameArea.height, true);
+    this.scene.cameras.main.setZoom(1);
   }
 
+  /** Lerp the camera toward the given world position and update the audio listener. */
   update(interpolatedX: number, interpolatedY: number) {
     const cam = this.scene.cameras.main;
     const camMidX = cam.scrollX + cam.width / 2;
     const camMidY = cam.scrollY + cam.height / 2;
     this.audioManager.updateListener(camMidX, camMidY);
 
-    if (this.isCameraFollowing) {
-      this.lastX = Phaser.Math.Linear(this.lastX, interpolatedX, 0.1);
-      this.lastY = Phaser.Math.Linear(this.lastY, interpolatedY, 0.1);
-      this.scene.cameras.main.centerOn(this.lastX, this.lastY);
-    }
+    this.lastX = Phaser.Math.Linear(this.lastX, interpolatedX, 0.1);
+    this.lastY = Phaser.Math.Linear(this.lastY, interpolatedY, 0.1);
+    this.scene.cameras.main.centerOn(this.lastX, this.lastY);
   }
 }

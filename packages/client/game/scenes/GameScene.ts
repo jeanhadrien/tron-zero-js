@@ -1,6 +1,7 @@
 import { Scene } from 'phaser';
 import { EventBus } from '../managers/EventBus';
 import DebugHud from '../gameobjects/DebugHud';
+import PlayerHud from '../gameobjects/PlayerHud';
 import GameArea from '@tron0/shared/systems/GameArenaSystem';
 import GameAreaRenderer from '../gameobjects/GameAreaRenderer';
 import AudioManager from '../managers/AudioManager';
@@ -12,6 +13,7 @@ import { PlayerRenderSystem } from '../systems/PlayerRenderSystem';
 import { ClientChatSystem } from '../managers/ClientChatSystem';
 import { SimulationWorkerManager } from '../workers/SimulationWorkerManager';
 import { ClientInput } from '../input/ClientInput';
+import type { PlayerRenderDatum } from '../workers/WorkerProtocol';
 
 const logger = new Logger('Game');
 const tracer = trace.getTracer('tron-zero-client');
@@ -32,6 +34,7 @@ export class GameScene extends Scene {
   phase: 'idle' | 'stabilizing' | 'playing' = 'idle';
 
   debugHud: DebugHud;
+  playerHud: PlayerHud;
   gameArea: GameArea;
   gameAreaRenderer: GameAreaRenderer;
   gameCamera: GameCamera;
@@ -47,6 +50,8 @@ export class GameScene extends Scene {
   private _simLoopHandle: number | null = null;
   private _lastSimTime: number = 0;
   private _clockWarmedUp: boolean = false;
+  private _localWasAlive: boolean = true;
+  private spectateEid: number | null = null;
 
   constructor() {
     super('Game');
@@ -57,6 +62,7 @@ export class GameScene extends Scene {
     this.CANVAS_HEIGHT = this.scale.height;
     this.gameArea = new GameArea();
     this.debugHud = new DebugHud(this);
+    this.playerHud = new PlayerHud(this);
     this.audioManager = new AudioManager(this);
 
     this.networkClient = new ClientNetworkSystem();
@@ -166,6 +172,53 @@ export class GameScene extends Scene {
     EventBus.emit('game-start');
   }
 
+  private _clearSpectate(): void {
+    this.spectateEid = null;
+  }
+
+  private _pickClosestSpectate(fromX: number, fromY: number): void {
+    const alive = this.renderSystem.getAliveDatums(this.humanEid);
+    if (alive.length === 0) {
+      this.spectateEid = null;
+      return;
+    }
+
+    let best: PlayerRenderDatum = alive[0];
+    let bestDist = Infinity;
+    for (const datum of alive) {
+      const dist = (datum.x - fromX) ** 2 + (datum.y - fromY) ** 2;
+      if (dist < bestDist) {
+        bestDist = dist;
+        best = datum;
+      }
+    }
+    this.spectateEid = best.eid;
+  }
+
+  private _cycleSpectate(direction: 'left' | 'right'): void {
+    const alive = this.renderSystem.getAliveDatums(this.humanEid);
+    if (alive.length === 0) return;
+
+    alive.sort((a, b) => a.eid - b.eid);
+
+    const currentIdx =
+      this.spectateEid !== null ? alive.findIndex((d) => d.eid === this.spectateEid) : -1;
+    const idx = currentIdx >= 0 ? currentIdx : 0;
+    const nextIdx =
+      direction === 'right'
+        ? (idx + 1) % alive.length
+        : (idx - 1 + alive.length) % alive.length;
+
+    this.spectateEid = alive[nextIdx].eid;
+  }
+
+  private _extrapolatePosition(datum: PlayerRenderDatum, alpha: number): { x: number; y: number } {
+    return {
+      x: datum.x + (datum.vx / 1000) * alpha,
+      y: datum.y + (datum.vy / 1000) * alpha,
+    };
+  }
+
   // ── Phaser lifecycle ─────────────────────────────────────────────────────
 
   preload() {
@@ -182,6 +235,7 @@ export class GameScene extends Scene {
     this.scale.on('resize', (gameSize: Phaser.Structs.Size) => {
       this.CANVAS_WIDTH = gameSize.width;
       this.CANVAS_HEIGHT = gameSize.height;
+      this.playerHud.relayout(gameSize.width, gameSize.height);
     });
 
     this.gameOverText = this.add
@@ -205,6 +259,7 @@ export class GameScene extends Scene {
       .setVisible(false);
 
     this.clientInput = new ClientInput(() => this._handleRespawn());
+    this.clientInput.setOnSpectateCycle((direction) => this._cycleSpectate(direction));
 
     EventBus.on('chat-send', (text: string) => {
       this.chatSystem.sendMessage(text);
@@ -239,6 +294,8 @@ export class GameScene extends Scene {
       this.audioManager.resume();
       this.gameOverText.setVisible(false);
       this.restartText.setVisible(false);
+      this._clearSpectate();
+      this._localWasAlive = true;
       this.clientInput.reset();
     });
 
@@ -277,11 +334,12 @@ export class GameScene extends Scene {
     this.humanEid = this.workerManager.localPlayerEid;
 
     this.clientInput.setGamePhase(this.phase);
-    this.clientInput.setCanTurn(this.humanEid >= 0);
 
     // -- non-playing phases: wait for clock stabilisation --------------------
     if (this.phase !== 'playing') {
+      this.clientInput.setCanTurn(false);
       this.clientInput.setCanRespawn(false);
+      this.playerHud.setVisible(false);
       if (this.phase === 'stabilizing' && this._clockWarmedUp) {
         this.phase = 'playing';
         this.clientInput.setGamePhase(this.phase);
@@ -330,14 +388,56 @@ export class GameScene extends Scene {
       this.workerManager.latestLeadTicks
     );
 
-    // Camera follow (use extrapolated position, consistent with render)
+    // Camera: follow local player while alive, spectate while dead
     if (this.humanEid >= 0) {
       const localDatum = this.renderSystem.getLatest(this.humanEid);
       if (localDatum) {
-        const renderX = localDatum.x + (localDatum.vx / 1000) * alpha;
-        const renderY = localDatum.y + (localDatum.vy / 1000) * alpha;
-        this.gameCamera.update(renderX, renderY);
+        if (localDatum.isAlive) {
+          this._clearSpectate();
+          this.clientInput.setCanTurn(true);
+          const { x, y } = this._extrapolatePosition(localDatum, alpha);
+          this.gameCamera.update(x, y);
+        } else {
+          this.clientInput.setCanTurn(false);
+
+          if (this._localWasAlive) {
+            this._pickClosestSpectate(localDatum.x, localDatum.y);
+          } else if (this.spectateEid !== null) {
+            const spectateDatum = this.renderSystem.getLatest(this.spectateEid);
+            if (!spectateDatum?.isAlive) {
+              this._pickClosestSpectate(localDatum.x, localDatum.y);
+            }
+          }
+
+          const followDatum =
+            this.spectateEid !== null
+              ? this.renderSystem.getLatest(this.spectateEid) ?? localDatum
+              : localDatum;
+          const { x, y } = this._extrapolatePosition(followDatum, alpha);
+          this.gameCamera.update(x, y);
+        }
+
+        this._localWasAlive = localDatum.isAlive;
+      } else {
+        this.clientInput.setCanTurn(false);
       }
+    } else {
+      this.clientInput.setCanTurn(false);
+    }
+
+    if (this.humanEid >= 0 && !this.menuOpen) {
+      const localDatum = this.renderSystem.getLatest(this.humanEid);
+      if (localDatum?.isAlive) {
+        this.playerHud.update({
+          rubber: localDatum.rubber,
+          speedMult: localDatum.speedMult,
+          isColliding: localDatum.isColliding,
+        });
+      } else {
+        this.playerHud.setVisible(false);
+      }
+    } else {
+      this.playerHud.setVisible(false);
     }
 
     this.debugHud.update(_time);
