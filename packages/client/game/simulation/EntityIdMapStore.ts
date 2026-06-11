@@ -9,6 +9,7 @@ export class EntityIdMapStore {
 
   /** Replace contents from a snapshotDeserialize return value (init or rollback anchor). */
   replace(source: Map<number, number>): void {
+    if (source === this.map) return;
     this.map.clear();
     for (const [packetEid, worldEid] of source) {
       this.map.set(packetEid, worldEid);
