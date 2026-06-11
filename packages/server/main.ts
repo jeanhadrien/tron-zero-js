@@ -21,18 +21,33 @@ const MANAGER_URL = process.env.MANAGER_URL || 'http://localhost:3001';
 const SERVER_NAME = process.env.SERVER_NAME || 'Unnamed Server';
 const MAX_PLAYERS = parseInt(process.env.MAX_PLAYERS || '10', 10);
 const ADVERTISED_SECURE = process.env.ADVERTISED_SECURE === 'true';
+const WEBRTC_PORT_MIN = parseInt(process.env.WEBRTC_PORT_MIN || '', 10);
+const WEBRTC_PORT_MAX = parseInt(process.env.WEBRTC_PORT_MAX || '', 10);
+const WEBRTC_BIND_ADDRESS = process.env.WEBRTC_BIND_ADDRESS || undefined;
 
 const app = express();
 const httpServer = createServer(app);
-const io = geckos({
+
+const geckosOptions: Parameters<typeof geckos>[0] = {
   cors: { allowAuthorization: true, origin: '*' },
   iceServers: [{ urls: 'stun:stun1.l.google.com:19302' }, { urls: 'stun:stun2.l.google.com:19302' }],
-  portRange: {
-    min: 10000,
-    max: 20000,
-  },
-});
+};
+if (Number.isFinite(WEBRTC_PORT_MIN) && Number.isFinite(WEBRTC_PORT_MAX)) {
+  geckosOptions.portRange = { min: WEBRTC_PORT_MIN, max: WEBRTC_PORT_MAX };
+}
+if (WEBRTC_BIND_ADDRESS) {
+  geckosOptions.bindAddress = WEBRTC_BIND_ADDRESS;
+}
+
+const io = geckos(geckosOptions);
 io.addServer(httpServer);
+
+if (geckosOptions.portRange) {
+  logger.info(
+    `WebRTC UDP ${geckosOptions.portRange.min}-${geckosOptions.portRange.max}` +
+      (WEBRTC_BIND_ADDRESS ? `, bind ${WEBRTC_BIND_ADDRESS}` : '')
+  );
+}
 
 // Serve static assets from 'dist' directory
 app.use(express.static(path.join(process.cwd(), 'dist')));
@@ -84,6 +99,8 @@ async function registerWithManager() {
   logger.info(`Registering with manager at ${MANAGER_URL}`);
   try {
     const host = process.env.ADVERTISED_HOST || '127.0.0.1';
+    const scheme = ADVERTISED_SECURE ? 'https' : 'http';
+    logger.info(`Advertising ${scheme}://${host}:${ADVERTISED_PORT}`);
     const res = await fetch(`${MANAGER_URL}/api/rooms`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -167,7 +184,7 @@ process.on('SIGTERM', async () => {
 
 // ---------------------------------------------------------------------------
 
-httpServer.listen(PORT, () => {
+httpServer.listen(PORT, '0.0.0.0', () => {
   const span = tracer.startSpan('game.start');
   span.setAttribute('port', PORT);
   logger.info(`Server listening on port ${PORT}`);
