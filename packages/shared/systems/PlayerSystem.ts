@@ -26,8 +26,8 @@ const logger = new Logger('PlayerSystem');
 // ─── Constants (mirroring Player statics) ────────────────────────────────────
 const ROTATION_ANGLE = Math.PI / 2;
 const BASE_SPEED = 360;
-const BASE_RUBBER = 60;
-const SLOW_DOWN_DISTANCE = 24;
+const BASE_RUBBER = 120;
+const SLOW_DOWN_DISTANCE = 12;
 const DELTA_STUFF = 12;
 
 // ─── Components (SoA, typed for bitECS serialization) ────────────────────────

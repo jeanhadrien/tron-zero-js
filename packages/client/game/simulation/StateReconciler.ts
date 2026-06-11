@@ -4,6 +4,7 @@ import type { PlayerInput } from '@tron0/shared/interfaces/PlayerInput';
 import { buffersEqual } from '@tron0/shared/utils/buffers';
 import { SnapshotRing } from '../SnapshotRing';
 import type { ECSGameRoom } from '@tron0/shared/ECSGameRoom';
+import type { EntityIdMapStore } from './EntityIdMapStore';
 
 /** Owns rollback lifecycle: diff storage, acknowledgment, anchor lookup, rewind. */
 export class StateReconciler {
@@ -20,7 +21,11 @@ export class StateReconciler {
 
   private static readonly MAX_DIFF_RETENTION_TICKS = 512;
 
-  constructor(localInputBuffer: PlayerInputTickRingBuffer, snapshots: SnapshotRing) {
+  constructor(
+    localInputBuffer: PlayerInputTickRingBuffer,
+    snapshots: SnapshotRing,
+    private entityIdMap: EntityIdMapStore
+  ) {
     this.localInputBuffer = localInputBuffer;
     this.snapshots = snapshots;
   }
@@ -109,7 +114,8 @@ export class StateReconciler {
   rewind(room: ECSGameRoom, anchor: { tick: number; buffer: ArrayBuffer }): void {
     room.resetWorld();
     room.rebuildSerializers();
-    room.snapshotDeserialize(anchor.buffer, new Map());
+    const idMap = room.snapshotDeserialize(anchor.buffer, new Map());
+    this.entityIdMap.replace(idMap);
     room.spatialGrid?.rebuildFromWorld(room);
     room.tick = anchor.tick;
   }

@@ -2,6 +2,7 @@ import type { ECSGameRoom } from '@tron0/shared/ECSGameRoom';
 import type { InputSource } from './InputSource';
 import type { StateReconciler } from './StateReconciler';
 import { SnapshotRing } from '../SnapshotRing';
+import type { EntityIdMapStore } from './EntityIdMapStore';
 
 /** Coarse 3-stage pipeline contract for processing a single simulation tick. */
 export interface SimulationPipeline {
@@ -20,6 +21,7 @@ export class TickPipeline implements SimulationPipeline {
 
   constructor(
     private snapshots: SnapshotRing,
+    private entityIdMap: EntityIdMapStore,
     private onTick?: (tick: number) => void
   ) {}
 
@@ -27,8 +29,9 @@ export class TickPipeline implements SimulationPipeline {
     this.diffWasApplied = false;
     const diff = reconciler.getDiff(room.tick);
     if (diff) {
-      room.soaDeserialize(diff.data);
-      room.observerDeserializeNetwork(diff.struct, new Map());
+      const map = this.entityIdMap.asMap();
+      room.observerDeserializeNetwork(diff.struct, map);
+      room.soaDeserialize(diff.data, map);
       reconciler.clearLocalInputForSimulatedTick(diff.tick - 1);
       this.diffWasApplied = true;
     }

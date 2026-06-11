@@ -22,6 +22,7 @@ import PlayerSystem, {
 } from '@tron0/shared/systems/PlayerSystem';
 import { SnapshotRing } from './SnapshotRing';
 import { StateReconciler } from './simulation/StateReconciler';
+import { EntityIdMapStore } from './simulation/EntityIdMapStore';
 import { TickPipeline } from './simulation/SimulationPipeline';
 import {
   LocalPredictionSource,
@@ -71,6 +72,7 @@ export class ClientSimSession {
   localPlayerEid: number = -1;
   localPlayerId: string = '';
 
+  private readonly entityIdMap: EntityIdMapStore;
   private readonly reconciler: StateReconciler;
   private readonly clockSync: ClockSyncManager;
   private readonly sessionToken: string;
@@ -103,7 +105,8 @@ export class ClientSimSession {
     );
     const snapshots = new SnapshotRing(ringCapacity);
 
-    this.reconciler = new StateReconciler(localInputBuffer, snapshots);
+    this.entityIdMap = new EntityIdMapStore();
+    this.reconciler = new StateReconciler(localInputBuffer, snapshots, this.entityIdMap);
     this.clockSync = new ClockSyncManager();
     this.clockSync.attach(this.room, () => this.reconciler.isReplaying);
 
@@ -112,8 +115,8 @@ export class ClientSimSession {
     this.forwardSource = new CompositeInputSource([localPrediction, authoritativeSource]);
     this.replaySource = this.forwardSource;
 
-    this.replayPipeline = new TickPipeline(snapshots);
-    this.forwardPipeline = new TickPipeline(snapshots, () => {});
+    this.replayPipeline = new TickPipeline(snapshots, this.entityIdMap);
+    this.forwardPipeline = new TickPipeline(snapshots, this.entityIdMap, () => {});
   }
 
   /** Load the initial world snapshot, wire the local player, and advance to lead. */
@@ -123,7 +126,8 @@ export class ClientSimSession {
     const leadTicks = this.clockSync.getLeadTicks();
     this.room.resetWorld();
     this.room.rebuildSerializers();
-    this.room.snapshotDeserialize(buffer);
+    const idMap = this.room.snapshotDeserialize(buffer);
+    this.entityIdMap.replace(idMap);
     this.room.spatialGrid?.rebuildFromWorld(this.room);
     this.room.tick = tick;
     this.reconciler.seedInitialState(tick, this.room.snapshotSerialize());
