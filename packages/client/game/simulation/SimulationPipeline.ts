@@ -14,7 +14,13 @@ export interface SimulationPipeline {
 /**
  * Runs one simulation tick: apply server diff if present, run ECS with the
  * given input source, snapshot when an authoritative diff was applied, and
- * optionally capture render state (forward path only).
+ * optionally capture render state.
+ *
+ * Capture (via onTick) is wired to the forward pipeline for predicted ticks
+ * and to the replay pipeline during rollbacks so that resimulated ticks
+ * (with server diffs applied) produce corrected render data for historical
+ * ticks. This lets the client render ring see post-rollback authoritative
+ * state for the local player (and others) at past ticks.
  */
 export class TickPipeline implements SimulationPipeline {
   private diffWasApplied: boolean = false;

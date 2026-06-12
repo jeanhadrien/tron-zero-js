@@ -18,7 +18,7 @@ import type { PlayerRenderDatum } from '../workers/WorkerProtocol';
 const logger = new Logger('Game');
 const tracer = trace.getTracer('tron-zero-client');
 
-const DEFAULT_TICK_MS = 1000 / 60;
+const DEFAULT_TICK_MS = 1000 / 120;
 
 export class GameScene extends Scene {
   CANVAS_WIDTH: number;
@@ -201,13 +201,9 @@ export class GameScene extends Scene {
 
     alive.sort((a, b) => a.eid - b.eid);
 
-    const currentIdx =
-      this.spectateEid !== null ? alive.findIndex((d) => d.eid === this.spectateEid) : -1;
+    const currentIdx = this.spectateEid !== null ? alive.findIndex((d) => d.eid === this.spectateEid) : -1;
     const idx = currentIdx >= 0 ? currentIdx : 0;
-    const nextIdx =
-      direction === 'right'
-        ? (idx + 1) % alive.length
-        : (idx - 1 + alive.length) % alive.length;
+    const nextIdx = direction === 'right' ? (idx + 1) % alive.length : (idx - 1 + alive.length) % alive.length;
 
     this.spectateEid = alive[nextIdx].eid;
   }
@@ -367,8 +363,14 @@ export class GameScene extends Scene {
         const cy = this.cameras.main.worldView.centerY;
         const zoom = this.cameras.main.zoom;
 
-        this.gameOverText.setPosition(cx, cy - 30 / zoom).setScale(1 / zoom).setVisible(true);
-        this.restartText.setPosition(cx, cy + 30 / zoom).setScale(1 / zoom).setVisible(true);
+        this.gameOverText
+          .setPosition(cx, cy - 30 / zoom)
+          .setScale(1 / zoom)
+          .setVisible(true);
+        this.restartText
+          .setPosition(cx, cy + 30 / zoom)
+          .setScale(1 / zoom)
+          .setVisible(true);
       } else {
         this.gameOverText.setVisible(false);
         this.restartText.setVisible(false);
@@ -380,7 +382,7 @@ export class GameScene extends Scene {
 
     // Render
     const alpha = this.workerManager.computeAlpha();
-    this.renderSystem.renderMode = 'unified';
+    this.renderSystem.renderMode = 'split'; // unified/split
     this.renderSystem.render(
       alpha,
       this.humanEid,
@@ -410,9 +412,7 @@ export class GameScene extends Scene {
           }
 
           const followDatum =
-            this.spectateEid !== null
-              ? this.renderSystem.getLatest(this.spectateEid) ?? localDatum
-              : localDatum;
+            this.spectateEid !== null ? (this.renderSystem.getLatest(this.spectateEid) ?? localDatum) : localDatum;
           const { x, y } = this._extrapolatePosition(followDatum, alpha);
           this.gameCamera.update(x, y);
         }

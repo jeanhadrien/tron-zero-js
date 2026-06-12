@@ -68,7 +68,7 @@ export class PlayerRenderSystem {
    * @param alpha          0..1 interpolation factor (0 = at tick, 1 = projected to next)
    * @param localPlayerEid EID of the local human player
    * @param currentTick    Latest simulation tick (predicted)
-   * @param leadTicks      How many ticks the client leads the server (for remote-player authoritative tick)
+   * @param leadTicks      How many ticks the client leads the server (for remote-player authoritative tick).
    */
   render(alpha: number, localPlayerEid: number, currentTick: number, leadTicks: number): void {
     this.staticTrailGraphics.clear();

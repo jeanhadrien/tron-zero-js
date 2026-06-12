@@ -302,9 +302,20 @@ export class ClientSimSession {
     this.localPlayerId = this.sessionToken;
     this.reconciler.setLocalPlayer(this.sessionToken);
 
-    this.forwardPipeline.setOnTick((tick: number) => {
+    // Capture render state on *both* pipelines.
+    // The forward pipeline handles normal predicted ticks.
+    // The replay pipeline is used during rollbacks/reconciliation: diffs are applied
+    // in preTick, systems run with authoritative state (including corrected local player),
+    // and postTick now triggers captureRenderState for each resimmed tick.
+    // This emits TickRenderOutput for the historical ticks with post-rollback data.
+    // The worker sends them in the next batch; the renderer's _renderRing then
+    // records the corrected local (and remote) data via record() for those exact ticks,
+    // so lagged local render at (current - leadTicks) sees authoritative history.
+    const onTick = (tick: number) => {
       this.pendingOutputs.push(this.captureRenderState(tick));
-    });
+    };
+    this.forwardPipeline.setOnTick(onTick);
+    this.replayPipeline.setOnTick(onTick);
   }
 
   private captureRenderState(tick: number): TickRenderOutput {

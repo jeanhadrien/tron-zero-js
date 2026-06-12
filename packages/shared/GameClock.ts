@@ -4,7 +4,7 @@ export default class GameClock {
   accumulatorTimeMs: number = 0;
   private _lastConsumedTickTime: number = performance.now();
 
-  constructor(tickTimeMs: number = 1000 / 60) {
+  constructor(tickTimeMs: number = 1000 / 120) {
     this.referenceTickTimeMs = tickTimeMs;
     this.tickTimeMs = tickTimeMs;
     this._lastConsumedTickTime = performance.now();
