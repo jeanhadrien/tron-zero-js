@@ -1,5 +1,24 @@
 # Changelog
 
+## [1.5.0](https://github.com/jeanhadrien/tron-zero-js/compare/tron-zero-v1.4.1...tron-zero-v1.5.0) (2026-06-12)
+
+
+### Features
+
+* **bot:** update bot management to use player IDs and implement rotation logic ([0468ed1](https://github.com/jeanhadrien/tron-zero-js/commit/0468ed1799de1594df65c8f67460042cc0b4e96f))
+* **chat:** remove spawn ([2c8041b](https://github.com/jeanhadrien/tron-zero-js/commit/2c8041bc9f727fa1fdc6c054b38c4ef17606bc37))
+* **client:** implement spectate cycling and update camera behavior based on player state ([511c293](https://github.com/jeanhadrien/tron-zero-js/commit/511c293812813fc22d47380732a446114c4abb8d))
+* **server:** update environment configuration and add WebRTC port settings ([0048338](https://github.com/jeanhadrien/tron-zero-js/commit/00483388a9c954fa674ec9e1255a4a1e57601bbc))
+
+
+### Bug Fixes
+
+* **client:** 120 tick rate +split render ([28663d2](https://github.com/jeanhadrien/tron-zero-js/commit/28663d2d03fd6f1cfdae37ad7fa964d3edb4fb82))
+* **client:** update PlayerRenderDatum to include isColliding property ([511c293](https://github.com/jeanhadrien/tron-zero-js/commit/511c293812813fc22d47380732a446114c4abb8d))
+* **player:** enhance velocity calculations ([7c4b2f1](https://github.com/jeanhadrien/tron-zero-js/commit/7c4b2f122647609631fac740fabb74ca55e3e058))
+* **simulation:** integrate EntityIdMapStore for entity ID management ([e4737bd](https://github.com/jeanhadrien/tron-zero-js/commit/e4737bdacca7972024eb10b4c2b587508b82b2c9))
+* **simulation:** prevent unnecessary map clearing in replace method ([1c2d477](https://github.com/jeanhadrien/tron-zero-js/commit/1c2d47713fb5cb4a1bd95a746800d4852659b824))
+
 ## [1.4.1](https://github.com/jeanhadrien/tron-zero-js/compare/tron-zero-v1.4.0...tron-zero-v1.4.1) (2026-06-10)
 
 
