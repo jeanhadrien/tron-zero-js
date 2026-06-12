@@ -120,14 +120,39 @@ function _resolveActiveSegmentOwners(ctx: SimulationContext): number[] {
   return result;
 }
 
+/** Map a cardinal direction (multiples of π/2) to velocity on exactly one axis. */
+function _velocityAlongDirection(direction: number, stepDist: number): { vx: number; vy: number } {
+  const quarter = ((Math.round(_normalizeDirection(direction) / ROTATION_ANGLE) % 4) + 4) % 4;
+  const v = stepDist * 1000;
+
+  switch (quarter) {
+    case 0:
+      return { vx: v, vy: 0 };
+    case 1:
+      return { vx: 0, vy: v };
+    case 2:
+      return { vx: -v, vy: 0 };
+    case 3:
+      return { vx: 0, vy: -v };
+    default:
+      return { vx: 0, vy: 0 };
+  }
+}
+
 function _setSpeedAndVelocity(eid: number, speedMult: number, tickTimeMs: number): void {
-  let vx = Math.cos(Direction[eid]) * BASE_SPEED * speedMult * tickTimeMs;
-  let vy = Math.sin(Direction[eid]) * BASE_SPEED * speedMult * tickTimeMs;
-  if (Math.abs(vx) <= EPSILON) vx = 0;
-  if (Math.abs(vy) <= EPSILON) vy = 0;
+  const stepDist = (BASE_SPEED * speedMult * tickTimeMs) / 1000;
+  const { vx, vy } = _velocityAlongDirection(Direction[eid], stepDist);
   Velocity.vx[eid] = vx;
   Velocity.vy[eid] = vy;
   SpeedMult[eid] = speedMult;
+}
+
+/** Set velocity so that vx/1000 (or vy/1000) equals stepDist along heading. */
+function _setVelocityFromStep(eid: number, stepDist: number, tickTimeMs: number): void {
+  const { vx, vy } = _velocityAlongDirection(Direction[eid], stepDist);
+  Velocity.vx[eid] = vx;
+  Velocity.vy[eid] = vy;
+  SpeedMult[eid] = tickTimeMs > EPSILON ? (stepDist * 1000) / (BASE_SPEED * tickTimeMs) : 0;
 }
 
 // ─── Public geometry helpers ─────────────────────────────────────────────────
@@ -573,19 +598,20 @@ export default class PlayerSystem extends SystemSerializable {
 
       // ─── Collision response ──────────────────────────────────────────────────
       IsColliding[eid] = 0;
+      const inRubberZone = distFront < SLOW_DOWN_DISTANCE;
+      const rubberSpeedRatio = inRubberZone ? (distFront * distFront) / (SLOW_DOWN_DISTANCE * SLOW_DOWN_DISTANCE) : 1;
 
-      if (distFront < SLOW_DOWN_DISTANCE) {
+      if (inRubberZone) {
         IsColliding[eid] = 1;
-
-        const speedRatio = (distFront * distFront) / (SLOW_DOWN_DISTANCE * SLOW_DOWN_DISTANCE);
-        _setSpeedAndVelocity(eid, TargetSpeedMult[eid] * speedRatio, this.ctx.clock.referenceTickTimeMs);
+        const zenoMove = distFront > EPSILON ? distFront * rubberSpeedRatio : 0;
+        _setVelocityFromStep(eid, zenoMove, this.ctx.clock.referenceTickTimeMs);
 
         // Drain rubber — faster at higher speeds
-        Rubber[eid] -= DELTA_STUFF * 0.03 * (2 + TargetSpeedMult[eid]) ** 2;
+        Rubber[eid] -= DELTA_STUFF * 0.03 * (1 + TargetSpeedMult[eid]) ** 3;
       } else {
         // Recover rubber toward BASE_RUBBER
         if (Rubber[eid] < BASE_RUBBER) {
-          Rubber[eid] += 0.006 * DELTA_STUFF;
+          Rubber[eid] += 0.006 * this.ctx.clock.referenceTickTimeMs * DELTA_STUFF;
         }
         // Restore normal speed
         _setSpeedAndVelocity(eid, TargetSpeedMult[eid], this.ctx.clock.referenceTickTimeMs);
